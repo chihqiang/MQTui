@@ -39,14 +39,14 @@ export function NavSidebar({ grouped }: { grouped: boolean }) {
   const items = buildNavItems(capabilities);
 
   return (
-    <nav className="flex w-40 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-slate-800 p-2">
+    <nav className="flex w-40 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-slate-200 bg-slate-50/70 p-2">
       {grouped ? (
         groupNavItems(items).map((section) => (
           <div key={section.group} className="flex flex-col gap-0.5">
             {/* 只分出一项的组不画标题：为一个菜单项加一行小标题，
                 换来的只是多一层缩进和一次视线跳跃。 */}
             {section.items.length > 1 ? (
-              <p className="px-2 pt-1.5 pb-0.5 text-(length:--text-app-micro) tracking-wider text-slate-600 uppercase">
+              <p className="px-2 pt-2 pb-1 text-(length:--text-app-micro) font-medium tracking-wider text-slate-400 uppercase">
                 {NAV_GROUP_LABEL[section.group]}
               </p>
             ) : null}
@@ -89,10 +89,11 @@ function NavItemLink({
       to={target}
       title={item.description}
       className={cn(
-        "rounded px-2 py-1.5 text-sm whitespace-nowrap transition-colors",
+        "rounded-lg px-2 py-1.5 text-xs whitespace-nowrap transition-colors",
+        // 选中态：浅靛蓝底 + 主色字 + 左侧 2px 竖条（用 ring 充当，不额外占位）
         isSectionActive(currentPath, target)
-          ? "bg-selection/20 text-info"
-          : "text-slate-400 hover:bg-slate-800/60 hover:text-slate-200",
+          ? "bg-white font-medium text-indigo-700 shadow-xs ring-1 ring-slate-200"
+          : "text-slate-600 hover:bg-white hover:text-slate-900 hover:shadow-xs hover:ring-1 hover:ring-slate-200",
       )}
     >
       {item.label}

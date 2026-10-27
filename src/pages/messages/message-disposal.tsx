@@ -71,20 +71,20 @@ export function MessageDisposalDialog({ connectionId, message, action, onClose }
       }
     >
       <div className="flex flex-col gap-3 text-sm">
-        <p className="text-xs text-slate-400">
+        <p className="text-xs text-slate-500">
           {action === "redeliver"
             ? "会先发布一份到目标交换机，确认落地之后才让原消息从队列里消失。发布失败时原消息留在队列，不会丢。"
             : "会把这条消息发布到队列声明的死信交换机，然后从当前队列移除。这一步不可撤销。"}
         </p>
 
-        <dl className="grid grid-cols-2 gap-2 rounded-md border border-slate-800 bg-slate-950/60 p-3 text-xs">
+        <dl className="grid grid-cols-2 gap-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-xs">
           <Meta label="队列" value={message.topic ?? "-"} />
           <Meta label="投递标签" value={String(message.offset ?? "-")} />
           <Meta label="大小" value={message.size === undefined ? "-" : `${message.size} B`} />
           <Meta label="Payload" value={message.preview || "(空)"} />
         </dl>
 
-        {reason ? <p className="text-xs text-amber-300">{reason}</p> : null}
+        {reason ? <p className="text-xs text-amber-700">{reason}</p> : null}
 
         {action === "redeliver" ? (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -113,7 +113,7 @@ function Meta({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
       <dt className="text-(length:--text-app-meta) text-slate-500">{label}</dt>
-      <dd className="truncate font-mono text-slate-200" title={value}>
+      <dd className="truncate font-mono text-slate-800" title={value}>
         {value}
       </dd>
     </div>

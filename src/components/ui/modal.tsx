@@ -40,7 +40,7 @@ export function Modal({
 
   return (
     <div
-      className="animate-fade-in fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-6 backdrop-blur-[2px]"
+      className="animate-fade-in fixed inset-0 z-40 flex items-center justify-center bg-slate-900/25 p-6 backdrop-blur-[2px]"
       onClick={onClose}
       role="presentation"
     >
@@ -48,8 +48,8 @@ export function Modal({
         ref={panelRef}
         tabIndex={-1}
         className={cn(
-          "animate-pop-in flex max-h-[90vh] w-full flex-col overflow-hidden rounded-lg",
-          "border border-slate-800 bg-slate-900 shadow-2xl shadow-black/40 outline-none",
+          "animate-pop-in flex max-h-[90vh] w-full flex-col overflow-hidden rounded-xl",
+          "border border-slate-200 bg-white shadow-2xl shadow-slate-900/15 outline-none",
           size === "sm" ? "max-w-md" : "max-w-3xl",
         )}
         onClick={(event) => event.stopPropagation()}
@@ -57,20 +57,20 @@ export function Modal({
         aria-modal="true"
         aria-label={typeof title === "string" ? title : undefined}
       >
-        <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
-          <h3 className="text-sm font-medium text-slate-200">{title}</h3>
+        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+          <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
           <button
             type="button"
             onClick={onClose}
             aria-label="关闭"
-            className="rounded p-1 text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-200"
+            className="rounded-md p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
           >
             <IconClose size={14} />
           </button>
         </div>
         <div className="selectable min-h-0 flex-1 overflow-auto p-4">{children}</div>
         {footer ? (
-          <div className="flex justify-end gap-2 border-t border-slate-800 bg-slate-900/80 px-4 py-3">
+          <div className="flex justify-end gap-2 border-t border-slate-200 bg-white px-4 py-3">
             {footer}
           </div>
         ) : null}

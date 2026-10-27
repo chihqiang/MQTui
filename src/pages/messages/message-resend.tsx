@@ -56,12 +56,12 @@ export function MessageResendDialog({ connectionId, message, onClose }: Props) {
       }
     >
       <div className="flex flex-col gap-3 text-sm">
-        <p className="text-xs text-slate-400">
-          会用下面的 key 和内容往日志里<strong className="text-slate-200">写一条新消息</strong>，
+        <p className="text-xs text-slate-500">
+          会用下面的 key 和内容往日志里<strong className="text-slate-800">写一条新消息</strong>，
           原消息仍然留在分区 {message.partition ?? "-"} offset {message.offset ?? "-"} 上，不会被移走。
         </p>
 
-        <dl className="grid grid-cols-2 gap-2 rounded-md border border-slate-800 bg-slate-950/60 p-3 text-xs">
+        <dl className="grid grid-cols-2 gap-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-xs">
           <Meta label="原 topic" value={message.topic ?? "-"} />
           <Meta label="原分区 / offset" value={`${message.partition ?? "-"} / ${message.offset ?? "-"}`} />
           <Meta label="原 key" value={message.key ?? "(无)"} />
@@ -91,11 +91,11 @@ export function MessageResendDialog({ connectionId, message, onClose }: Props) {
             onChange={(event) => setPayload(event.currentTarget.value)}
             rows={5}
             placeholder={message.preview || "(原消息内容为空)"}
-            className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-xs text-slate-200 outline-none focus:border-sky-500"
+            className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 font-mono text-xs text-slate-800 shadow-xs outline-none placeholder:text-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/15"
           />
         </Field>
 
-        <label className="flex items-center gap-2 text-xs text-slate-300">
+        <label className="flex items-center gap-2 text-xs text-slate-600">
           <input
             type="checkbox"
             checked={keepHeaders}
@@ -113,7 +113,7 @@ function Meta({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
       <dt className="text-(length:--text-app-meta) text-slate-500">{label}</dt>
-      <dd className="truncate font-mono text-slate-200" title={value}>
+      <dd className="truncate font-mono text-slate-800" title={value}>
         {value}
       </dd>
     </div>

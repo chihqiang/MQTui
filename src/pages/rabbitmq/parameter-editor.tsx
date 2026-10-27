@@ -214,17 +214,17 @@ export function ParameterEditor({
 /** 校验结论：阻断项在前（红），提醒项在后（黄）。 */
 function ReviewBlock({ review }: { review: ParameterReview }) {
   if (!review.errors.length && !review.caveats.length) {
-    return <p className="text-xs text-emerald-300">校验通过，可以保存</p>;
+    return <p className="text-xs text-emerald-700">校验通过，可以保存</p>;
   }
   return (
-    <div className="flex flex-col gap-1 rounded-md border border-slate-800 bg-slate-950/60 px-3 py-2 text-xs">
+    <div className="flex flex-col gap-1 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
       {review.errors.map((message) => (
-        <p key={message} className="text-rose-300">
+        <p key={message} className="text-rose-700">
           阻断：{message}
         </p>
       ))}
       {review.caveats.map((message) => (
-        <p key={message} className="text-amber-300">
+        <p key={message} className="text-amber-700">
           注意：{message}
         </p>
       ))}

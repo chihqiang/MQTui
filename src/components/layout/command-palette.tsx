@@ -55,13 +55,13 @@ export function CommandPalette() {
       role="presentation"
     >
       <div
-        className="animate-pop-in flex w-full max-w-xl flex-col overflow-hidden rounded-lg border border-slate-700 bg-slate-900 shadow-2xl shadow-black/50"
+        className="animate-pop-in flex w-full max-w-xl flex-col overflow-hidden rounded-lg border border-slate-300 bg-white shadow-2xl shadow-black/50"
         onClick={(event) => event.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-label="命令面板"
       >
-        <div className="flex items-center gap-2 border-b border-slate-800 px-3">
+        <div className="flex items-center gap-2 border-b border-slate-200 px-3">
           <IconSearch className="shrink-0 text-slate-500" />
           <input
             ref={inputRef}
@@ -69,14 +69,14 @@ export function CommandPalette() {
             onChange={(event) => onQueryChange(event.target.value)}
             onKeyDown={onKeyDown}
             placeholder="搜索页面或连接，回车跳转"
-            className="w-full bg-transparent py-3 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none"
+            className="w-full bg-transparent py-3 text-sm text-slate-900 placeholder:text-slate-500 focus:outline-none"
             aria-label="搜索命令"
             aria-controls="command-list"
             aria-activedescendant={selected >= 0 ? `command-${selected}` : undefined}
             role="combobox"
             aria-expanded
           />
-          <kbd className="shrink-0 rounded border border-slate-700 px-1 py-0.5 text-(length:--text-app-micro) text-slate-500">
+          <kbd className="shrink-0 rounded border border-slate-300 px-1 py-0.5 text-(length:--text-app-micro) text-slate-500">
             Esc
           </kbd>
         </div>
@@ -102,13 +102,13 @@ export function CommandPalette() {
           )}
         </div>
 
-        <div className="flex items-center justify-between gap-3 border-t border-slate-800 px-4 py-2 text-(length:--text-app-meta) text-slate-500">
+        <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-4 py-2 text-(length:--text-app-meta) text-slate-500">
           <span>↑↓ 选择 · 回车执行 · Esc 关闭</span>
           {/* 这里原来写「当前表格密度：紧凑 · ⌘K 开关」，让人以为能点。
               它只是一句状态说明，所以现在把「改密度」的入口明说出去。 */}
           <span className="truncate">
             密度：{DENSITY_OPTIONS.find((option) => option.value === density)?.label ?? "紧凑"}
-            <span className="mx-1 text-slate-700">·</span>
+            <span className="mx-1 text-slate-300">·</span>
             搜「密度」可改
           </span>
         </div>
@@ -158,8 +158,8 @@ function CommandRow({
         className={cn(
           "flex w-full items-center justify-between gap-3 px-4 py-1.5 text-left text-sm transition-colors",
           active
-            ? "bg-selection/20 text-slate-100 ring-1 ring-selection/50 ring-inset"
-            : "text-slate-300 hover:bg-slate-800/60",
+            ? "bg-selection font-medium text-slate-900"
+            : "text-slate-600 hover:bg-slate-50",
         )}
       >
         <span className="truncate">{children}</span>

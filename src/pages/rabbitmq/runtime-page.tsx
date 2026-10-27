@@ -129,7 +129,7 @@ export function RuntimePage() {
           aria-label="过滤连接"
           onChange={(event) => setKeyword(event.currentTarget.value)}
         />
-        <label className="flex items-center gap-1.5 text-(length:--text-app-meta) text-slate-400">
+        <label className="flex items-center gap-1.5 text-(length:--text-app-meta) text-slate-500">
           <input
             type="checkbox"
             checked={onlyProblem}
@@ -179,7 +179,7 @@ function ModalFreeError({ message, onRetry }: { message: string; onRetry: () => 
       <PageHeader title="连接与通道" />
       <div className="flex flex-1 items-center justify-center">
         <div className="flex flex-col items-center gap-2 text-center" role="alert">
-          <p className="selectable max-w-xl text-sm text-rose-300">{message}</p>
+          <p className="selectable max-w-xl text-sm text-rose-700">{message}</p>
           <Button variant="ghost" size="sm" onClick={onRetry}>
             重试
           </Button>
@@ -210,7 +210,7 @@ function ConnectionCard({
       title={
         <span className="flex items-center gap-2">
           <Badge tone={connectionTone(connection)}>{connection.state}</Badge>
-          <span className="truncate font-mono text-xs text-slate-200">
+          <span className="truncate font-mono text-xs text-slate-800">
             {connection.clientName || connection.name}
           </span>
         </span>
@@ -258,7 +258,7 @@ function ChannelTableRow({ channel, onClose }: { channel: ChannelRow; onClose: (
 
   return (
     <TableRow>
-      <TableCell mono className="text-slate-300">
+      <TableCell mono className="text-slate-600">
         {channel.name}
       </TableCell>
       <TableCell muted>{channel.user || "—"}</TableCell>
@@ -332,8 +332,8 @@ function CloseConfirmModal({
         });
       }}
     >
-      <div className="flex flex-col gap-2 text-xs text-slate-300">
-        <p className="font-mono break-all text-slate-200">{target.name}</p>
+      <div className="flex flex-col gap-2 text-xs text-slate-600">
+        <p className="font-mono break-all text-slate-800">{target.name}</p>
         {isConnection ? (
           <p>
             这条连接上开着 {target.detail.channels.length} 个通道，未确认消息{" "}

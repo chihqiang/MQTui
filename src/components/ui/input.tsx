@@ -9,10 +9,11 @@ import { cn } from "@/lib/cn";
 import { IconClose, IconSearch } from "@/lib/icons";
 
 const FIELD_CLASS =
-  "w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-1.5 text-sm text-slate-100 " +
-  "transition-colors duration-(--motion-fast) " +
-  "placeholder:text-slate-500 hover:border-slate-600 " +
-  "focus:border-sky-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60";
+  "w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-900 " +
+  "shadow-xs transition-colors duration-(--motion-fast) " +
+  "placeholder:text-slate-400 hover:border-slate-300 " +
+  "focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/15 focus:outline-none " +
+  "disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500";
 
 export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElement>) {
   return <input className={cn(FIELD_CLASS, className)} {...props} />;
@@ -80,7 +81,7 @@ export function SearchInput({
           type="button"
           onClick={() => onValueChange("")}
           aria-label="清空"
-          className="absolute top-1/2 right-1.5 -translate-y-1/2 rounded p-1 text-slate-500 transition-colors hover:bg-slate-800 hover:text-slate-200"
+          className="absolute top-1/2 right-1.5 -translate-y-1/2 rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
         >
           <IconClose size={12} />
         </button>
@@ -104,10 +105,10 @@ export function Field({
 }) {
   return (
     <label className="flex flex-col gap-1">
-      <span className="text-xs text-slate-400">{label}</span>
+      <span className="text-xs text-slate-500">{label}</span>
       {children}
       {error ? (
-        <span className="text-(length:--text-app-meta) text-rose-300">{error}</span>
+        <span className="text-(length:--text-app-meta) text-rose-700">{error}</span>
       ) : hint ? (
         <span className="text-(length:--text-app-meta) text-slate-500">{hint}</span>
       ) : null}

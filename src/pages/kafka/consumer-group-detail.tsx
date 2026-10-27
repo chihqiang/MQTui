@@ -65,7 +65,7 @@ export function ConsumerGroupDialog({ connectionId, group, onClose }: Props) {
       ) : null}
       {data ? (
         <div className="flex flex-col gap-4">
-          <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
+          <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
             <Badge tone={state.tone}>{state.label}</Badge>
             <span>成员 {formatNumber(data.group.members)}</span>
             <span>
@@ -81,19 +81,19 @@ export function ConsumerGroupDialog({ connectionId, group, onClose }: Props) {
               成员
             </SectionTitle>
             {data.members.length ? (
-              <ul className="divide-y divide-slate-800 rounded border border-slate-800">
+              <ul className="divide-y divide-slate-200 rounded border border-slate-200">
                 {data.members.map((member, index) => (
                   <li
                     key={member.memberId ?? `member-${index}`}
                     className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2 text-xs"
                   >
-                    <span className="font-mono text-slate-200">
+                    <span className="font-mono text-slate-800">
                       {member.clientId ?? "-"}
                     </span>
                     <span className="text-slate-500">
                       {member.clientHost ?? "-"}
                     </span>
-                    <span className="ml-auto truncate font-mono text-(length:--text-app-meta) text-slate-600">
+                    <span className="ml-auto truncate font-mono text-(length:--text-app-meta) text-slate-400">
                       {member.memberId ?? "-"}
                     </span>
                   </li>
@@ -109,11 +109,11 @@ export function ConsumerGroupDialog({ connectionId, group, onClose }: Props) {
           <section>
             <SectionTitle extra={`共 ${formatNumber(data.offsets.length)} 个分区`}>分区进度</SectionTitle>
             {data.offsets.length ? (
-              <div className="max-h-72 overflow-auto rounded border border-slate-800">
+              <div className="max-h-72 overflow-auto rounded border border-slate-200">
                 <DataTable columns={OFFSET_COLUMNS} className="text-xs">
                   {data.offsets.map((offset) => (
                     <TableRow key={`${offset.topic}-${offset.partition}`}>
-                      <TableCell mono className="text-slate-300">
+                      <TableCell mono className="text-slate-600">
                         {offset.topic}
                       </TableCell>
                       <TableCell muted numeric>

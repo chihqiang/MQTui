@@ -20,34 +20,46 @@ export function ConnectionSidebar() {
   const { data, isLoading } = useConnections();
 
   return (
-    <aside className="flex w-52 shrink-0 flex-col border-r border-slate-800 bg-slate-900/40">
-      <div className="min-h-0 flex-1 overflow-auto px-2 py-2">
-        <p className="px-1 pb-1 text-(length:--text-app-meta) tracking-wider text-slate-500 uppercase">正在连接</p>
-        {isLoading ? <p className="px-1 text-xs text-slate-500">加载中…</p> : null}
-        {data?.length === 0 ? <p className="px-1 text-xs text-slate-500">暂无连接</p> : null}
+    <aside className="flex w-56 shrink-0 flex-col border-r border-slate-200 bg-white">
+      <div className="min-h-0 flex-1 overflow-auto px-2 py-3">
+        <p className="px-2 pb-1.5 text-(length:--text-app-micro) font-medium tracking-wider text-slate-400 uppercase">
+          连接
+        </p>
+        {isLoading ? <p className="px-2 text-xs text-slate-400">加载中…</p> : null}
+        {data?.length === 0 ? (
+          <p className="px-2 text-(length:--text-app-meta) leading-relaxed text-slate-400">
+            还没有连接。点右上角的 + 新建一条。
+          </p>
+        ) : null}
 
         <ul className="flex flex-col gap-0.5">
-          {data?.map((connection) => (
-            <li key={connection.id}>
-              <NavLink
-                to={connectionPath(connection.id)}
-                className={cn(
-                  "flex flex-col gap-0.5 rounded px-2 py-1.5 text-xs transition-colors",
-                  connectionId === connection.id
-                    ? "bg-selection-quiet/60 text-slate-100"
-                    : "text-slate-400 hover:bg-slate-800/60 hover:text-slate-200",
-                )}
-              >
-                <span className="flex items-center justify-between gap-2">
-                  <span className="truncate font-medium">{connection.name}</span>
-                  <Badge tone={brokerTone(connection.kind)}>
-                    {BROKER_LABEL[connection.kind]}
-                  </Badge>
-                </span>
-                <span className="truncate text-(length:--text-app-meta) text-meta">{connection.endpoint}</span>
-              </NavLink>
-            </li>
-          ))}
+          {data?.map((connection) => {
+            const active = connectionId === connection.id;
+            return (
+              <li key={connection.id}>
+                <NavLink
+                  to={connectionPath(connection.id)}
+                  aria-current={active ? "true" : undefined}
+                  className={cn(
+                    "flex flex-col gap-0.5 rounded-lg px-2 py-1.5 text-xs transition-colors",
+                    active
+                      ? "bg-indigo-50 text-indigo-900 ring-1 ring-indigo-100"
+                      : "text-slate-600 hover:bg-slate-50 hover:text-slate-900",
+                  )}
+                >
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="truncate font-medium">{connection.name}</span>
+                    <Badge tone={brokerTone(connection.kind)}>
+                      {BROKER_LABEL[connection.kind]}
+                    </Badge>
+                  </span>
+                  <span className="truncate text-(length:--text-app-meta) text-meta">
+                    {connection.endpoint}
+                  </span>
+                </NavLink>
+              </li>
+            );
+          })}
         </ul>
       </div>
     </aside>

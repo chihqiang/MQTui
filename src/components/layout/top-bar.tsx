@@ -44,8 +44,14 @@ export function TopBar({
   const hiddenConnections = collapsed && (connections?.length ?? 0) > 0;
 
   return (
-    <header className="flex h-10 shrink-0 items-center gap-2 border-b border-slate-800 bg-slate-900/60 px-2">
-      <span className="shrink-0 px-1 text-sm font-semibold tracking-wide">MQTui</span>
+    <header className="flex h-12 shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-3">
+      {/* 品牌块：一个色块 + 名字。比纯文字更像一个应用，也不占宽度。 */}
+      <span className="mr-1 flex shrink-0 items-center gap-2 pr-2">
+        <span className="flex size-6 items-center justify-center rounded-md bg-indigo-600 text-(length:--text-app-micro) font-bold text-white">
+          MQ
+        </span>
+        <span className="text-sm font-semibold tracking-tight text-slate-900">MQTui</span>
+      </span>
 
       <button
         type="button"
@@ -56,8 +62,8 @@ export function TopBar({
           narrow ? "窗口过窄，侧边栏已强制收起" : collapsed ? "展开侧边栏" : "收起侧边栏"
         }
         className={cn(
-          "shrink-0 rounded p-1 text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-100",
-          narrow && "cursor-not-allowed opacity-40 hover:bg-transparent hover:text-slate-400",
+          "flex size-7 shrink-0 items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900",
+          narrow && "cursor-not-allowed opacity-40 hover:bg-transparent hover:text-slate-500",
         )}
       >
         {collapsed ? <IconExpand /> : <IconCollapse />}
@@ -67,24 +73,24 @@ export function TopBar({
 
       {current ? (
         <div className="flex min-w-0 items-center gap-1.5 text-xs">
-          <span className="text-slate-600">/</span>
-          <span className="truncate font-medium text-slate-200">{current.name}</span>
+          <span className="text-slate-300">/</span>
+          <span className="truncate font-medium text-slate-800">{current.name}</span>
           <span className="shrink-0 text-(length:--text-app-meta) text-meta">
             {BROKER_LABEL[current.kind]} · {current.endpoint}
           </span>
         </div>
       ) : (
-        <span className="text-xs text-slate-500">未连接</span>
+        <span className="text-xs text-slate-400">未连接</span>
       )}
 
-      <span className="ml-auto flex shrink-0 items-center gap-1">
+      <span className="ml-auto flex shrink-0 items-center gap-0.5">
         {hiddenConnections ? (
           // 极简档下连接列表只剩首字母圆点，二十个连接时认不出谁是谁。
           // 这里给一个直达连接页的出口，而不是让用户去猜圆点。
           <NavLink
             to="/"
             title="连接列表"
-            className="flex items-center gap-1 rounded px-1.5 py-1 text-(length:--text-app-meta) text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-100"
+            className="flex items-center gap-1 rounded-md px-1.5 py-1 text-(length:--text-app-meta) text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900"
           >
             <IconSearch size={12} />
             <span>{connections?.length} 个连接</span>
@@ -94,18 +100,18 @@ export function TopBar({
           to="/"
           title="新建连接"
           aria-label="新建连接"
-          className="rounded p-1 text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-100"
+          className="flex size-7 items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900"
         >
           <IconPlus />
         </NavLink>
-        {/* 偏好入口。以前布局只能从顶栏的折叠按钮切、密度完全没有入口 —— 
+        {/* 偏好入口。以前布局只能从顶栏的折叠按钮切、密度完全没有入口 ——
             一个「当前表格密度：紧凑」只有显示、没有修改的地方。 */}
         <button
           type="button"
           onClick={onOpenSettings}
           aria-label="偏好设置"
           title={`偏好设置（${isMacPlatform() ? "⌘," : "Ctrl+,"}）`}
-          className="rounded p-1 text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-100"
+          className="flex size-7 items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900"
         >
           <IconSettings />
         </button>

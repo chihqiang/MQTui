@@ -13,7 +13,7 @@ export function GraphSkeleton({ label }: { label: string }) {
         <Skeleton className="h-8 w-64" />
         <Skeleton className="ml-auto h-4 w-48" />
       </div>
-      <div className="flex min-h-0 flex-1 flex-col gap-3 rounded-lg border border-slate-800 p-4">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 rounded-lg border border-slate-200 p-4">
         <div className="flex flex-1 items-center gap-4">
           <Skeleton className="h-24 w-40" />
           <Skeleton className="h-px flex-1" />

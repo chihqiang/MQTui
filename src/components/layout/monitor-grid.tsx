@@ -88,18 +88,18 @@ export function MonitorCard({
   return (
     <section
       className={cn(
-        "flex min-h-0 flex-col rounded-lg border border-slate-800 bg-slate-900/60",
+        "flex min-h-0 flex-col rounded-lg border border-slate-200 bg-white",
         scroll && "max-h-[70vh]",
         className,
       )}
     >
-      <header className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-800 px-3 py-2">
-        <h2 className="min-w-0 truncate text-xs font-medium text-slate-200">{title}</h2>
+      <header className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-200 px-3 py-2">
+        <h2 className="min-w-0 truncate text-xs font-medium text-slate-800">{title}</h2>
         {extra ? <div className="flex shrink-0 items-center gap-2">{extra}</div> : null}
       </header>
       <div className={cn("min-h-0 flex-1", scroll && "overflow-auto")}>{children}</div>
       {footer ? (
-        <footer className="shrink-0 border-t border-slate-800 px-3 py-1.5 text-(length:--text-app-meta) text-slate-500">
+        <footer className="shrink-0 border-t border-slate-200 px-3 py-1.5 text-(length:--text-app-meta) text-slate-500">
           {footer}
         </footer>
       ) : null}
@@ -123,7 +123,7 @@ export function FactLine({
   tone?: "normal" | "muted" | "danger" | "warning";
 }) {
   const toneClass = {
-    normal: "text-slate-200",
+    normal: "text-slate-800",
     muted: "text-slate-500",
     danger: "text-danger",
     warning: "text-warning",
@@ -164,10 +164,10 @@ export function RatioBar({
 
   return (
     <div className="flex items-center gap-2">
-      <div className="h-1 w-16 shrink-0 overflow-hidden rounded-full bg-slate-800">
+      <div className="h-1 w-16 shrink-0 overflow-hidden rounded-full bg-slate-100">
         <div className={cn("h-full rounded-full", barClass)} style={{ width: `${value * 100}%` }} />
       </div>
-      <span className="tabular text-(length:--text-app-meta) text-slate-400">{text}</span>
+      <span className="tabular text-(length:--text-app-meta) text-slate-500">{text}</span>
     </div>
   );
 }

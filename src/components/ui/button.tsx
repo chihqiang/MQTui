@@ -8,18 +8,18 @@ type Size = "xs" | "sm" | "md";
 
 const VARIANT_CLASS: Record<Variant, string> = {
   primary:
-    "bg-accent text-white hover:bg-accent-hover active:bg-accent-active disabled:bg-accent/50",
+    "bg-accent text-white shadow-xs hover:bg-accent-hover active:bg-accent-active disabled:bg-accent/40 disabled:shadow-none",
   secondary:
-    "bg-slate-800 text-slate-100 hover:bg-slate-700 active:bg-slate-700/80 border border-slate-700 disabled:border-slate-800 disabled:text-slate-500",
-  ghost: "text-slate-300 hover:bg-slate-800 hover:text-slate-100 active:bg-slate-800/70",
+    "bg-white text-slate-700 shadow-xs ring-1 ring-slate-200 hover:bg-slate-50 hover:text-slate-900 active:bg-slate-100 disabled:text-slate-400",
+  ghost: "text-slate-600 hover:bg-slate-100 hover:text-slate-900 active:bg-slate-200/70",
   danger:
-    "bg-critical text-white hover:bg-critical-hover active:bg-critical-active disabled:bg-critical/50",
+    "bg-critical text-white shadow-xs hover:bg-critical-hover active:bg-critical-active disabled:bg-critical/40 disabled:shadow-none",
 };
 
 const SIZE_CLASS: Record<Size, string> = {
   xs: "h-6 gap-1 rounded px-1.5 text-(length:--text-app-meta)",
   sm: "h-7 gap-1.5 rounded-md px-2.5 text-xs",
-  md: "h-9 gap-1.5 rounded-md px-4 text-sm",
+  md: "h-8 gap-1.5 rounded-lg px-3 text-xs",
 };
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {

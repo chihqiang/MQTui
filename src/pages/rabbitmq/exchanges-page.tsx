@@ -173,7 +173,7 @@ export function ExchangesPage() {
           title={`交换机（${isLoading ? "…" : filtered.exchanges.length}）`}
           extra={
             selected ? (
-              <span className="text-(length:--text-app-meta) text-slate-400">下面只显示与它相关的绑定</span>
+              <span className="text-(length:--text-app-meta) text-slate-500">下面只显示与它相关的绑定</span>
             ) : undefined
           }
         />
@@ -185,7 +185,7 @@ export function ExchangesPage() {
                 clickable
                 onClick={() => setSelected(exchange.name)}
               >
-                <TableCell mono className="text-slate-200">
+                <TableCell mono className="text-slate-800">
                   {exchange.name || "(默认交换机)"}
                   {exchange.internal ? (
                     <span className="ml-2 font-sans text-(length:--text-app-meta) text-slate-500">内置</span>
@@ -231,10 +231,10 @@ export function ExchangesPage() {
             <DataTable columns={BINDING_COLUMNS} loadingRows={isLoading ? 4 : undefined}>
               {filtered.bindings.map((binding) => (
                 <TableRow key={bindingKey(binding)}>
-                  <TableCell mono className="text-slate-200">
+                  <TableCell mono className="text-slate-800">
                     {binding.source || "(默认交换机)"}
                   </TableCell>
-                  <TableCell mono className="text-slate-300">
+                  <TableCell mono className="text-slate-600">
                     {binding.routingKey || "-"}
                   </TableCell>
                   <TableCell muted>
@@ -330,7 +330,7 @@ function DeleteExchangeButton({
         confirmLabel="删除"
         description={
           <>
-            交换机 <span className="font-mono text-slate-200">{exchange.name}</span> 上的绑定会被
+            交换机 <span className="font-mono text-slate-800">{exchange.name}</span> 上的绑定会被
             服务端拒绝删除（不会连带删掉队列）。确认已无发布方在使用。
           </>
         }
@@ -399,7 +399,7 @@ function DeleteBindingButton({
         description={
           <>
             解除{" "}
-            <span className="selectable font-mono text-slate-200">
+            <span className="selectable font-mono text-slate-800">
               {binding.source || "(默认交换机)"} → {binding.destination}
             </span>{" "}
             （routing key <span className="font-mono">{binding.routingKey || "(空)"}</span>）。
@@ -495,7 +495,7 @@ function CreateExchangeModal({
             ))}
           </Select>
         </Field>
-        <label className="flex items-center gap-2 text-xs text-slate-300">
+        <label className="flex items-center gap-2 text-xs text-slate-600">
           <input
             type="checkbox"
             checked={spec.durable}
@@ -503,7 +503,7 @@ function CreateExchangeModal({
           />
           持久化（broker 重启后保留）
         </label>
-        <label className="flex items-center gap-2 text-xs text-slate-300">
+        <label className="flex items-center gap-2 text-xs text-slate-600">
           <input
             type="checkbox"
             checked={spec.autoDelete}

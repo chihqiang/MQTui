@@ -10,7 +10,7 @@ import type { BadgeTone } from "@/types/tone";
  * 所以既不借 amber/rose（会被读成有问题），也不借 sky（会和「信息」撞脸）。
  */
 const TONE_CLASS: Record<BadgeTone, string> = {
-  neutral: "bg-slate-800 text-slate-300",
+  neutral: "bg-slate-100 text-slate-300",
   info: "bg-info/15 text-info",
   accent: "bg-accent/15 text-accent",
   success: "bg-success/15 text-success",

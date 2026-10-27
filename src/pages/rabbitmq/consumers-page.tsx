@@ -130,7 +130,7 @@ export function ConsumersPage() {
           aria-label="过滤消费者"
           className="h-8 w-64 text-xs"
         />
-        <label className="flex items-center gap-1.5 text-(length:--text-app-meta) text-slate-400">
+        <label className="flex items-center gap-1.5 text-(length:--text-app-meta) text-slate-500">
           <input
             type="checkbox"
             checked={onlyBroken}
@@ -192,7 +192,7 @@ function QueueCard({
       scroll={item.consumers.length > 8}
       title={
         <span className="flex items-center gap-2">
-          <span className="truncate font-mono text-xs text-slate-200">{item.queue}</span>
+          <span className="truncate font-mono text-xs text-slate-800">{item.queue}</span>
           <Badge tone={QUEUE_VERDICT_TONE[verdict]}>{QUEUE_VERDICT_LABEL[verdict]}</Badge>
         </span>
       }
@@ -216,7 +216,7 @@ function QueueCard({
             const health = judgeConsumer(consumer);
             return (
               <TableRow key={`${consumer.consumerTag}|${consumer.channel ?? ""}`}>
-                <TableCell mono className="text-slate-200">
+                <TableCell mono className="text-slate-800">
                   {consumer.connectionName ?? consumer.consumerTag}
                   {consumer.channel ? (
                     <span className="ml-1 text-(length:--text-app-meta) text-slate-500">{consumer.channel}</span>
@@ -299,7 +299,7 @@ export function ConsumerBlock({
         const health = judgeConsumer(consumer);
         return (
           <li key={`${consumer.consumerTag}|${consumer.channel ?? ""}`} className="flex items-center gap-2">
-            <span className="text-slate-300">{consumer.connectionName ?? consumer.consumerTag}</span>
+            <span className="text-slate-600">{consumer.connectionName ?? consumer.consumerTag}</span>
             <span className="text-slate-500">{consumer.username || "—"}</span>
             <span className="text-slate-500">
               预取 {consumer.prefetchCount === 0 ? "不限" : consumer.prefetchCount}

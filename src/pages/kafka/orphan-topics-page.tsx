@@ -134,8 +134,8 @@ export function OrphanTopicsPage() {
                   className={
                     "rounded border px-2 py-1 font-mono text-(length:--text-app-meta) transition " +
                     (active
-                      ? "border-accent bg-selection/10 text-info"
-                      : "border-slate-800 text-slate-400 hover:border-slate-600")
+                      ? "border-accent bg-selection text-accent"
+                      : "border-slate-200 text-slate-500 hover:border-slate-300")
                   }
                 >
                   {name}
@@ -212,7 +212,7 @@ function ScanResult({
           <CardBody className="p-0">
             <table className="w-full text-left text-sm">
               <thead className="text-(length:--text-app-meta) uppercase tracking-wide text-slate-500">
-                <tr className="border-b border-slate-800">
+                <tr className="border-b border-slate-200">
                   <th className="px-4 py-2 font-normal">主题</th>
                   <th className="px-4 py-2 font-normal">堆积</th>
                   <th className="px-4 py-2 font-normal">未消费分区</th>
@@ -273,14 +273,14 @@ function OrphanRow({
   return (
     <>
       <tr
-        className="cursor-pointer border-b border-slate-800/60 last:border-0 hover:bg-slate-800/40"
+        className="cursor-pointer border-b border-slate-200 last:border-0 hover:bg-slate-50"
         onClick={onToggle}
       >
-        <td className="px-4 py-2 font-mono text-xs text-slate-200">{item.topic}</td>
+        <td className="px-4 py-2 font-mono text-xs text-slate-800">{item.topic}</td>
         <td className="px-4 py-2">
           <Badge tone={lagTone(item.messages)}>{formatNumber(item.messages)}</Badge>
         </td>
-        <td className="px-4 py-2 text-slate-400">{formatNumber(item.partitions)}</td>
+        <td className="px-4 py-2 text-slate-500">{formatNumber(item.partitions)}</td>
         <td className="px-4 py-2 text-right">
           <Button
             size="sm"
@@ -297,13 +297,13 @@ function OrphanRow({
         </td>
       </tr>
       {expanded ? (
-        <tr className="border-b border-slate-800/60 bg-slate-950/40">
+        <tr className="border-b border-slate-200 bg-slate-100">
           <td colSpan={4} className="px-4 py-2">
             <div className="flex flex-wrap gap-2">
               {item.detail.map((partition) => (
                 <span
                   key={partition.partition}
-                  className="rounded border border-slate-800 px-2 py-1 font-mono text-(length:--text-app-meta) text-slate-400"
+                  className="rounded border border-slate-200 px-2 py-1 font-mono text-(length:--text-app-meta) text-slate-500"
                 >
                   p{partition.partition} · {formatNumber(partition.high)}
                 </span>

@@ -157,10 +157,10 @@ export function PolicyEditor({
         </Field>
 
         <div className="flex items-center justify-between">
-          <span className="text-xs text-slate-400">
+          <span className="text-xs text-slate-500">
             定义（{definition.length} 项）
             {dirtyRows > 0 ? (
-              <span className="ml-2 text-amber-300">{dirtyRows} 行有改动</span>
+              <span className="ml-2 text-amber-700">{dirtyRows} 行有改动</span>
             ) : null}
           </span>
           <div className="flex gap-1.5">
@@ -223,7 +223,7 @@ export function PolicyEditor({
           ) : null}
         </div>
 
-        {localError ? <p className="text-xs text-rose-300">{localError}</p> : null}
+        {localError ? <p className="text-xs text-rose-700">{localError}</p> : null}
 
         <PreviewBlock
           preview={preview.data}
@@ -253,7 +253,7 @@ function PreviewBlock({
   pending: boolean;
 }) {
   if (pending) return <p className="text-xs text-slate-500">正在估算影响面…</p>;
-  if (error) return <p className="text-xs text-rose-300">预览失败：{error}</p>;
+  if (error) return <p className="text-xs text-rose-700">预览失败：{error}</p>;
   if (!preview) {
     return (
       <p className="text-xs text-slate-500">
@@ -265,18 +265,18 @@ function PreviewBlock({
   const { impact, conflicts, caveats } = preview;
 
   return (
-    <div className="flex flex-col gap-2 rounded-md border border-slate-800 bg-slate-950/60 p-3 text-xs">
-      <p className="text-slate-300">
+    <div className="flex flex-col gap-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-xs">
+      <p className="text-slate-600">
         影响面：
-        <span className="text-amber-300">{describeImpact(impact)}</span>
+        <span className="text-amber-700">{describeImpact(impact)}</span>
         <span className="ml-1 text-slate-500">（按名称估算，实际命中以服务端为准）</span>
       </p>
 
       {conflicts.length ? (
         <div className="flex flex-col gap-1">
-          <p className="text-amber-300">会被这些策略压制（同级或更低的策略不会生效）：</p>
+          <p className="text-amber-700">会被这些策略压制（同级或更低的策略不会生效）：</p>
           {conflicts.map((conflict) => (
-            <p key={conflict.name} className="text-slate-400">
+            <p key={conflict.name} className="text-slate-500">
               · {conflict.detail}
             </p>
           ))}
@@ -287,7 +287,7 @@ function PreviewBlock({
 
       <div className="flex flex-col gap-1">
         {caveats.map((caveat) => (
-          <p key={caveat} className="flex items-start gap-1.5 text-slate-400">
+          <p key={caveat} className="flex items-start gap-1.5 text-slate-500">
             <Badge tone="warning">注意</Badge>
             <span className="flex-1">{caveat}</span>
           </p>

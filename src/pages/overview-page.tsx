@@ -50,12 +50,12 @@ export function OverviewPage() {
               {data?.items.map((item) => (
                 <div
                   key={item.key}
-                  className="flex min-w-0 flex-col rounded border border-slate-800 p-2.5"
+                  className="flex min-w-0 flex-col rounded border border-slate-200 p-2.5"
                 >
                   <dt className="truncate text-(length:--text-app-meta) tracking-wide text-slate-500 uppercase">
                     {item.key}
                   </dt>
-                  <dd className="selectable truncate text-sm text-slate-200" title={item.value}>
+                  <dd className="selectable truncate text-sm text-slate-800" title={item.value}>
                     {item.value}
                   </dd>
                 </div>

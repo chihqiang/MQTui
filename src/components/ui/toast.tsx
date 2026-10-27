@@ -8,7 +8,7 @@ const KIND_CLASS: Record<ToastItem["kind"], string> = {
   success: "border-success/40 bg-success/10 text-success",
   error: "border-danger/40 bg-danger/10 text-danger",
   info: "border-info/40 bg-info/10 text-info",
-  progress: "border-slate-600/60 bg-slate-800/90 text-slate-200",
+  progress: "border-slate-200 bg-white text-slate-700",
 };
 
 /** 报错多留一会儿：一行红字三秒半就消失，等于没说。 */

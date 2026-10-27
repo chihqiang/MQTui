@@ -52,7 +52,7 @@ export function GraphCanvas({
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-slate-800 bg-slate-950/60">
+    <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-slate-200 bg-slate-50">
       <div className="relative" style={{ width, height }}>
         <svg
           className="absolute inset-0"
@@ -74,7 +74,7 @@ export function GraphCanvas({
                   y2={line.y2}
                   stroke="currentColor"
                   className={cn(
-                    "text-slate-700 transition-opacity",
+                    "text-slate-300 transition-opacity",
                     related ? "opacity-100" : "opacity-25",
                   )}
                   strokeWidth={1.5}
@@ -114,14 +114,14 @@ export function GraphCanvas({
             className={cn(
               "absolute flex flex-col justify-center gap-0.5 overflow-hidden rounded-md border px-2 text-left transition-colors",
               item.tone === "queue"
-                ? "border-emerald-800/70 bg-emerald-950/40 hover:border-emerald-600"
-                : "border-sky-800/70 bg-sky-950/40 hover:border-accent",
+                ? "border-emerald-300 bg-emerald-50 hover:border-emerald-500"
+                : "border-indigo-200 bg-indigo-50 hover:border-indigo-500",
               item.dimmed ? "opacity-30" : "opacity-100",
             )}
           >
-            <span className="truncate font-mono text-(length:--text-app-meta) text-slate-100">{item.title}</span>
+            <span className="truncate font-mono text-(length:--text-app-meta) text-slate-900">{item.title}</span>
             {item.subtitle ? (
-              <span className="truncate text-(length:--text-app-micro) text-slate-400">{item.subtitle}</span>
+              <span className="truncate text-(length:--text-app-micro) text-slate-500">{item.subtitle}</span>
             ) : null}
           </button>
         ))}

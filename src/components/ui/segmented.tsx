@@ -26,7 +26,7 @@ export function Segmented<T extends string>({
   return (
     <div
       role="tablist"
-      className={cn("inline-flex shrink-0 gap-0.5 rounded-md bg-slate-900 p-0.5", className)}
+      className={cn("inline-flex shrink-0 gap-0.5 rounded-md bg-white p-0.5", className)}
     >
       {options.map((option) => {
         const active = option.value === value;
@@ -43,8 +43,8 @@ export function Segmented<T extends string>({
               // 未选中项也要给颜色反馈：以前它只是「变亮一点」，两个选项都摊开时
               // 到底会切到哪儿全靠猜。用虚线内描边做预览，按下才换成实底色。
               active
-                ? "bg-selection-quiet text-slate-100"
-                : "text-slate-400 hover:bg-slate-800/60 hover:text-slate-200 hover:ring-1 hover:ring-slate-700 hover:ring-inset",
+                ? "bg-white text-slate-900 shadow-xs ring-1 ring-slate-200"
+                : "text-slate-500 hover:bg-slate-100 hover:text-slate-800 hover:ring-1 hover:ring-slate-300 hover:ring-inset",
             )}
           >
             {option.label}

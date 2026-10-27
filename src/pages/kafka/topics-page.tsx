@@ -171,7 +171,7 @@ export function TopicsPage() {
             title={skeleton ? "主题" : `主题（${formatNumber(filtered.length)}）`}
             extra={
               selected.length ? (
-                <span className="text-(length:--text-app-meta) text-slate-400">已选 {selected.length} 个</span>
+                <span className="text-(length:--text-app-meta) text-slate-500">已选 {selected.length} 个</span>
               ) : undefined
             }
           />
@@ -238,7 +238,7 @@ export function TopicsPage() {
             </DataTable>
             {!skeleton && !filtered.length ? (
               <div className="flex flex-col items-center gap-1 px-4 py-6 text-center">
-                <p className="text-xs text-slate-400">没有名称匹配的主题</p>
+                <p className="text-xs text-slate-500">没有名称匹配的主题</p>
                 <Button size="xs" variant="ghost" onClick={() => setKeyword("")}>
                   清除过滤
                 </Button>
@@ -326,7 +326,7 @@ function CreateTopicModal({ open, onClose }: { open: boolean; onClose: () => voi
           </Field>
         </div>
         {partitionsInvalid ? (
-          <p className="text-xs text-rose-300">分区数至少为 1</p>
+          <p className="text-xs text-rose-700">分区数至少为 1</p>
         ) : null}
       </div>
     </Modal>
@@ -353,7 +353,7 @@ function HotspotPanel({ report, onClear }: { report: HotspotReport; onClear: () 
       />
       <CardBody className="p-0">
         {report.missing.length ? (
-          <p className="px-4 py-2 text-(length:--text-app-meta) text-amber-300">
+          <p className="px-4 py-2 text-(length:--text-app-meta) text-amber-700">
             {formatNumber(report.missing.length)} 个主题已不存在：
             {report.missing.join("、")}
           </p>
@@ -367,7 +367,7 @@ function HotspotPanel({ report, onClear }: { report: HotspotReport; onClear: () 
         ) : (
           <table className="w-full text-left text-xs">
             <thead className="text-(length:--text-app-meta) uppercase tracking-wide text-slate-500">
-              <tr className="border-b border-slate-800">
+              <tr className="border-b border-slate-200">
                 <th className="px-4 py-2 font-normal">主题</th>
                 <th className="px-4 py-2 font-normal">最热分区</th>
                 <th className="px-4 py-2 font-normal">总消息</th>
@@ -377,16 +377,16 @@ function HotspotPanel({ report, onClear }: { report: HotspotReport; onClear: () 
             </thead>
             <tbody>
               {report.hotspots.map((item) => (
-                <tr key={item.topic} className="border-b border-slate-800/60 last:border-0">
-                  <td className="px-4 py-2 font-mono text-slate-200">{item.topic}</td>
-                  <td className="px-4 py-2 text-rose-300">
+                <tr key={item.topic} className="border-b border-slate-200 last:border-0">
+                  <td className="px-4 py-2 font-mono text-slate-800">{item.topic}</td>
+                  <td className="px-4 py-2 text-rose-700">
                     P{item.hottest ?? "-"} · {formatNumber(item.maxMessages)}
                   </td>
-                  <td className="px-4 py-2 text-slate-400">{formatNumber(item.messages)}</td>
-                  <td className="px-4 py-2 text-slate-400">
+                  <td className="px-4 py-2 text-slate-500">{formatNumber(item.messages)}</td>
+                  <td className="px-4 py-2 text-slate-500">
                     {formatNumber(item.empty)} / {formatNumber(item.partitions)}
                   </td>
-                  <td className="px-4 py-2 text-slate-400">{item.note ?? "-"}</td>
+                  <td className="px-4 py-2 text-slate-500">{item.note ?? "-"}</td>
                 </tr>
               ))}
             </tbody>

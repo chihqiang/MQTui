@@ -24,11 +24,11 @@ export function PageHeader({
       <div className="min-w-0 flex-1">
         {/* 标题走 `display` 档（16px）。原来是 14px，和表头只差 3px、和正文差 2px，
             页头在视觉上不承担「你现在在哪」的职责。 */}
-        <h1 className="flex items-center gap-2 truncate text-(length:--text-app-display) leading-6 font-semibold tracking-tight text-slate-100">
+        <h1 className="flex items-center gap-2 truncate text-(length:--text-app-display) leading-6 font-semibold tracking-tight text-slate-900">
           {title}
         </h1>
         {description ? (
-          <p className="mt-0.5 truncate text-(length:--text-app-meta) text-slate-400">
+          <p className="mt-0.5 truncate text-(length:--text-app-meta) text-slate-500">
             {description}
           </p>
         ) : null}
@@ -59,7 +59,7 @@ export function PageToolbar({
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
       {children}
-      {hint ? <p className="min-w-0 truncate text-xs text-slate-400">{hint}</p> : null}
+      {hint ? <p className="min-w-0 truncate text-xs text-slate-500">{hint}</p> : null}
       {actions ? <div className="ml-auto flex shrink-0 items-center gap-2">{actions}</div> : null}
     </div>
   );

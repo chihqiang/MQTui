@@ -152,7 +152,7 @@ function Section({
   return (
     <section className="flex flex-col gap-1.5">
       <div className="flex items-center justify-between gap-3">
-        <h4 className={cn(textSize("body"), "font-medium text-slate-200")}>{label}</h4>
+        <h4 className={cn(textSize("body"), "font-medium text-slate-800")}>{label}</h4>
         {children}
       </div>
       <p className={cn(textSize("meta"), "text-slate-500")}>{hint}</p>

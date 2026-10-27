@@ -91,7 +91,7 @@ export function ClusterPage() {
         actions={
           <>
             {/* 筛选在仪表盘上必须显式：条数从 N 变成 0 时，人会以为数据没了。 */}
-            <label className="flex items-center gap-1.5 text-(length:--text-app-meta) text-slate-400">
+            <label className="flex items-center gap-1.5 text-(length:--text-app-meta) text-slate-500">
               <input
                 type="checkbox"
                 checked={onlyAttention}
@@ -182,7 +182,7 @@ function AlertLine({ alert }: { alert: ClusterAlert }) {
       <Badge tone={SEVERITY_TONE[alert.severity]}>
         {alert.severity === "warn" ? "需要处理" : "提醒"}
       </Badge>
-      <span className="shrink-0 text-slate-200">{alert.title}</span>
+      <span className="shrink-0 text-slate-800">{alert.title}</span>
       <span className="min-w-0 truncate text-(length:--text-app-meta) text-slate-500" title={alert.detail}>
         {alert.detail}
       </span>
@@ -223,7 +223,7 @@ function NodeCard({
               )}
             />
           ) : null}
-          <span className="font-mono text-xs text-slate-200">{node.name}</span>
+          <span className="font-mono text-xs text-slate-800">{node.name}</span>
           <Badge tone={roleTone(node.role)}>{node.roleLabel}</Badge>
           <Badge tone={nodeTone(node)}>{node.running ? "运行中" : "未运行"}</Badge>
         </span>
@@ -270,7 +270,7 @@ function NodeCard({
           </>
         ) : null}
         {verdict && verdict.attention ? (
-          <p className="mt-1 text-(length:--text-app-meta) text-slate-400">{verdict.detail}</p>
+          <p className="mt-1 text-(length:--text-app-meta) text-slate-500">{verdict.detail}</p>
         ) : null}
       </div>
     </MonitorCard>

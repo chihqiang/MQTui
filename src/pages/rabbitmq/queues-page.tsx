@@ -154,7 +154,7 @@ export function QueuesPage() {
           >
             {filtered.map((queue) => (
               <TableRow key={`${queue.vhost}/${queue.name}`}>
-                <TableCell mono className="text-slate-200">
+                <TableCell mono className="text-slate-800">
                   {queue.name}
                 </TableCell>
                 <TableCell muted>{queue.vhost}</TableCell>
@@ -187,7 +187,7 @@ export function QueuesPage() {
           </DataTable>
           {!isLoading && !filtered.length ? (
             <div className="flex flex-col items-center gap-1 px-4 py-6 text-center">
-              <p className="text-xs text-slate-400">没有名称匹配的队列</p>
+              <p className="text-xs text-slate-500">没有名称匹配的队列</p>
               <Button size="xs" variant="ghost" onClick={() => setKeyword("")}>
                 清除过滤
               </Button>
@@ -205,12 +205,12 @@ export function QueuesPage() {
         description={
           pending?.action === "delete" ? (
             <>
-              删除队列 <span className="font-mono text-slate-200">{pending.queue}</span>
+              删除队列 <span className="font-mono text-slate-800">{pending.queue}</span>
               。队列非空时会被服务端拒绝 —— 需要先清空，或者让消费者取完。
             </>
           ) : pending ? (
             <>
-              清空队列 <span className="font-mono text-slate-200">{pending.queue}</span>{" "}
+              清空队列 <span className="font-mono text-slate-800">{pending.queue}</span>{" "}
               中的全部消息，此操作不可撤销。若是为了排查，先考虑只读地浏览消息。
             </>
           ) : null

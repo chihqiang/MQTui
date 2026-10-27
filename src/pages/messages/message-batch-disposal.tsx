@@ -102,20 +102,20 @@ export function MessageBatchDisposalDialog({
       }
     >
       <div className="flex flex-col gap-3 text-sm">
-        <p className="text-xs text-slate-400">
+        <p className="text-xs text-slate-500">
           逐条串行执行：先发布并等确认，落地之后才让原消息从队列消失。
-          <span className="text-amber-300">中途有一条失败就停下</span>
+          <span className="text-amber-700">中途有一条失败就停下</span>
           ，剩下的原样留在队列里——不做半截处置。
         </p>
 
-        <dl className="grid grid-cols-3 gap-2 rounded-md border border-slate-800 bg-slate-950/60 p-3 text-xs">
+        <dl className="grid grid-cols-3 gap-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-xs">
           <Meta label="队列" value={queue} />
           <Meta label="条数" value={String(messages.length)} />
           <Meta label="上限" value={`${MAX_BATCH_SIZE} 条`} />
         </dl>
 
         {tooMany ? (
-          <p className="text-xs text-amber-300">
+          <p className="text-xs text-amber-700">
             一次最多处置 {MAX_BATCH_SIZE} 条，请分批操作
           </p>
         ) : null}
@@ -140,13 +140,13 @@ export function MessageBatchDisposalDialog({
         ) : null}
 
         {batch.error ? (
-          <p className="text-xs text-rose-300">
+          <p className="text-xs text-rose-700">
             整批未执行：{batch.error instanceof Error ? batch.error.message : String(batch.error)}
           </p>
         ) : null}
 
         {retry.error ? (
-          <p className="text-xs text-rose-300">
+          <p className="text-xs text-rose-700">
             重试未执行：
             {retry.error instanceof Error ? retry.error.message : String(retry.error)}
           </p>
@@ -188,14 +188,14 @@ function OutcomeTable({
   const failed = items.some((item) => item.status !== "ok");
   return (
     <div className="flex flex-col gap-2">
-      <p className={failed ? "text-xs text-amber-300" : "text-xs text-emerald-300"}>{note}</p>
+      <p className={failed ? "text-xs text-amber-700" : "text-xs text-emerald-700"}>{note}</p>
       {stranded.length ? (
-        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-200">
+        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-800">
           <p>
             另有 <span className="tabular">{stranded.length}</span> 条顺带取出的消息未能放回队列，
             仍被本次消费通道持有。
           </p>
-          <p className="mt-1 text-(length:--text-app-meta) text-amber-200/80">
+          <p className="mt-1 text-(length:--text-app-meta) text-amber-800/80">
             {retryable
               ? "点「重试这批放回」再放一次；通道关闭前它们不会自己回去。"
               : "该连接不支持重试放回：重新打开队列查看即可让服务端退回，或稍后重试。"}
@@ -209,15 +209,15 @@ function OutcomeTable({
           </ul>
         </div>
       ) : null}
-      <ul className="max-h-64 overflow-auto rounded-md border border-slate-800">
+      <ul className="max-h-64 overflow-auto rounded-md border border-slate-200">
         {items.map((item) => (
           <li
             key={item.messageId}
-            className="flex items-start gap-2 border-b border-slate-800/60 px-2 py-1.5 text-xs last:border-b-0"
+            className="flex items-start gap-2 border-b border-slate-200 px-2 py-1.5 text-xs last:border-b-0"
           >
             <StatusBadge status={item.status} />
             <span className="min-w-0 flex-1">
-              <span className="block truncate font-mono text-slate-300" title={item.messageId}>
+              <span className="block truncate font-mono text-slate-600" title={item.messageId}>
                 {item.messageId}
               </span>
               <span className="block text-(length:--text-app-meta) text-slate-500">{item.detail || "-"}</span>
@@ -243,7 +243,7 @@ function Meta({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
       <dt className="text-(length:--text-app-meta) text-slate-500">{label}</dt>
-      <dd className="truncate font-mono text-slate-200" title={value}>
+      <dd className="truncate font-mono text-slate-800" title={value}>
         {value}
       </dd>
     </div>

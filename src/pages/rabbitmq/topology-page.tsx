@@ -115,7 +115,7 @@ export function TopologyPage() {
       </PageToolbar>
 
       {data.omitted ? (
-        <p className="text-xs text-amber-300">
+        <p className="text-xs text-amber-700">
           拓扑规模超过绘图上限，还有 {formatNumber(data.omitted)} 个节点没画出来。
           这一页回答「结构长什么样」，全量数据请看「交换机」页。
         </p>
@@ -175,7 +175,7 @@ function SelectionDetail({
       <CardHeader
         title={
           <span className="flex items-center gap-2">
-            <span className="font-mono text-xs text-slate-200">
+            <span className="font-mono text-xs text-slate-800">
               {nodeTitle(node, DEFAULT_EXCHANGE_LABEL)}
             </span>
             <Badge tone={node.kind === "queue" ? "success" : "info"}>
@@ -190,7 +190,7 @@ function SelectionDetail({
           node.kind === "queue" ? (
             <button
               type="button"
-              className="rounded border border-slate-700 px-2 py-0.5 text-(length:--text-app-meta) text-slate-300 hover:bg-slate-800"
+              className="rounded border border-slate-300 px-2 py-0.5 text-(length:--text-app-meta) text-slate-600 hover:bg-slate-100"
               onClick={() => onOpenQueue(node.name)}
             >
               查看消息
@@ -202,18 +202,18 @@ function SelectionDetail({
         <table className="w-full text-left">
           <tbody>
             {incoming.map((edge) => (
-              <tr key={`in-${edge.from}`} className="border-b border-slate-800/60">
+              <tr key={`in-${edge.from}`} className="border-b border-slate-200">
                 <td className="w-16 px-4 py-1.5 text-(length:--text-app-meta) text-slate-500">上游</td>
-                <td className="px-2 py-1.5 font-mono text-slate-300">{nameOf(edge.from)}</td>
+                <td className="px-2 py-1.5 font-mono text-slate-600">{nameOf(edge.from)}</td>
                 <td className="px-4 py-1.5 font-mono text-slate-500">
                   {edge.routingKey || "(无 routing key)"}
                 </td>
               </tr>
             ))}
             {outgoing.map((edge) => (
-              <tr key={`out-${edge.to}`} className="border-b border-slate-800/60">
+              <tr key={`out-${edge.to}`} className="border-b border-slate-200">
                 <td className="w-16 px-4 py-1.5 text-(length:--text-app-meta) text-slate-500">下游</td>
-                <td className="px-2 py-1.5 font-mono text-slate-300">{nameOf(edge.to)}</td>
+                <td className="px-2 py-1.5 font-mono text-slate-600">{nameOf(edge.to)}</td>
                 <td className="px-4 py-1.5 font-mono text-slate-500">
                   {edge.routingKey || "(无 routing key)"}
                 </td>

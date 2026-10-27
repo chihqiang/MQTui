@@ -19,8 +19,8 @@ export function Loading({ label = "加载中…", rows }: { label?: string; rows
   }
 
   return (
-    <div className="flex items-center gap-2 p-6 text-sm text-slate-400" role="status">
-      <span className="size-3 animate-spin rounded-full border-2 border-slate-600 border-t-sky-400" />
+    <div className="flex items-center gap-2 p-6 text-sm text-slate-500" role="status">
+      <span className="size-3 animate-spin rounded-full border-2 border-slate-300 border-t-indigo-500" />
       {label}
     </div>
   );
@@ -53,12 +53,12 @@ export function Empty({
         className,
       )}
     >
-      <div className="mb-1 rounded-full border border-dashed border-slate-700 bg-slate-900/60 p-3 text-slate-500">
+      <div className="mb-1 rounded-full border border-dashed border-slate-300 bg-white p-3 text-slate-500">
         {icon ?? <IconInbox size={18} />}
       </div>
       <p className="text-(length:--text-app-title) font-medium text-slate-300">{title}</p>
       {description ? (
-        <p className="max-w-md text-(length:--text-app-meta) text-slate-400">{description}</p>
+        <p className="max-w-md text-(length:--text-app-meta) text-slate-500">{description}</p>
       ) : null}
       {action ? <div className="mt-2">{action}</div> : null}
     </div>
@@ -83,21 +83,21 @@ export function ErrorState({
 }) {
   return (
     <div
-      className="animate-fade-in flex flex-col items-center gap-3 rounded-lg border border-rose-900/60 bg-rose-950/20 p-8 text-center"
+      className="animate-fade-in flex flex-col items-center gap-3 rounded-lg border border-rose-200 bg-rose-50 p-8 text-center"
       role="alert"
     >
-      <span className="flex size-9 items-center justify-center rounded-full bg-rose-500/15 text-rose-300">
+      <span className="flex size-9 items-center justify-center rounded-full bg-rose-100 text-rose-700">
         <IconAlert size={18} />
       </span>
       <p className="selectable max-w-xl font-mono text-(length:--text-app-body) break-words text-danger">
         {message}
       </p>
-      {hint ? <p className="max-w-md text-(length:--text-app-meta) text-slate-400">{hint}</p> : null}
+      {hint ? <p className="max-w-md text-(length:--text-app-meta) text-slate-500">{hint}</p> : null}
       {onRetry ? (
         <button
           type="button"
           onClick={onRetry}
-          className="rounded-md border border-slate-700 px-3 py-1 text-xs text-slate-200 transition-colors hover:bg-slate-800"
+          className="rounded-lg bg-white px-3 py-1 text-xs font-medium text-slate-700 shadow-xs ring-1 ring-slate-200 transition-colors hover:bg-slate-50 hover:text-slate-900"
         >
           重试
         </button>

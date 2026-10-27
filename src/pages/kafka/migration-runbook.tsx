@@ -115,7 +115,7 @@ export function MigrationRunbookView({
 
       {runbook ? <RunbookBody runbook={runbook} /> : null}
 
-      <div className="flex flex-col gap-2 border-t border-slate-800 pt-3">
+      <div className="flex flex-col gap-2 border-t border-slate-200 pt-3">
         <div className="flex items-center gap-2">
           <span className="text-(length:--text-app-meta) uppercase tracking-wide text-slate-500">
             粘贴 --verify 输出
@@ -172,8 +172,8 @@ function RunbookBody({ runbook }: { runbook: MigrationRunbook }) {
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="rounded-md border border-slate-800">
-        <div className="flex flex-wrap items-center gap-2 border-b border-slate-800 px-3 py-2 text-xs">
+      <div className="rounded-md border border-slate-200">
+        <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 px-3 py-2 text-xs">
           <Badge tone={runbook.actionable ? "success" : "danger"}>
             {runbook.actionable ? "可以开始" : "先处理上面的阻断项"}
           </Badge>
@@ -181,12 +181,12 @@ function RunbookBody({ runbook }: { runbook: MigrationRunbook }) {
             {runbook.preconditions.length} 项前置检查 · {blocking.length} 项阻断
           </span>
         </div>
-        <ul className="flex flex-col divide-y divide-slate-800/60 text-xs">
+        <ul className="flex flex-col divide-y divide-slate-200/60 text-xs">
           {runbook.preconditions.map((item) => (
             <li key={item.key} className="flex items-start gap-2 px-3 py-2">
               <Badge tone={STATE_TONE[item.state]}>{labelOf(item.state)}</Badge>
               <div className="min-w-0">
-                <p className="text-slate-200">{item.title}</p>
+                <p className="text-slate-800">{item.title}</p>
                 <p className="text-slate-500">{item.detail}</p>
               </div>
             </li>
@@ -198,9 +198,9 @@ function RunbookBody({ runbook }: { runbook: MigrationRunbook }) {
       <ScriptBlock title="② 执行迁移" script={runbook.executeScript} muted={!runbook.actionable} />
       <ScriptBlock title="③ 核对进度（可反复执行）" script={runbook.verifyScript} />
 
-      <div className="rounded-md border border-slate-800 px-3 py-2 text-xs">
+      <div className="rounded-md border border-slate-200 px-3 py-2 text-xs">
         <p className="mb-1 text-(length:--text-app-meta) uppercase tracking-wide text-slate-500">执行完记得做</p>
-        <ul className="flex list-disc flex-col gap-1 pl-4 text-slate-400">
+        <ul className="flex list-disc flex-col gap-1 pl-4 text-slate-500">
           {runbook.followups.map((item) => (
             <li key={item}>{item}</li>
           ))}
@@ -220,12 +220,12 @@ function ScriptBlock({
   muted?: boolean;
 }) {
   return (
-    <div className="rounded-md border border-slate-800 bg-slate-950/60">
-      <div className="flex items-center gap-2 border-b border-slate-800 px-3 py-1.5">
+    <div className="rounded-md border border-slate-200 bg-slate-50">
+      <div className="flex items-center gap-2 border-b border-slate-200 px-3 py-1.5">
         <span className="text-(length:--text-app-meta) uppercase tracking-wide text-slate-500">{title}</span>
         <button
           type="button"
-          className="ml-auto rounded border border-slate-700 px-2 py-0.5 text-(length:--text-app-meta) text-slate-300 hover:bg-slate-800"
+          className="ml-auto rounded border border-slate-300 px-2 py-0.5 text-(length:--text-app-meta) text-slate-600 hover:bg-slate-100"
           onClick={() => void navigator.clipboard?.writeText(script)}
         >
           复制
@@ -234,8 +234,8 @@ function ScriptBlock({
       <pre
         className={
           muted
-            ? "overflow-auto px-3 py-2 font-mono text-(length:--text-app-meta) text-slate-600"
-            : "overflow-auto px-3 py-2 font-mono text-(length:--text-app-meta) text-slate-300"
+            ? "overflow-auto px-3 py-2 font-mono text-(length:--text-app-meta) text-slate-400"
+            : "overflow-auto px-3 py-2 font-mono text-(length:--text-app-meta) text-slate-600"
         }
       >
         {script}
@@ -248,8 +248,8 @@ function VerifyBody({ result }: { result: VerifyResult }) {
   const { summary, notes } = result;
 
   return (
-    <div className="rounded-md border border-slate-800">
-      <div className="flex flex-wrap items-center gap-2 border-b border-slate-800 px-3 py-2 text-xs">
+    <div className="rounded-md border border-slate-200">
+      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 px-3 py-2 text-xs">
         <Badge tone={summary.failed ? "danger" : summary.inProgress ? "warning" : "success"}>
           {summary.verdict}
         </Badge>
@@ -258,7 +258,7 @@ function VerifyBody({ result }: { result: VerifyResult }) {
         </span>
       </div>
       {notes.length ? (
-        <ul className="flex flex-col gap-1 border-b border-slate-800 px-3 py-2 text-xs text-amber-300">
+        <ul className="flex flex-col gap-1 border-b border-slate-200 px-3 py-2 text-xs text-amber-700">
           {notes.map((note) => (
             <li key={note}>{note}</li>
           ))}
@@ -268,8 +268,8 @@ function VerifyBody({ result }: { result: VerifyResult }) {
         <table className="w-full text-left text-xs">
           <tbody>
             {summary.lines.map((line) => (
-              <tr key={line.raw} className="border-b border-slate-800/60 last:border-0">
-                <td className="w-40 px-3 py-1.5 font-mono text-slate-300">{line.partition}</td>
+              <tr key={line.raw} className="border-b border-slate-200 last:border-0">
+                <td className="w-40 px-3 py-1.5 font-mono text-slate-600">{line.partition}</td>
                 <td className="w-24 px-3 py-1.5">
                   <Badge tone={VERIFY_TONE[line.state]}>{VERIFY_LABEL[line.state]}</Badge>
                 </td>
@@ -280,7 +280,7 @@ function VerifyBody({ result }: { result: VerifyResult }) {
         </table>
       </div>
       {summary.lines.some((line) => line.state === "unknown") ? (
-        <p className="border-t border-slate-800 px-3 py-2 text-(length:--text-app-meta) text-slate-500">
+        <p className="border-t border-slate-200 px-3 py-2 text-(length:--text-app-meta) text-slate-500">
           有 {summary.lines.filter((line) => line.state === "unknown").length} 行认不出来，
           已按原文列在上面。命令行改过文案时会这样，不会当成成功。
         </p>

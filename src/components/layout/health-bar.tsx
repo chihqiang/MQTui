@@ -11,15 +11,15 @@ import type { CheckStatus } from "@/types/health";
 
 /** 状态色：圆点、文字、边框共用一套，避免同一件事在三个地方三种颜色。 */
 const STATUS_DOT: Record<CheckStatus, string> = {
-  ok: "bg-success",
-  failed: "bg-danger",
-  unknown: "bg-slate-500",
+  ok: "bg-success-fill",
+  failed: "bg-danger-fill",
+  unknown: "bg-slate-300",
 };
 
 const STATUS_TEXT: Record<CheckStatus, string> = {
   ok: "text-success",
   failed: "text-danger",
-  unknown: "text-slate-400",
+  unknown: "text-slate-500",
 };
 
 /**
@@ -46,7 +46,7 @@ export function HealthBar({ connectionId }: { connectionId: string | undefined }
       // 展开时不受此限 —— 用户主动点开的，就该给够高度。
       style={{ minHeight: open ? undefined : statusBarHeight(preferences.statusDensity) }}
       className={cn(
-        "flex items-center gap-2 border-b border-slate-800 bg-slate-900/40 px-3 py-1 text-(length:--text-app-meta)",
+        "flex items-center gap-2 border-b border-slate-200 bg-white/80 px-3 py-1 text-(length:--text-app-meta)",
         // 紧凑档的折叠态要真能压到一条线：内容不换行，才不会被撑开。
         !open && preferences.statusDensity === "compact" && "flex-nowrap overflow-hidden",
       )}
@@ -55,7 +55,7 @@ export function HealthBar({ connectionId }: { connectionId: string | undefined }
         type="button"
         onClick={() => setExpanded((value) => !value)}
         aria-expanded={open}
-        className="flex shrink-0 items-center gap-1 rounded px-1 py-0.5 text-slate-400 transition-colors hover:bg-slate-800/60 hover:text-slate-200"
+        className="flex shrink-0 items-center gap-1 rounded px-1 py-0.5 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
       >
         {open ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />}
         <span>健康</span>
@@ -77,7 +77,7 @@ export function HealthBar({ connectionId }: { connectionId: string | undefined }
         </ul>
       ) : (
         <span className="flex min-w-0 flex-1 items-center gap-2 text-success">
-          <span className="size-1.5 rounded-full bg-success" />
+          <span className="size-1.5 rounded-full bg-success-fill" />
           {items.length} 项正常
         </span>
       )}
@@ -99,7 +99,7 @@ export function HealthBar({ connectionId }: { connectionId: string | undefined }
         disabled={isFetching}
         aria-label="重新探测"
         title="重新探测"
-        className="shrink-0 rounded p-1 text-slate-500 transition-colors hover:bg-slate-800/60 hover:text-slate-200 disabled:opacity-50"
+        className="shrink-0 rounded p-1 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 disabled:opacity-50"
       >
         <IconRefresh className={isFetching ? "animate-spin" : undefined} size={12} />
       </button>

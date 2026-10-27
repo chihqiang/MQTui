@@ -131,7 +131,7 @@ export function ConsumerGroupsPage() {
                 const state = groupState(group.state);
                 return (
                   <TableRow key={group.name} clickable onClick={() => setSelected(group)}>
-                    <TableCell mono className="text-slate-200">
+                    <TableCell mono className="text-slate-800">
                       {group.name}
                     </TableCell>
                     <TableCell>

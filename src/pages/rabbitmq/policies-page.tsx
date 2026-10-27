@@ -190,7 +190,7 @@ export function PoliciesPage() {
           title={`操作员策略（${data?.operatorPolicies.length ?? 0}）`}
           extra={
             data?.operatorError ? (
-              <span className="text-(length:--text-app-meta) text-amber-300">接口不可用</span>
+              <span className="text-(length:--text-app-meta) text-amber-700">接口不可用</span>
             ) : undefined
           }
         />
@@ -253,7 +253,7 @@ function PolicyRow({
 
   return (
     <TableRow>
-      <TableCell mono className="text-slate-200">
+      <TableCell mono className="text-slate-800">
         {name}
       </TableCell>
       <TableCell mono muted>
@@ -265,7 +265,7 @@ function PolicyRow({
       <TableCell muted numeric>
         {priority}
       </TableCell>
-      <TableCell className="font-mono text-(length:--text-app-meta) text-slate-400">{summary}</TableCell>
+      <TableCell className="font-mono text-(length:--text-app-meta) text-slate-500">{summary}</TableCell>
       <TableCell>
         <TableActions>
           <Button
@@ -298,7 +298,7 @@ function PolicyRow({
           confirmLabel="删除"
           description={
             <>
-              删除策略 <span className="font-mono text-slate-200">{name}</span>。
+              删除策略 <span className="font-mono text-slate-800">{name}</span>。
               删除只是停止下发，不会动已有的消息；但已套用这条规则的队列不会退回默认值，
               除非重新声明。
             </>
@@ -315,7 +315,7 @@ function PolicyRow({
 function OperatorPolicyRow({ policy }: { policy: OperatorPolicyInfo }) {
   return (
     <TableRow>
-      <TableCell mono className="text-slate-200">
+      <TableCell mono className="text-slate-800">
         {policy.name}
         <span className="ml-2 font-sans text-(length:--text-app-meta) text-slate-500">只读</span>
       </TableCell>
@@ -328,7 +328,7 @@ function OperatorPolicyRow({ policy }: { policy: OperatorPolicyInfo }) {
       <TableCell muted numeric>
         {policy.priority}
       </TableCell>
-      <TableCell className="font-mono text-(length:--text-app-meta) text-slate-400">
+      <TableCell className="font-mono text-(length:--text-app-meta) text-slate-500">
         {describeDefinition(policy.definition)}
       </TableCell>
     </TableRow>

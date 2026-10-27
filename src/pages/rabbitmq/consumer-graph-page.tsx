@@ -81,7 +81,7 @@ export function ConsumerGraphPage() {
           <>
             {stats.exchanges} 交换机 · {stats.queues} 队列 · {stats.connections} 连接
             {stats.troubled ? (
-              <span className="ml-2 text-amber-300">{stats.troubled} 条连接有异常</span>
+              <span className="ml-2 text-amber-700">{stats.troubled} 条连接有异常</span>
             ) : null}
           </>
         }
@@ -103,14 +103,14 @@ export function ConsumerGraphPage() {
       </PageToolbar>
 
       {data.omitted ? (
-        <p className="text-xs text-amber-300">
+        <p className="text-xs text-amber-700">
           连接数超过绘图上限，还有 {formatNumber(data.omitted)} 个消费者连接没画出来（保留的是消费者最多的那些）。
           完整的逐条明细请看「消费者」页。
         </p>
       ) : null}
 
       {stats.troubled ? (
-        <p className="text-xs text-amber-300">
+        <p className="text-xs text-amber-700">
           {formatNumber(stats.troubled)} 条连接标黄或标灰：标黄是「预取已满，实际已不再收消息」，
           标灰是「连着但一条消息都没领到」。这两种都是队列只涨不消的常见成因。
         </p>
@@ -160,7 +160,7 @@ function GraphBoard({
   const [hovered, setHovered] = useState<string | null>(null);
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-slate-800 bg-slate-950/60">
+    <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-slate-200 bg-slate-50">
       <div className="relative" style={{ width, height }}>
         <svg
           className="absolute inset-0"
@@ -181,7 +181,7 @@ function GraphBoard({
                   x2={line.x2}
                   y2={line.y2}
                   stroke={highlighted ? "rgb(56 189 248)" : "currentColor"}
-                  className="text-slate-700"
+                  className="text-slate-600"
                   // 消费边画虚线：绑定是「静态结构」，消费是「当前谁连着」，两者不该长得一样。
                   strokeDasharray={consume ? "4 3" : undefined}
                   strokeWidth={highlighted ? 2 : 1.5}
@@ -223,11 +223,11 @@ function GraphBoard({
                 dimmed ? "opacity-30" : "opacity-100",
               )}
             >
-              <span className="truncate font-mono text-(length:--text-app-meta) text-slate-100">
+              <span className="truncate font-mono text-(length:--text-app-meta) text-slate-900">
                 {nodeTitle(node, DEFAULT_EXCHANGE_LABEL)}
               </span>
               {node.subtitle ? (
-                <span className="truncate text-(length:--text-app-micro) text-slate-400">{node.subtitle}</span>
+                <span className="truncate text-(length:--text-app-micro) text-slate-500">{node.subtitle}</span>
               ) : null}
             </button>
           );
@@ -239,11 +239,11 @@ function GraphBoard({
 
 /** 节点配色：类型决定色系，连接的健康状态决定边框警示。 */
 function toneOf(node: LinkNode): string {
-  if (node.kind === "exchange") return "border-sky-800/70 bg-sky-950/40 hover:border-accent";
-  if (node.kind === "queue") return "border-emerald-800/70 bg-emerald-950/40 hover:border-emerald-600";
-  if (node.health === "warn") return "border-amber-600 bg-amber-950/40 hover:border-amber-400";
-  if (node.health === "idle") return "border-slate-600 bg-slate-900/60 hover:border-slate-400";
-  return "border-violet-800/70 bg-violet-950/40 hover:border-violet-600";
+  if (node.kind === "exchange") return "border-sky-300 bg-sky-50 hover:border-sky-500";
+  if (node.kind === "queue") return "border-emerald-300 bg-emerald-50 hover:border-emerald-500";
+  if (node.health === "warn") return "border-amber-400 bg-amber-50 hover:border-amber-500";
+  if (node.health === "idle") return "border-slate-300 bg-white hover:border-slate-400";
+  return "border-violet-300 bg-violet-50 hover:border-violet-500";
 }
 
 /** 选中节点的上下游明细：图上看不清的是完整连接名与 routing key。 */
@@ -270,9 +270,9 @@ function SelectionDetail({
   const health = node.health ? HEALTH_LABEL[node.health] : null;
 
   return (
-    <div className="shrink-0 rounded-lg border border-slate-800 bg-slate-900/60">
-      <div className="flex items-center gap-2 border-b border-slate-800 px-4 py-2">
-        <span className="font-mono text-xs text-slate-200">
+    <div className="shrink-0 rounded-lg border border-slate-200 bg-white">
+      <div className="flex items-center gap-2 border-b border-slate-200 px-4 py-2">
+        <span className="font-mono text-xs text-slate-800">
           {nodeTitle(node, DEFAULT_EXCHANGE_LABEL)}
         </span>
         <Badge tone={node.kind === "connection" ? "info" : node.kind === "queue" ? "success" : "info"}>
@@ -281,11 +281,11 @@ function SelectionDetail({
         <span className="text-(length:--text-app-meta) text-slate-500">
           上游 {incoming.length} · 下游 {outgoing.length}
         </span>
-        {health ? <span className="text-(length:--text-app-meta) text-amber-300">{health}</span> : null}
+        {health ? <span className="text-(length:--text-app-meta) text-amber-700">{health}</span> : null}
         {node.kind === "queue" ? (
           <button
             type="button"
-            className="ml-auto rounded border border-slate-700 px-2 py-0.5 text-(length:--text-app-meta) text-slate-300 hover:bg-slate-800"
+            className="ml-auto rounded border border-slate-300 px-2 py-0.5 text-(length:--text-app-meta) text-slate-600 hover:bg-slate-100"
             onClick={() => onOpenQueue(node.name)}
           >
             查看消息
@@ -296,18 +296,18 @@ function SelectionDetail({
         <table className="w-full text-left">
           <tbody>
             {incoming.map((edge) => (
-              <tr key={`in-${edge.from}:${edge.kind}`} className="border-b border-slate-800/60">
+              <tr key={`in-${edge.from}:${edge.kind}`} className="border-b border-slate-200">
                 <td className="w-16 px-4 py-1.5 text-(length:--text-app-meta) text-slate-500">上游</td>
-                <td className="px-2 py-1.5 font-mono text-slate-300">{nameOf(edge.from)}</td>
+                <td className="px-2 py-1.5 font-mono text-slate-600">{nameOf(edge.from)}</td>
                 <td className="px-4 py-1.5 font-mono text-slate-500">
                   {edge.label || (edge.kind === "binding" ? "(无 routing key)" : "")}
                 </td>
               </tr>
             ))}
             {outgoing.map((edge) => (
-              <tr key={`out-${edge.to}:${edge.kind}`} className="border-b border-slate-800/60">
+              <tr key={`out-${edge.to}:${edge.kind}`} className="border-b border-slate-200">
                 <td className="w-16 px-4 py-1.5 text-(length:--text-app-meta) text-slate-500">下游</td>
-                <td className="px-2 py-1.5 font-mono text-slate-300">{nameOf(edge.to)}</td>
+                <td className="px-2 py-1.5 font-mono text-slate-600">{nameOf(edge.to)}</td>
                 <td className="px-4 py-1.5 font-mono text-slate-500">
                   {edge.label || (edge.kind === "binding" ? "(无 routing key)" : "")}
                 </td>

@@ -25,8 +25,8 @@ export interface DescriptionItem {
 }
 
 const TONE_CLASS = {
-  normal: "text-slate-200",
-  danger: "text-rose-300",
+  normal: "text-slate-800",
+  danger: "text-rose-700",
   warning: "text-warning",
 } as const;
 
@@ -77,7 +77,7 @@ export function SectionTitle({
   return (
     <div className={cn("mb-1.5 flex items-baseline gap-2", className)}>
       <h4 className="text-(length:--text-app-meta) tracking-wide text-slate-500 uppercase">{children}</h4>
-      {extra ? <span className="text-(length:--text-app-meta) text-slate-600">{extra}</span> : null}
+      {extra ? <span className="text-(length:--text-app-meta) text-slate-400">{extra}</span> : null}
     </div>
   );
 }
@@ -98,7 +98,7 @@ export function Callout({
   className?: string;
 }) {
   const toneClass = {
-    info: "border-slate-700 text-slate-300",
+    info: "border-slate-300 text-slate-600",
     success: "border-success/30 text-success",
     warning: "border-warning/30 text-warning",
     danger: "border-danger/30 text-danger",
@@ -107,7 +107,7 @@ export function Callout({
   return (
     <p
       className={cn(
-        "animate-fade-in rounded-md border-l-2 bg-slate-900/60 py-1.5 pr-3 pl-2.5 text-xs",
+        "animate-fade-in rounded-md border-l-2 bg-white py-1.5 pr-3 pl-2.5 text-xs",
         toneClass,
         className,
       )}

@@ -64,11 +64,11 @@ interface Props {
 function MessageListSkeleton({ target }: { target: string }) {
   return (
     <div
-      className="flex h-full flex-col rounded-lg border border-slate-800"
+      className="flex h-full flex-col rounded-lg border border-slate-200"
       role="status"
       aria-label="读取消息中"
     >
-      <div className="flex items-center gap-2 border-b border-slate-800 px-3 py-1.5 text-xs text-slate-400">
+      <div className="flex items-center gap-2 border-b border-slate-200 px-3 py-1.5 text-xs text-slate-500">
         {target} · 读取消息中…
       </div>
       <div className="flex flex-col gap-1 p-2">
@@ -305,7 +305,7 @@ export function MessageTable({
             onRetry={() => void refetch()}
           />
         ) : null}
-        <p className="text-sm text-slate-400">该 {target} 暂无消息</p>
+        <p className="text-sm text-slate-500">该 {target} 暂无消息</p>
         <p className="text-xs text-slate-500">生产者还没写入，或者消息已被消费且未被保留</p>
         <Button size="xs" variant="secondary" onClick={() => void refetch()} title="丢掉游标重新读最新一页">
           重新读取
@@ -318,12 +318,12 @@ export function MessageTable({
   const freshness = useFreshness(dataUpdatedAt, isFetching);
 
   return (
-    <div className="flex h-full flex-col rounded-lg border border-slate-800">
+    <div className="flex h-full flex-col rounded-lg border border-slate-200">
       {/* 刷新时的唯一提示：一条沿线滚动的细线。不占高度，也不把列表换成灰条。 */}
       <RefreshBar active={isRefetching} />
 
       {error && loaded.length ? (
-        <div className="border-b border-slate-800 px-2 py-1.5">
+        <div className="border-b border-slate-200 px-2 py-1.5">
           <StaleNotice
             message={failureText("刷新消息", errorMessage(error), target)}
             onRetry={() => void refetch()}
@@ -333,7 +333,7 @@ export function MessageTable({
         </div>
       ) : null}
 
-      <div className="flex items-center justify-between gap-3 border-b border-slate-800 px-3 py-1.5 text-xs text-slate-400">
+      <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-3 py-1.5 text-xs text-slate-500">
         <span className="min-w-0 truncate">
           {target} · 已加载 <span className="tabular">{formatNumber(loaded.length)}</span> 条
           {isFilterActive(filter) ? (
@@ -354,10 +354,10 @@ export function MessageTable({
               加载更多
             </Button>
           ) : (
-            <span className="text-slate-600">已到日志头部</span>
+            <span className="text-slate-400">已到日志头部</span>
           )}
           {/* 读消息是高频动作，「这屏数据是哪一刻的」比一个刷新按钮更有用。 */}
-          <span className="tabular text-(length:--text-app-meta) text-slate-600">{freshness}</span>
+          <span className="tabular text-(length:--text-app-meta) text-slate-400">{freshness}</span>
           <Button
             size="xs"
             variant="ghost"
@@ -370,7 +370,7 @@ export function MessageTable({
         </span>
       </div>
 
-      <div className="flex items-center gap-2 border-b border-slate-800 px-3 py-1.5">
+      <div className="flex items-center gap-2 border-b border-slate-200 px-3 py-1.5">
         <SearchInput
           value={filter.key}
           onValueChange={(key) => setFilter((prev) => ({ ...prev, key }))}
@@ -391,8 +391,8 @@ export function MessageTable({
           </Button>
         ) : null}
         {selectable && selected.size ? (
-          <span className="flex shrink-0 items-center gap-1 border-l border-slate-800 pl-2">
-            <span className="text-(length:--text-app-meta) text-slate-300">
+          <span className="flex shrink-0 items-center gap-1 border-l border-slate-200 pl-2">
+            <span className="text-(length:--text-app-meta) text-slate-600">
               已选 <span className="tabular">{formatNumber(selected.size)}</span>
             </span>
             <Button size="xs" variant="secondary" onClick={() => setBatch("redeliver")}>
@@ -434,7 +434,7 @@ export function MessageTable({
           />
         </div>
       ) : (
-        <div className="flex flex-1 flex-col items-center justify-center gap-1 p-6 text-center text-sm text-slate-400">
+        <div className="flex flex-1 flex-col items-center justify-center gap-1 p-6 text-center text-sm text-slate-500">
           <p>已加载的 {formatNumber(loaded.length)} 条消息里没有匹配项</p>
           <p className="text-xs text-slate-500">
             {keepLoadMoreVisible({ hasMore: Boolean(hasNextPage), visibleCount: 0 })
@@ -539,8 +539,8 @@ const MessageRow = memo(function MessageRow({
       style={{ height: rowHeight }}
       className={
         active
-          ? "group flex w-full items-center gap-3 border-b border-slate-800/60 bg-selection/10 px-3 text-xs"
-          : "group flex w-full items-center gap-3 border-b border-slate-800/60 px-3 text-xs transition-colors hover:bg-slate-800/50"
+          ? "group flex w-full items-center gap-3 border-b border-slate-200 bg-selection px-3 text-xs"
+          : "group flex w-full items-center gap-3 border-b border-slate-200 px-3 text-xs transition-colors hover:bg-slate-100"
       }
     >
       {/* 勾选框点选即加入批量，不进详情；整行点击仍然是「看这条」。 */}
@@ -566,8 +566,8 @@ const MessageRow = memo(function MessageRow({
           {message.partition !== undefined ? `P${message.partition}` : "-"}
         </span>
         <span className="tabular w-20 shrink-0 text-meta">{formatNumber(message.offset)}</span>
-        <span className="min-w-0 flex-1 truncate font-mono text-slate-200">
-          {message.preview || <span className="text-slate-600">(空消息)</span>}
+        <span className="min-w-0 flex-1 truncate font-mono text-slate-800">
+          {message.preview || <span className="text-slate-400">(空消息)</span>}
         </span>
         <span className="tabular w-14 shrink-0 text-right text-meta">
           {formatBytes(message.size)}
@@ -628,7 +628,7 @@ function RowAction({
     <button
       type="button"
       onClick={onClick}
-      className="inline-flex items-center gap-1 rounded border border-slate-700 px-1.5 py-0.5 text-(length:--text-app-meta) text-slate-300 transition-colors hover:border-accent hover:text-info"
+      className="inline-flex items-center gap-1 rounded border border-slate-300 px-1.5 py-0.5 text-(length:--text-app-meta) text-slate-600 transition-colors hover:border-accent hover:text-info"
     >
       {icon}
       {label}

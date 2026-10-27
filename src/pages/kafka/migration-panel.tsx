@@ -75,7 +75,7 @@ export function MigrationPanel({
       />
       <CardBody className="flex flex-col gap-3">
         {disabled ? (
-          <p className="text-xs text-amber-300">{disabledReason ?? "该主题不支持分区迁移"}</p>
+          <p className="text-xs text-amber-700">{disabledReason ?? "该主题不支持分区迁移"}</p>
         ) : null}
 
         <div className="flex flex-wrap items-center gap-2">
@@ -122,13 +122,13 @@ export function MigrationPanel({
         />
 
         {check ? (
-          <div className="rounded-md border border-slate-800 px-3 py-2 text-xs">
+          <div className="rounded-md border border-slate-200 px-3 py-2 text-xs">
             {check.ok ? (
-              <p className="text-emerald-300">
+              <p className="text-emerald-700">
                 计划可用：{check.plan?.partitions.length ?? 0} 个分区
               </p>
             ) : (
-              <p className="text-rose-300">{check.reason}</p>
+              <p className="text-rose-700">{check.reason}</p>
             )}
             <p className="mt-1 text-slate-500">
               集群 broker：{check.brokers.length ? check.brokers.join(", ") : "（读不到节点列表）"}
@@ -153,12 +153,12 @@ export function MigrationPanel({
 /** 进度表：只列还没到位的分区之外，也把已完成的收进去——「搬完了几个」是同一个问题的另一半。 */
 function ProgressTable({ report }: { report: MigrationReport }) {
   return (
-    <div className="rounded-md border border-slate-800">
-      <div className="flex flex-wrap items-center gap-2 border-b border-slate-800 px-3 py-2 text-xs">
+    <div className="rounded-md border border-slate-200">
+      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 px-3 py-2 text-xs">
         <Badge tone={report.running || report.unknown ? "warning" : "success"}>
           {report.running || report.unknown ? "迁移未完成" : "迁移完成"}
         </Badge>
-        <span className="text-slate-400">
+        <span className="text-slate-500">
           已完成 {report.done} · 待迁移 {report.running} · 计划外 {report.unknown}
         </span>
         <span className="text-slate-500">{report.verdict}</span>
@@ -166,7 +166,7 @@ function ProgressTable({ report }: { report: MigrationReport }) {
       <div className="max-h-64 overflow-auto">
         <table className="w-full text-left text-xs">
           <thead className="text-(length:--text-app-meta) uppercase tracking-wide text-slate-500">
-            <tr className="border-b border-slate-800">
+            <tr className="border-b border-slate-200">
               <th className="px-3 py-1.5 font-normal">分区</th>
               <th className="px-3 py-1.5 font-normal">状态</th>
               <th className="px-3 py-1.5 font-normal">目标副本</th>
@@ -177,21 +177,21 @@ function ProgressTable({ report }: { report: MigrationReport }) {
           </thead>
           <tbody>
             {report.partitions.map((item) => (
-              <tr key={item.partition} className="border-b border-slate-800/60 last:border-0">
-                <td className="px-3 py-1.5 font-mono text-slate-300">{item.partition}</td>
+              <tr key={item.partition} className="border-b border-slate-200 last:border-0">
+                <td className="px-3 py-1.5 font-mono text-slate-600">{item.partition}</td>
                 <td className="px-3 py-1.5">
                   <Badge tone={STATE_TONE[item.state]}>{MIGRATION_LABEL[item.state]}</Badge>
                 </td>
-                <td className="px-3 py-1.5 font-mono text-slate-400">
+                <td className="px-3 py-1.5 font-mono text-slate-500">
                   {item.target.join(", ") || "-"}
                 </td>
-                <td className="px-3 py-1.5 font-mono text-slate-400">
+                <td className="px-3 py-1.5 font-mono text-slate-500">
                   {item.current.join(", ") || "-"}
                 </td>
-                <td className="px-3 py-1.5 font-mono text-amber-300">
+                <td className="px-3 py-1.5 font-mono text-amber-700">
                   {item.missing.join(", ") || "-"}
                 </td>
-                <td className="px-3 py-1.5 font-mono text-rose-300">
+                <td className="px-3 py-1.5 font-mono text-rose-700">
                   {item.extra.join(", ") || "-"}
                 </td>
               </tr>

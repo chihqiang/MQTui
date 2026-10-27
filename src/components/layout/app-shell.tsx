@@ -53,7 +53,7 @@ export function AppShell() {
 
   return (
     <div
-      className="flex h-screen flex-col overflow-hidden bg-slate-950 text-slate-100"
+      className="flex h-screen flex-col overflow-hidden bg-slate-50 text-slate-800"
       // 次级字号只有一个来源：`--text-app-meta` 原先写死在 `@theme` 里，
       // 组件全用 `text-(length:--text-app-meta)`，所以在这里覆盖一次就全站生效，
       // 不需要每个组件各读一遍偏好。
@@ -72,11 +72,11 @@ export function AppShell() {
           {narrow && !narrowDismissed ? (
             <div
               role="status"
-              className="flex shrink-0 items-center gap-2 border-b border-slate-800 bg-slate-900/80 px-3 py-1.5 text-(length:--text-app-meta) text-slate-400"
+              className="flex shrink-0 items-center gap-2 border-b border-amber-200 bg-amber-50 px-3 py-1.5 text-(length:--text-app-meta) text-amber-800"
             >
               <span className="min-w-0 flex-1">
                 窗口窄于 {NARROW_WIDTH}px，侧边栏已收起成图标条。
-                <span className="text-slate-500">拉宽窗口后会按你选的布局恢复。</span>
+                <span className="text-amber-600">拉宽窗口后会按你选的布局恢复。</span>
               </span>
               <Button size="xs" variant="ghost" onClick={() => dismissNarrow()}>
                 知道了

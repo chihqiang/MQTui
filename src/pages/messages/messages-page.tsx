@@ -202,7 +202,7 @@ function ChipStrip({
           className={
             name === target
               ? "max-w-40 truncate rounded border border-accent/50 bg-accent/15 px-1.5 py-0.5 font-mono text-(length:--text-app-meta) text-info"
-              : "max-w-40 truncate rounded border border-slate-800 px-1.5 py-0.5 font-mono text-(length:--text-app-meta) text-slate-400 transition-colors hover:border-slate-700 hover:text-slate-200"
+              : "max-w-40 truncate rounded border border-slate-200 px-1.5 py-0.5 font-mono text-(length:--text-app-meta) text-slate-500 transition-colors hover:border-slate-300 hover:text-slate-800"
           }
         >
           {name}
@@ -213,7 +213,7 @@ function ChipStrip({
           <button
             type="button"
             popoverTarget="message-targets-more"
-            className="shrink-0 rounded border border-slate-800 px-1.5 py-0.5 text-(length:--text-app-meta) text-slate-400 transition-colors hover:border-slate-700 hover:text-slate-200"
+            className="shrink-0 rounded border border-slate-200 px-1.5 py-0.5 text-(length:--text-app-meta) text-slate-500 transition-colors hover:border-slate-300 hover:text-slate-800"
             title={`还有 ${hidden} 个候选`}
           >
             更多 {hidden}
@@ -221,14 +221,14 @@ function ChipStrip({
           <ul
             id="message-targets-more"
             popover="auto"
-            className="mt-1 max-h-72 min-w-56 overflow-auto rounded-md border border-slate-700 bg-slate-900 p-1 shadow-lg"
+            className="mt-1 max-h-72 min-w-56 overflow-auto rounded-md border border-slate-300 bg-white p-1 shadow-lg"
           >
             {rest.map((name) => (
               <li key={name}>
                 <button
                   type="button"
                   onClick={() => onPick(name)}
-                  className="w-full truncate rounded px-2 py-1 text-left font-mono text-(length:--text-app-meta) text-slate-300 hover:bg-slate-800 hover:text-slate-100"
+                  className="w-full truncate rounded px-2 py-1 text-left font-mono text-(length:--text-app-meta) text-slate-600 hover:bg-slate-100 hover:text-slate-900"
                 >
                   {name}
                 </button>

@@ -77,10 +77,10 @@ export function DataTable({
               key={column.key}
               scope="col"
               className={cn(
-                "border-b border-slate-800 px-4 text-(length:--text-app-meta) font-normal tracking-wide uppercase",
+                "border-b border-slate-200 bg-slate-50/80 px-3 text-(length:--text-app-meta) font-medium tracking-wide uppercase",
                 "text-slate-500 select-none",
                 // 吸顶时必须有底色：半透明表头滚过内容会糊成一片。
-                stickyHeader && "sticky top-0 z-10 bg-slate-900",
+                stickyHeader && "sticky top-0 z-10 bg-slate-50",
                 "py-(--row-py)",
                 column.width,
                 ALIGN_CLASS[column.align ?? "left"],
@@ -175,11 +175,11 @@ function SkeletonRows({
   rows: number;
 }) {
   return Array.from({ length: rows }, (_, rowIndex) => (
-    <tr key={`skeleton-${rowIndex}`} className="border-b border-slate-800/40 last:border-0">
+    <tr key={`skeleton-${rowIndex}`} className="border-b border-slate-200 last:border-0">
       {columns.map((column, columnIndex) => (
         <td
           key={column.key}
-          className={cn("px-4 py-(--row-py)", ALIGN_CLASS[column.align ?? "left"])}
+          className={cn("px-3 py-(--row-py)", ALIGN_CLASS[column.align ?? "left"])}
         >
           <Skeleton
             className={cn("h-4", (column.align ?? "left") === "right" && "ml-auto")}
@@ -201,9 +201,9 @@ export function TableRow({
   return (
     <tr
       className={cn(
-        "border-b border-slate-800/60 last:border-0",
+        "border-b border-slate-200 last:border-0",
         // 只有真能点开的行才给手型与悬停底色，否则是「看着能点、点了没反应」。
-        clickable && "cursor-pointer transition-colors hover:bg-slate-800/40",
+        clickable && "cursor-pointer transition-colors hover:bg-slate-50",
         className,
       )}
       {...props}
@@ -230,14 +230,14 @@ export function TableCell({
   return (
     <td
       className={cn(
-        "px-4",
+        "px-3",
         // 行内边距从 `<td>` 上的 CSS 变量取，不再订阅偏好：
         // 一行一个 `usePreferences()`，一屏 30 行就是 30 个订阅，
         // 而它们 99% 的时间在算同一个值 —— 换密度时全站几百个单元格一起触发更新。
         // `DataTable` 把档位写在 `<table>` 的变量上，行只是消费者。
         "py-(--row-py)",
         mono && "font-mono text-xs",
-        muted && "text-slate-400",
+        muted && "text-slate-500",
         numeric && "tabular",
         resolved && ALIGN_CLASS[resolved],
         className,

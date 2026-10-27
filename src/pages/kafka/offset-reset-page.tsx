@@ -162,7 +162,7 @@ function PlanCard({
       <CardHeader
         title={
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm text-slate-200">{plan.targetLabel}</span>
+            <span className="text-sm text-slate-800">{plan.targetLabel}</span>
             <Badge tone={planTone(plan)}>{describeImpact(plan)}</Badge>
             <span className="text-(length:--text-app-meta) text-slate-500">
               分区 {plan.steps.length} 个 · 需要改动 {changedCount(plan)} 个
@@ -172,9 +172,9 @@ function PlanCard({
       />
       <CardBody className="flex flex-col gap-4">
         {plan.blockers.length > 0 ? (
-          <div className="rounded border border-rose-900/60 bg-rose-950/30 p-3">
-            <p className="text-xs text-rose-200">当前条件无法执行：</p>
-            <ul className="mt-1 list-disc pl-5 text-xs text-rose-300/90">
+          <div className="rounded border border-rose-200 bg-rose-50 p-3">
+            <p className="text-xs text-rose-800">当前条件无法执行：</p>
+            <ul className="mt-1 list-disc pl-5 text-xs text-rose-700">
               {plan.blockers.map((item) => (
                 <li key={item}>{item}</li>
               ))}
@@ -183,17 +183,17 @@ function PlanCard({
         ) : null}
 
         {plan.notes.length > 0 ? (
-          <ul className="list-disc pl-5 text-xs text-amber-300/90">
+          <ul className="list-disc pl-5 text-xs text-amber-700">
             {plan.notes.map((item) => (
               <li key={item}>{item}</li>
             ))}
           </ul>
         ) : null}
 
-        <div className="max-h-80 overflow-auto rounded border border-slate-800">
+        <div className="max-h-80 overflow-auto rounded border border-slate-200">
           <table className="w-full text-left text-xs">
             <thead className="text-(length:--text-app-meta) uppercase tracking-wide text-slate-500">
-              <tr className="border-b border-slate-800">
+              <tr className="border-b border-slate-200">
                 <th className="px-3 py-2 font-normal">分区</th>
                 <th className="px-3 py-2 font-normal">当前位点</th>
                 <th className="px-3 py-2 font-normal">目标位点</th>
@@ -202,12 +202,12 @@ function PlanCard({
             </thead>
             <tbody>
               {plan.steps.map((step) => (
-                <tr key={step.partition} className="border-b border-slate-800/60 last:border-0">
-                  <td className="px-3 py-2 font-mono text-slate-300">{step.partition}</td>
-                  <td className="px-3 py-2 font-mono text-slate-400">
+                <tr key={step.partition} className="border-b border-slate-200 last:border-0">
+                  <td className="px-3 py-2 font-mono text-slate-600">{step.partition}</td>
+                  <td className="px-3 py-2 font-mono text-slate-500">
                     {step.from === null ? "未提交" : formatNumber(step.from)}
                   </td>
-                  <td className="px-3 py-2 font-mono text-slate-300">{formatNumber(step.to)}</td>
+                  <td className="px-3 py-2 font-mono text-slate-600">{formatNumber(step.to)}</td>
                   <td className="px-3 py-2">
                     <Badge tone={stepTone(step)}>{describeStep(step)}</Badge>
                   </td>
@@ -218,10 +218,10 @@ function PlanCard({
         </div>
 
         {phases.length > 0 ? (
-          <ol className="flex flex-col gap-1.5 text-xs text-slate-400">
+          <ol className="flex flex-col gap-1.5 text-xs text-slate-500">
             {phases.map((phase) => (
               <li key={phase.order}>
-                <span className="text-slate-300">
+                <span className="text-slate-600">
                   {phase.order}. {phase.title}
                 </span>
                 {" — "}
@@ -319,13 +319,13 @@ function CommitModal({
         </>
       }
     >
-      <div className="flex flex-col gap-3 text-xs text-slate-300">
+      <div className="flex flex-col gap-3 text-xs text-slate-600">
         <p>
-          消费组 <span className="font-mono text-slate-100">{group}</span> · 主题{" "}
-          <span className="font-mono text-slate-100">{topic}</span>
+          消费组 <span className="font-mono text-slate-900">{group}</span> · 主题{" "}
+          <span className="font-mono text-slate-900">{topic}</span>
         </p>
-        <p className="text-amber-300">{describeImpact(plan)}</p>
-        <p className="text-slate-400">
+        <p className="text-amber-700">{describeImpact(plan)}</p>
+        <p className="text-slate-500">
           请确认该消费组已经没有活跃成员。若消费者仍在运行，它们的下一次自动提交会把位点改回去，
           这次操作就白做了。
         </p>

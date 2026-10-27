@@ -19,12 +19,12 @@ export function CommandTrigger() {
     <button
       type="button"
       onClick={open}
-      className="flex w-56 min-w-0 items-center gap-1.5 rounded border border-slate-800 px-2 py-1 text-(length:--text-app-meta) text-slate-400 transition-colors hover:border-slate-700 hover:bg-slate-800/60 hover:text-slate-200"
+      className="flex h-7 w-56 min-w-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2 text-(length:--text-app-meta) text-slate-500 transition-colors hover:border-slate-300 hover:bg-white hover:text-slate-800"
       aria-label="打开命令面板"
     >
       <IconSearch size={12} />
       <span className="flex-1 truncate text-left">搜索 / 跳转</span>
-      <kbd className="rounded border border-slate-700 px-1 text-(length:--text-app-micro) text-slate-500">
+      <kbd className="rounded border border-slate-200 bg-white px-1 text-(length:--text-app-micro) text-slate-400">
         {shortcut}
       </kbd>
     </button>

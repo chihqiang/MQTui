@@ -57,7 +57,7 @@ export function ConfirmDialog({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md px-3 py-1.5 text-xs text-slate-300 transition-colors hover:bg-slate-800"
+            className="rounded-md px-3 py-1.5 text-xs text-slate-300 transition-colors hover:bg-slate-100"
           >
             取消
           </button>
@@ -81,7 +81,7 @@ export function ConfirmDialog({
     >
       <div className="flex flex-col gap-3">
         {description ? (
-          <div className="selectable text-xs leading-relaxed text-slate-400">{description}</div>
+          <div className="selectable text-xs leading-relaxed text-slate-500">{description}</div>
         ) : null}
         {children}
         {requirePhrase ? (
@@ -95,7 +95,7 @@ export function ConfirmDialog({
               autoFocus
               spellCheck={false}
               placeholder={requirePhrase}
-              className={cn("h-8 font-mono text-xs", matched ? undefined : "border-slate-700")}
+              className={cn("h-8 font-mono text-xs", matched ? undefined : "border-slate-300")}
             />
           </Field>
         ) : null}

@@ -120,9 +120,9 @@ export function MessageLocatePanel({ connectionId, target, onSelect }: Props) {
   const canResume = Boolean(page?.cursor) && !locate.isPending;
 
   return (
-    <div className="flex h-full flex-col rounded-lg border border-slate-800">
+    <div className="flex h-full flex-col rounded-lg border border-slate-200">
       <form
-        className="flex flex-wrap items-end gap-2 border-b border-slate-800 px-3 py-2"
+        className="flex flex-wrap items-end gap-2 border-b border-slate-200 px-3 py-2"
         onSubmit={(event) => {
           event.preventDefault();
           if (issue) return;
@@ -219,7 +219,7 @@ export function MessageLocatePanel({ connectionId, target, onSelect }: Props) {
       </form>
 
       {locate.error ? (
-        <div className="flex items-center gap-2 px-3 py-2 text-xs text-rose-300">
+        <div className="flex items-center gap-2 px-3 py-2 text-xs text-rose-700">
           <span>{errorMessage(locate.error)}</span>
           <Button size="sm" variant="ghost" onClick={page ? resume : () => start()}>
             重试
@@ -229,7 +229,7 @@ export function MessageLocatePanel({ connectionId, target, onSelect }: Props) {
 
       {page ? (
         <>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-slate-800 px-3 py-2 text-xs text-slate-400">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-slate-200 px-3 py-2 text-xs text-slate-500">
             <span>
               {describeScanProgress({
                 scanned: page.totalScanned,
@@ -242,10 +242,10 @@ export function MessageLocatePanel({ connectionId, target, onSelect }: Props) {
               <span className="text-slate-500">{page.resumedFrom}</span>
             ) : null}
             {page.contentBudget ? (
-              <span className="text-amber-300">{page.contentBudget}</span>
+              <span className="text-amber-700">{page.contentBudget}</span>
             ) : null}
             {page.truncated ? (
-              <span className="text-amber-300">
+              <span className="text-amber-700">
                 已达本轮扫描上限，更早/更晚的消息还没读到，请收窄时间区间或继续扫描
               </span>
             ) : null}
@@ -266,13 +266,13 @@ export function MessageLocatePanel({ connectionId, target, onSelect }: Props) {
               )}
             />
           ) : (
-            <p className="p-4 text-sm text-slate-400">
+            <p className="p-4 text-sm text-slate-500">
               已扫描 {formatNumber(page.totalScanned)} 条消息，没有命中
               {page.truncated ? "（扫描被截断，较早的消息还没读到）" : ""}
             </p>
           )}
 
-          <div className="flex items-center gap-3 border-t border-slate-800 px-3 py-2">
+          <div className="flex items-center gap-3 border-t border-slate-200 px-3 py-2">
             {page.cursor ? (
               <Button size="sm" variant="secondary" disabled={!canResume} onClick={resume}>
                 {locate.isPending ? "扫描中…" : "继续扫描（沿上次停下的位置）"}
@@ -285,7 +285,7 @@ export function MessageLocatePanel({ connectionId, target, onSelect }: Props) {
           </div>
         </>
       ) : (
-        <p className="p-4 text-sm text-slate-400">
+        <p className="p-4 text-sm text-slate-500">
           {submittedEmpty
             ? "填写 key、内容片段或时间区间后点「定位」。定位是从指定位置开始顺序读取，不是全文检索。"
             : "正在等待定位结果…"}
@@ -301,7 +301,7 @@ function LocateRow({ message, onClick }: { message: MessageSummary; onClick: () 
       type="button"
       onClick={onClick}
       style={{ height: ROW_HEIGHT }}
-      className="flex w-full items-center gap-3 border-b border-slate-800/60 px-3 text-left text-xs hover:bg-slate-800/50"
+      className="flex w-full items-center gap-3 border-b border-slate-200 px-3 text-left text-xs hover:bg-slate-100"
     >
       <span className="w-40 shrink-0 truncate text-slate-500">
         {formatTimestamp(message.timestamp)}
@@ -311,7 +311,7 @@ function LocateRow({ message, onClick }: { message: MessageSummary; onClick: () 
       </span>
       <span className="w-20 shrink-0 text-slate-500">{formatNumber(message.offset)}</span>
       <span className="w-32 shrink-0 truncate text-info">{message.key ?? "-"}</span>
-      <span className="min-w-0 flex-1 truncate font-mono text-slate-200">{message.preview}</span>
+      <span className="min-w-0 flex-1 truncate font-mono text-slate-800">{message.preview}</span>
       <span className="w-16 shrink-0 text-right text-slate-500">{formatBytes(message.size)}</span>
     </button>
   );
@@ -339,13 +339,13 @@ function HitTimeline({
   if (peak === 0) return null;
 
   return (
-    <div className="flex flex-col gap-1 border-b border-slate-800 px-3 py-2">
+    <div className="flex flex-col gap-1 border-b border-slate-200 px-3 py-2">
       <div className="flex h-6 items-end gap-0.5" role="img" aria-label="命中在时间区间内的分布">
         {buckets.map((bucket) => (
           <div
             key={bucket.start}
             title={`${formatTimestamp(bucket.start)} ~ ${formatTimestamp(bucket.end)}：${bucket.hits} 条`}
-            className="flex-1 rounded-sm bg-selection/60"
+            className="flex-1 rounded-sm bg-indigo-400"
             style={{ height: `${Math.max(2, Math.round((bucket.hits / peak) * 24))}px` }}
           />
         ))}

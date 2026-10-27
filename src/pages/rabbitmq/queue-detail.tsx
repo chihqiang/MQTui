@@ -166,8 +166,8 @@ function DetailBody({
           <ul className="flex flex-col gap-1">
             {detail.bindings.map((binding) => (
               <li key={`${binding.source}|${binding.routingKey}`} className="font-mono text-(length:--text-app-meta)">
-                <span className="text-slate-300">{binding.source || "(默认交换机)"}</span>
-                <span className="mx-1 text-slate-600">→</span>
+                <span className="text-slate-600">{binding.source || "(默认交换机)"}</span>
+                <span className="mx-1 text-slate-400">→</span>
                 <span className="text-info">{binding.routingKey || "(空)"}</span>
               </li>
             ))}

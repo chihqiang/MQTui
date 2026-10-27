@@ -75,7 +75,7 @@ export function ConsumerDisconnectModal({ connectionId, target, onClose }: Props
 
           <p
             className={
-              blocked ? "rounded border border-amber-500/40 px-3 py-2 text-amber-200" : "text-slate-400"
+              blocked ? "rounded border border-amber-500/40 px-3 py-2 text-amber-800" : "text-slate-500"
             }
           >
             {DISCONNECT_VERDICT_NOTE[verdict]}
@@ -102,7 +102,7 @@ function Item({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col gap-0.5">
       <dt className="text-(length:--text-app-meta) text-slate-500">{label}</dt>
-      <dd className="break-all font-mono text-slate-200">{value}</dd>
+      <dd className="break-all font-mono text-slate-800">{value}</dd>
     </div>
   );
 }

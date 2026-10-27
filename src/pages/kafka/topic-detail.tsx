@@ -213,7 +213,7 @@ function PartitionRow({ partition }: { partition: TopicPartitionInfo }) {
   const messages = Math.max(partition.high - partition.low, 0);
 
   return (
-    <TableRow className={inSync ? undefined : "bg-rose-950/20"}>
+    <TableRow className={inSync ? undefined : "bg-rose-50"}>
       <TableCell muted numeric>
         {partition.partition}
       </TableCell>
@@ -223,7 +223,7 @@ function PartitionRow({ partition }: { partition: TopicPartitionInfo }) {
       <TableCell mono muted>
         {partition.replicas.join(", ")}
       </TableCell>
-      <TableCell mono className={inSync ? "text-slate-400" : "text-rose-300"}>
+      <TableCell mono className={inSync ? "text-slate-500" : "text-rose-700"}>
         {partition.inSyncReplicas.join(", ") || "无"}
       </TableCell>
       <TableCell muted numeric>
@@ -232,7 +232,7 @@ function PartitionRow({ partition }: { partition: TopicPartitionInfo }) {
       <TableCell muted numeric>
         {formatNumber(partition.high)}
       </TableCell>
-      <TableCell numeric className="text-slate-300">
+      <TableCell numeric className="text-slate-600">
         {formatNumber(messages)}
       </TableCell>
     </TableRow>
@@ -362,7 +362,7 @@ function ExpandModal({
       }
     >
       <div className="flex flex-col gap-3">
-        <p className="text-xs text-slate-400">
+        <p className="text-xs text-slate-500">
           当前 {current} 个分区。Kafka 只支持增加分区，减少分区不具备可行性，
           因此这里不给「缩容」的口子。
         </p>
@@ -378,7 +378,7 @@ function ExpandModal({
           />
         </Field>
         {invalid ? (
-          <p className="text-xs text-rose-300">目标分区数必须大于当前 {current} 个</p>
+          <p className="text-xs text-rose-700">目标分区数必须大于当前 {current} 个</p>
         ) : null}
       </div>
     </Modal>

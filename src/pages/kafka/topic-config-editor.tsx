@@ -134,7 +134,7 @@ export function TopicConfigEditor({
       {rows.length ? (
         <table className="w-full text-left text-sm">
           <thead className="text-(length:--text-app-meta) uppercase tracking-wide text-slate-500">
-            <tr className="border-b border-slate-800">
+            <tr className="border-b border-slate-200">
               <th className="px-4 py-2 font-normal">配置项</th>
               <th className="px-4 py-2 font-normal">值</th>
               <th className="px-4 py-2 font-normal">状态</th>
@@ -185,7 +185,7 @@ function AddSelect({
   onSelect: (key: string) => void;
 }) {
   if (options.length === 0) {
-    return <span className="text-(length:--text-app-meta) text-slate-600">可配置项都已列出</span>;
+    return <span className="text-(length:--text-app-meta) text-slate-400">可配置项都已列出</span>;
   }
 
   return (
@@ -216,8 +216,8 @@ function ConfigRowView({
   const state = rowState(row, internal);
 
   return (
-    <tr className="border-b border-slate-800/60 last:border-0">
-      <td className="w-2/5 px-4 py-2 font-mono text-xs text-slate-300">{row.key}</td>
+    <tr className="border-b border-slate-200 last:border-0">
+      <td className="w-2/5 px-4 py-2 font-mono text-xs text-slate-600">{row.key}</td>
       <td className="px-4 py-2">
         {state.lock === "editable" ? (
           <Input
@@ -303,15 +303,15 @@ function ConfirmModal({
         </>
       }
     >
-      <div className="flex flex-col gap-3 text-xs text-slate-300">
+      <div className="flex flex-col gap-3 text-xs text-slate-600">
         {plan && plan.items.length === 0 ? (
-          <p className="text-slate-400">配置没有变化，无需提交。</p>
+          <p className="text-slate-500">配置没有变化，无需提交。</p>
         ) : null}
 
         {lines.length ? (
-          <div className="rounded-md border border-slate-800 bg-slate-950/60 p-3">
+          <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
             <p className="mb-1 text-(length:--text-app-meta) uppercase tracking-wide text-slate-500">改动</p>
-            <ul className="flex flex-col gap-1 font-mono text-(length:--text-app-meta) text-slate-200">
+            <ul className="flex flex-col gap-1 font-mono text-(length:--text-app-meta) text-slate-800">
               {lines.map((line) => (
                 <li key={line}>{line}</li>
               ))}
@@ -320,14 +320,14 @@ function ConfirmModal({
         ) : null}
 
         {resets.length ? (
-          <p className="text-amber-300">
+          <p className="text-amber-700">
             清空值的项将删除覆盖项，回落到 broker 默认值：
             {resets.map((item) => item.key).join(", ")}
           </p>
         ) : null}
 
         {isRisky(plan as ConfigPlan) ? (
-          <div className="rounded-md border border-amber-900/60 bg-amber-950/30 p-3 text-amber-200">
+          <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-800">
             <p className="mb-1 text-(length:--text-app-meta) uppercase tracking-wide text-amber-400/80">
               提交前请确认后果
             </p>
@@ -370,7 +370,7 @@ function CompatBlock({ report }: { report: ConfigCompatReport }) {
   return (
     <div className="flex flex-col gap-2">
       {blocked.length ? (
-        <div className="rounded-md border border-rose-900/60 bg-rose-950/30 p-3 text-rose-200">
+        <div className="rounded-md border border-rose-200 bg-rose-50 p-3 text-rose-800">
           <p className="mb-1 text-(length:--text-app-meta) uppercase tracking-wide text-rose-400/80">
             集群版本不支持（当前 {version}）
           </p>
