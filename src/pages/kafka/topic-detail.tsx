@@ -159,7 +159,7 @@ export function TopicDetailPage() {
         <CardBody className="p-0">
           <DataTable
             columns={PARTITION_COLUMNS}
-            className="text-xs"
+            className="text-(length:--text-app-body)"
             loadingRows={isLoading && !data ? 6 : undefined}
           >
             {data?.partitions.map((partition) => (
@@ -362,7 +362,7 @@ function ExpandModal({
       }
     >
       <div className="flex flex-col gap-3">
-        <p className="text-xs text-slate-500">
+        <p className="text-(length:--text-app-body) text-slate-500">
           当前 {current} 个分区。Kafka 只支持增加分区，减少分区不具备可行性，
           因此这里不给「缩容」的口子。
         </p>
@@ -378,7 +378,7 @@ function ExpandModal({
           />
         </Field>
         {invalid ? (
-          <p className="text-xs text-rose-700">目标分区数必须大于当前 {current} 个</p>
+          <p className="text-(length:--text-app-body) text-rose-700">目标分区数必须大于当前 {current} 个</p>
         ) : null}
       </div>
     </Modal>

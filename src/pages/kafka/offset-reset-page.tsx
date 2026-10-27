@@ -113,7 +113,7 @@ export function OffsetResetPage() {
         >
           {preview.isFetching ? "生成中…" : "生成对照表"}
         </Button>
-        <span className="text-xs text-slate-500">
+        <span className="text-(length:--text-app-body) text-slate-500">
           预览是只读的，不会改动任何位点。
         </span>
       </div>
@@ -162,7 +162,7 @@ function PlanCard({
       <CardHeader
         title={
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm text-slate-800">{plan.targetLabel}</span>
+            <span className="text-(length:--text-app-title) text-slate-800">{plan.targetLabel}</span>
             <Badge tone={planTone(plan)}>{describeImpact(plan)}</Badge>
             <span className="text-(length:--text-app-meta) text-slate-500">
               分区 {plan.steps.length} 个 · 需要改动 {changedCount(plan)} 个
@@ -173,8 +173,8 @@ function PlanCard({
       <CardBody className="flex flex-col gap-4">
         {plan.blockers.length > 0 ? (
           <div className="rounded border border-rose-200 bg-rose-50 p-3">
-            <p className="text-xs text-rose-800">当前条件无法执行：</p>
-            <ul className="mt-1 list-disc pl-5 text-xs text-rose-700">
+            <p className="text-(length:--text-app-body) text-rose-800">当前条件无法执行：</p>
+            <ul className="mt-1 list-disc pl-5 text-(length:--text-app-body) text-rose-700">
               {plan.blockers.map((item) => (
                 <li key={item}>{item}</li>
               ))}
@@ -183,7 +183,7 @@ function PlanCard({
         ) : null}
 
         {plan.notes.length > 0 ? (
-          <ul className="list-disc pl-5 text-xs text-amber-700">
+          <ul className="list-disc pl-5 text-(length:--text-app-body) text-amber-700">
             {plan.notes.map((item) => (
               <li key={item}>{item}</li>
             ))}
@@ -191,8 +191,8 @@ function PlanCard({
         ) : null}
 
         <div className="max-h-80 overflow-auto rounded border border-slate-200">
-          <table className="w-full text-left text-xs">
-            <thead className="text-(length:--text-app-meta) uppercase tracking-wide text-slate-500">
+          <table className="w-full text-left text-(length:--text-app-body)">
+            <thead className="text-(length:--text-app-meta) uppercase tracking-wide text-secondary font-medium">
               <tr className="border-b border-slate-200">
                 <th className="px-3 py-2 font-normal">分区</th>
                 <th className="px-3 py-2 font-normal">当前位点</th>
@@ -218,7 +218,7 @@ function PlanCard({
         </div>
 
         {phases.length > 0 ? (
-          <ol className="flex flex-col gap-1.5 text-xs text-slate-500">
+          <ol className="flex flex-col gap-1.5 text-(length:--text-app-body) text-slate-500">
             {phases.map((phase) => (
               <li key={phase.order}>
                 <span className="text-slate-600">
@@ -319,7 +319,7 @@ function CommitModal({
         </>
       }
     >
-      <div className="flex flex-col gap-3 text-xs text-slate-600">
+      <div className="flex flex-col gap-3 text-(length:--text-app-body) text-slate-600">
         <p>
           消费组 <span className="font-mono text-slate-900">{group}</span> · 主题{" "}
           <span className="font-mono text-slate-900">{topic}</span>

@@ -79,7 +79,7 @@ export function MigrationRunbookView({
       <div className="flex flex-wrap items-end gap-2">
         <Field label="限流（字节/秒）" hint="建议 52428800 = 50MB/s">
           <Input
-            className="w-32 text-xs"
+            className="w-32 text-(length:--text-app-body)"
             value={throttle}
             onChange={(event) => setThrottle(event.currentTarget.value)}
             placeholder="不限流"
@@ -88,7 +88,7 @@ export function MigrationRunbookView({
         </Field>
         <Field label="计划文件名" hint="命令行那侧的路径">
           <Input
-            className="w-44 text-xs"
+            className="w-44 text-(length:--text-app-body)"
             value={planFile}
             onChange={(event) => setPlanFile(event.currentTarget.value)}
             placeholder="reassignment.json"
@@ -96,7 +96,7 @@ export function MigrationRunbookView({
         </Field>
         <Field label="min.insync.replicas" hint="不填则按读不到处理">
           <Input
-            className="w-28 text-xs"
+            className="w-28 text-(length:--text-app-body)"
             value={minInsync}
             onChange={(event) => setMinInsync(event.currentTarget.value)}
             placeholder="未知"
@@ -117,7 +117,7 @@ export function MigrationRunbookView({
 
       <div className="flex flex-col gap-2 border-t border-slate-200 pt-3">
         <div className="flex items-center gap-2">
-          <span className="text-(length:--text-app-meta) uppercase tracking-wide text-slate-500">
+          <span className="text-(length:--text-app-meta) uppercase tracking-wide text-secondary font-medium">
             粘贴 --verify 输出
           </span>
           <Button
@@ -138,7 +138,7 @@ export function MigrationRunbookView({
           }}
           rows={4}
           spellCheck={false}
-          className="font-mono text-xs"
+          className="font-mono text-(length:--text-app-body)"
           placeholder={"Reassignment of partition orders-0 is completed\nReassignment of partition orders-1 is still in progress"}
           aria-label="verify 输出"
         />
@@ -173,7 +173,7 @@ function RunbookBody({ runbook }: { runbook: MigrationRunbook }) {
   return (
     <div className="flex flex-col gap-3">
       <div className="rounded-md border border-slate-200">
-        <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 px-3 py-2 text-xs">
+        <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 px-3 py-2 text-(length:--text-app-body)">
           <Badge tone={runbook.actionable ? "success" : "danger"}>
             {runbook.actionable ? "可以开始" : "先处理上面的阻断项"}
           </Badge>
@@ -181,7 +181,7 @@ function RunbookBody({ runbook }: { runbook: MigrationRunbook }) {
             {runbook.preconditions.length} 项前置检查 · {blocking.length} 项阻断
           </span>
         </div>
-        <ul className="flex flex-col divide-y divide-slate-200/60 text-xs">
+        <ul className="flex flex-col divide-y divide-slate-200/60 text-(length:--text-app-body)">
           {runbook.preconditions.map((item) => (
             <li key={item.key} className="flex items-start gap-2 px-3 py-2">
               <Badge tone={STATE_TONE[item.state]}>{labelOf(item.state)}</Badge>
@@ -198,8 +198,8 @@ function RunbookBody({ runbook }: { runbook: MigrationRunbook }) {
       <ScriptBlock title="② 执行迁移" script={runbook.executeScript} muted={!runbook.actionable} />
       <ScriptBlock title="③ 核对进度（可反复执行）" script={runbook.verifyScript} />
 
-      <div className="rounded-md border border-slate-200 px-3 py-2 text-xs">
-        <p className="mb-1 text-(length:--text-app-meta) uppercase tracking-wide text-slate-500">执行完记得做</p>
+      <div className="rounded-md border border-slate-200 px-3 py-2 text-(length:--text-app-body)">
+        <p className="mb-1 text-(length:--text-app-meta) uppercase tracking-wide text-secondary font-medium">执行完记得做</p>
         <ul className="flex list-disc flex-col gap-1 pl-4 text-slate-500">
           {runbook.followups.map((item) => (
             <li key={item}>{item}</li>
@@ -222,7 +222,7 @@ function ScriptBlock({
   return (
     <div className="rounded-md border border-slate-200 bg-slate-50">
       <div className="flex items-center gap-2 border-b border-slate-200 px-3 py-1.5">
-        <span className="text-(length:--text-app-meta) uppercase tracking-wide text-slate-500">{title}</span>
+        <span className="text-(length:--text-app-meta) uppercase tracking-wide text-secondary font-medium">{title}</span>
         <button
           type="button"
           className="ml-auto rounded border border-slate-300 px-2 py-0.5 text-(length:--text-app-meta) text-slate-600 hover:bg-slate-100"
@@ -249,7 +249,7 @@ function VerifyBody({ result }: { result: VerifyResult }) {
 
   return (
     <div className="rounded-md border border-slate-200">
-      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 px-3 py-2 text-xs">
+      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 px-3 py-2 text-(length:--text-app-body)">
         <Badge tone={summary.failed ? "danger" : summary.inProgress ? "warning" : "success"}>
           {summary.verdict}
         </Badge>
@@ -258,14 +258,14 @@ function VerifyBody({ result }: { result: VerifyResult }) {
         </span>
       </div>
       {notes.length ? (
-        <ul className="flex flex-col gap-1 border-b border-slate-200 px-3 py-2 text-xs text-amber-700">
+        <ul className="flex flex-col gap-1 border-b border-slate-200 px-3 py-2 text-(length:--text-app-body) text-amber-700">
           {notes.map((note) => (
             <li key={note}>{note}</li>
           ))}
         </ul>
       ) : null}
       <div className="max-h-48 overflow-auto">
-        <table className="w-full text-left text-xs">
+        <table className="w-full text-left text-(length:--text-app-body)">
           <tbody>
             {summary.lines.map((line) => (
               <tr key={line.raw} className="border-b border-slate-200 last:border-0">

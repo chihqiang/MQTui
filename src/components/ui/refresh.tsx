@@ -44,7 +44,7 @@ export function RefreshButton({
     <span className={cn("relative flex min-w-0 items-center gap-2", className)}>
       <RefreshBar active={state.refreshing && state.hasData && !state.firstLoad} />
       {hint ? (
-        <span className="truncate text-(length:--text-app-meta) text-slate-500" aria-live="polite">
+        <span className="truncate text-(length:--text-app-meta) text-meta" aria-live="polite">
           {hint}
         </span>
       ) : null}
@@ -82,12 +82,14 @@ export function StaleNotice({
   return (
     <div
       role="alert"
-      className="animate-fade-in flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-xs text-warning"
+      className="animate-fade-in flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-(length:--text-app-body) text-warning"
     >
       <IconAlert size={12} className="shrink-0" />
       <span className="min-w-0 flex-1 selectable">
         {message}
-        {children ? <span className="text-warning/70"> {children}</span> : null}
+        {/* 70% 的告警色落在 10% 的同色底上，文字会跟着底一起褪 —— 补充说明降一档
+            用中性色，反而是「主句是警告、括号里是补充」的正确层级。 */}
+        {children ? <span className="text-secondary"> {children}</span> : null}
       </span>
       {onRetry ? (
         <Button size="xs" variant="ghost" onClick={onRetry} className="text-warning">

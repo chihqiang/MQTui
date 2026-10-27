@@ -19,7 +19,7 @@ const STATUS_DOT: Record<CheckStatus, string> = {
 const STATUS_TEXT: Record<CheckStatus, string> = {
   ok: "text-success",
   failed: "text-danger",
-  unknown: "text-slate-500",
+  unknown: "text-secondary",
 };
 
 /**
@@ -55,14 +55,14 @@ export function HealthBar({ connectionId }: { connectionId: string | undefined }
         type="button"
         onClick={() => setExpanded((value) => !value)}
         aria-expanded={open}
-        className="flex shrink-0 items-center gap-1 rounded px-1 py-0.5 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
+        className="flex shrink-0 items-center gap-1 rounded px-1 py-0.5 text-secondary transition-colors hover:bg-slate-100 hover:text-slate-900"
       >
         {open ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />}
         <span>健康</span>
       </button>
 
       {items.length === 0 ? (
-        <span className="flex-1 text-slate-500">{isFetching ? "探测中…" : "暂无探测结果"}</span>
+        <span className="flex-1 text-secondary">{isFetching ? "探测中…" : "暂无探测结果"}</span>
       ) : open ? (
         <ul className="flex min-w-0 flex-1 flex-wrap items-center gap-x-4 gap-y-0.5">
           {items.map((item) => (
@@ -70,7 +70,7 @@ export function HealthBar({ connectionId }: { connectionId: string | undefined }
               <span className={cn("size-1.5 shrink-0 rounded-full", STATUS_DOT[item.status])} />
               <span className={STATUS_TEXT[item.status]}>{item.label}</span>
               {item.detail ? (
-                <span className="max-w-72 truncate text-slate-500">{item.detail}</span>
+                <span className="max-w-72 truncate text-meta">{item.detail}</span>
               ) : null}
             </li>
           ))}
@@ -99,7 +99,7 @@ export function HealthBar({ connectionId }: { connectionId: string | undefined }
         disabled={isFetching}
         aria-label="重新探测"
         title="重新探测"
-        className="shrink-0 rounded p-1 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 disabled:opacity-50"
+        className="shrink-0 rounded p-1 text-secondary transition-colors hover:bg-slate-100 hover:text-slate-900 disabled:opacity-50"
       >
         <IconRefresh className={isFetching ? "animate-spin" : undefined} size={12} />
       </button>

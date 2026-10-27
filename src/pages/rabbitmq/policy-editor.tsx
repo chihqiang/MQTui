@@ -157,7 +157,7 @@ export function PolicyEditor({
         </Field>
 
         <div className="flex items-center justify-between">
-          <span className="text-xs text-slate-500">
+          <span className="text-(length:--text-app-body) text-slate-500">
             定义（{definition.length} 项）
             {dirtyRows > 0 ? (
               <span className="ml-2 text-amber-700">{dirtyRows} 行有改动</span>
@@ -217,13 +217,13 @@ export function PolicyEditor({
             ))}
           </datalist>
           {rows.length === 0 ? (
-            <p className="text-xs text-slate-500">
+            <p className="text-(length:--text-app-body) text-slate-500">
               还没有定义项。空定义的策略不产生任何效果，服务端也会拒绝。
             </p>
           ) : null}
         </div>
 
-        {localError ? <p className="text-xs text-rose-700">{localError}</p> : null}
+        {localError ? <p className="text-(length:--text-app-body) text-rose-700">{localError}</p> : null}
 
         <PreviewBlock
           preview={preview.data}
@@ -252,11 +252,11 @@ function PreviewBlock({
   error: string | null;
   pending: boolean;
 }) {
-  if (pending) return <p className="text-xs text-slate-500">正在估算影响面…</p>;
-  if (error) return <p className="text-xs text-rose-700">预览失败：{error}</p>;
+  if (pending) return <p className="text-(length:--text-app-body) text-slate-500">正在估算影响面…</p>;
+  if (error) return <p className="text-(length:--text-app-body) text-rose-700">预览失败：{error}</p>;
   if (!preview) {
     return (
-      <p className="text-xs text-slate-500">
+      <p className="text-(length:--text-app-body) text-slate-500">
         点「预览影响」可以看清这条策略会碰哪些资源、以及是否会被别的策略压制
       </p>
     );
@@ -265,7 +265,7 @@ function PreviewBlock({
   const { impact, conflicts, caveats } = preview;
 
   return (
-    <div className="flex flex-col gap-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-xs">
+    <div className="flex flex-col gap-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-(length:--text-app-body)">
       <p className="text-slate-600">
         影响面：
         <span className="text-amber-700">{describeImpact(impact)}</span>

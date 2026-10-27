@@ -98,19 +98,19 @@ export function ConsumerGraphPage() {
           onValueChange={setKeyword}
           placeholder="按交换机 / 队列 / 连接名过滤"
           aria-label="过滤消费链路"
-          className="h-8 w-64 text-xs"
+          className="h-8 w-64 text-(length:--text-app-body)"
         />
       </PageToolbar>
 
       {data.omitted ? (
-        <p className="text-xs text-amber-700">
+        <p className="text-(length:--text-app-body) text-amber-700">
           连接数超过绘图上限，还有 {formatNumber(data.omitted)} 个消费者连接没画出来（保留的是消费者最多的那些）。
           完整的逐条明细请看「消费者」页。
         </p>
       ) : null}
 
       {stats.troubled ? (
-        <p className="text-xs text-amber-700">
+        <p className="text-(length:--text-app-body) text-amber-700">
           {formatNumber(stats.troubled)} 条连接标黄或标灰：标黄是「预取已满，实际已不再收消息」，
           标灰是「连着但一条消息都没领到」。这两种都是队列只涨不消的常见成因。
         </p>
@@ -272,7 +272,7 @@ function SelectionDetail({
   return (
     <div className="shrink-0 rounded-lg border border-slate-200 bg-white">
       <div className="flex items-center gap-2 border-b border-slate-200 px-4 py-2">
-        <span className="font-mono text-xs text-slate-800">
+        <span className="font-mono text-(length:--text-app-body) text-slate-800">
           {nodeTitle(node, DEFAULT_EXCHANGE_LABEL)}
         </span>
         <Badge tone={node.kind === "connection" ? "info" : node.kind === "queue" ? "success" : "info"}>
@@ -292,7 +292,7 @@ function SelectionDetail({
           </button>
         ) : null}
       </div>
-      <div className="max-h-48 overflow-auto text-xs">
+      <div className="max-h-48 overflow-auto text-(length:--text-app-body)">
         <table className="w-full text-left">
           <tbody>
             {incoming.map((edge) => (

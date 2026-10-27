@@ -164,7 +164,7 @@ export function ExchangesPage() {
           onValueChange={setKeyword}
           placeholder="按名称 / routing key 过滤"
           aria-label="过滤交换机与绑定"
-          className="h-8 w-64 text-xs"
+          className="h-8 w-64 text-(length:--text-app-body)"
         />
       </PageToolbar>
 
@@ -495,7 +495,7 @@ function CreateExchangeModal({
             ))}
           </Select>
         </Field>
-        <label className="flex items-center gap-2 text-xs text-slate-600">
+        <label className="flex items-center gap-2 text-(length:--text-app-body) text-slate-600">
           <input
             type="checkbox"
             checked={spec.durable}
@@ -503,7 +503,7 @@ function CreateExchangeModal({
           />
           持久化（broker 重启后保留）
         </label>
-        <label className="flex items-center gap-2 text-xs text-slate-600">
+        <label className="flex items-center gap-2 text-(length:--text-app-body) text-slate-600">
           <input
             type="checkbox"
             checked={spec.autoDelete}

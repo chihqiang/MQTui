@@ -128,7 +128,7 @@ export function ConsumersPage() {
           onValueChange={setKeyword}
           placeholder="队列 / 连接名 / consumer tag / 账号"
           aria-label="过滤消费者"
-          className="h-8 w-64 text-xs"
+          className="h-8 w-64 text-(length:--text-app-body)"
         />
         <label className="flex items-center gap-1.5 text-(length:--text-app-meta) text-slate-500">
           <input
@@ -162,7 +162,7 @@ export function ConsumersPage() {
       ) : null}
 
       {total > 0 && queues.length === 0 ? (
-        <p className="text-xs text-slate-500">
+        <p className="text-(length:--text-app-body) text-slate-500">
           {onlyBroken
             ? `共 ${total} 个队列，没有一个是卡住或无人消费的。`
             : "没有符合条件的队列。"}
@@ -192,7 +192,7 @@ function QueueCard({
       scroll={item.consumers.length > 8}
       title={
         <span className="flex items-center gap-2">
-          <span className="truncate font-mono text-xs text-slate-800">{item.queue}</span>
+          <span className="truncate font-mono text-(length:--text-app-body) text-slate-800">{item.queue}</span>
           <Badge tone={QUEUE_VERDICT_TONE[verdict]}>{QUEUE_VERDICT_LABEL[verdict]}</Badge>
         </span>
       }
@@ -211,7 +211,7 @@ function QueueCard({
             : "没有任何消费者，队列当前也没有堆积。"}
         </p>
       ) : (
-        <DataTable columns={CONSUMER_COLUMNS} stickyHeader className="text-xs">
+        <DataTable columns={CONSUMER_COLUMNS} stickyHeader className="text-(length:--text-app-body)">
           {item.consumers.map((consumer) => {
             const health = judgeConsumer(consumer);
             return (
@@ -291,7 +291,7 @@ export function ConsumerBlock({
 }) {
   const item = links.queues.find((entry) => entry.queue === queue);
   if (!item || item.consumers.length === 0) {
-    return <p className="text-xs text-slate-500">没有任何消费者连接该队列。</p>;
+    return <p className="text-(length:--text-app-body) text-slate-500">没有任何消费者连接该队列。</p>;
   }
   return (
     <ul className="flex flex-col gap-1 text-(length:--text-app-meta) font-mono">

@@ -65,7 +65,7 @@ export function ConsumerGroupDialog({ connectionId, group, onClose }: Props) {
       ) : null}
       {data ? (
         <div className="flex flex-col gap-4">
-          <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
+          <div className="flex flex-wrap items-center gap-3 text-(length:--text-app-body) text-slate-500">
             <Badge tone={state.tone}>{state.label}</Badge>
             <span>成员 {formatNumber(data.group.members)}</span>
             <span>
@@ -85,7 +85,7 @@ export function ConsumerGroupDialog({ connectionId, group, onClose }: Props) {
                 {data.members.map((member, index) => (
                   <li
                     key={member.memberId ?? `member-${index}`}
-                    className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2 text-xs"
+                    className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2 text-(length:--text-app-body)"
                   >
                     <span className="font-mono text-slate-800">
                       {member.clientId ?? "-"}
@@ -100,7 +100,7 @@ export function ConsumerGroupDialog({ connectionId, group, onClose }: Props) {
                 ))}
               </ul>
             ) : (
-              <p className="text-xs text-slate-500">
+              <p className="text-(length:--text-app-body) text-slate-500">
                 当前没有在线成员（组为空或消费者已下线）
               </p>
             )}
@@ -110,7 +110,7 @@ export function ConsumerGroupDialog({ connectionId, group, onClose }: Props) {
             <SectionTitle extra={`共 ${formatNumber(data.offsets.length)} 个分区`}>分区进度</SectionTitle>
             {data.offsets.length ? (
               <div className="max-h-72 overflow-auto rounded border border-slate-200">
-                <DataTable columns={OFFSET_COLUMNS} className="text-xs">
+                <DataTable columns={OFFSET_COLUMNS} className="text-(length:--text-app-body)">
                   {data.offsets.map((offset) => (
                     <TableRow key={`${offset.topic}-${offset.partition}`}>
                       <TableCell mono className="text-slate-600">
@@ -133,7 +133,7 @@ export function ConsumerGroupDialog({ connectionId, group, onClose }: Props) {
                 </DataTable>
               </div>
             ) : (
-              <p className="text-xs text-slate-500">该组尚未提交任何位点</p>
+              <p className="text-(length:--text-app-body) text-slate-500">该组尚未提交任何位点</p>
             )}
           </section>
         </div>

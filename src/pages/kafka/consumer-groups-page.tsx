@@ -123,7 +123,7 @@ export function ConsumerGroupsPage() {
           <CardBody className="min-h-0 flex-1 overflow-auto p-0">
             <DataTable
               columns={GROUP_COLUMNS}
-              className="text-sm"
+              className="text-(length:--text-app-title)"
               stickyHeader
               scrollable={false}
             >

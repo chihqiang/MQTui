@@ -132,8 +132,8 @@ export function TopicConfigEditor({
       </div>
 
       {rows.length ? (
-        <table className="w-full text-left text-sm">
-          <thead className="text-(length:--text-app-meta) uppercase tracking-wide text-slate-500">
+        <table className="w-full text-left text-(length:--text-app-title)">
+          <thead className="text-(length:--text-app-meta) uppercase tracking-wide text-secondary font-medium">
             <tr className="border-b border-slate-200">
               <th className="px-4 py-2 font-normal">配置项</th>
               <th className="px-4 py-2 font-normal">值</th>
@@ -152,7 +152,7 @@ export function TopicConfigEditor({
           </tbody>
         </table>
       ) : (
-        <p className="px-4 py-3 text-xs text-slate-500">
+        <p className="px-4 py-3 text-(length:--text-app-body) text-slate-500">
           {detail.internal ? "内部主题的配置由 Kafka 管理，不在此展示" : "没有改动过的配置项"}
         </p>
       )}
@@ -190,7 +190,7 @@ function AddSelect({
 
   return (
     <Select
-      className="w-44 text-xs"
+      className="w-44 text-(length:--text-app-body)"
       value={value}
       onChange={(event) => onSelect(event.currentTarget.value)}
     >
@@ -217,17 +217,17 @@ function ConfigRowView({
 
   return (
     <tr className="border-b border-slate-200 last:border-0">
-      <td className="w-2/5 px-4 py-2 font-mono text-xs text-slate-600">{row.key}</td>
+      <td className="w-2/5 px-4 py-2 font-mono text-(length:--text-app-body) text-slate-600">{row.key}</td>
       <td className="px-4 py-2">
         {state.lock === "editable" ? (
           <Input
-            className="font-mono text-xs"
+            className="font-mono text-(length:--text-app-body)"
             value={row.draft}
             placeholder="留空表示恢复默认值"
             onChange={(event) => onChange(row.key, event.currentTarget.value)}
           />
         ) : (
-          <span className="font-mono text-xs text-slate-500">{row.value}</span>
+          <span className="font-mono text-(length:--text-app-body) text-slate-500">{row.value}</span>
         )}
       </td>
       <td className="px-4 py-2">
@@ -254,7 +254,7 @@ function ConfigRowBadge({
     );
   }
   if (dirty) return <Badge tone="info">待保存</Badge>;
-  return <span className="text-xs text-slate-500">已生效</span>;
+  return <span className="text-(length:--text-app-body) text-slate-500">已生效</span>;
 }
 
 /**
@@ -303,14 +303,14 @@ function ConfirmModal({
         </>
       }
     >
-      <div className="flex flex-col gap-3 text-xs text-slate-600">
+      <div className="flex flex-col gap-3 text-(length:--text-app-body) text-slate-600">
         {plan && plan.items.length === 0 ? (
           <p className="text-slate-500">配置没有变化，无需提交。</p>
         ) : null}
 
         {lines.length ? (
           <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
-            <p className="mb-1 text-(length:--text-app-meta) uppercase tracking-wide text-slate-500">改动</p>
+            <p className="mb-1 text-(length:--text-app-meta) uppercase tracking-wide text-secondary font-medium">改动</p>
             <ul className="flex flex-col gap-1 font-mono text-(length:--text-app-meta) text-slate-800">
               {lines.map((line) => (
                 <li key={line}>{line}</li>
@@ -328,7 +328,7 @@ function ConfirmModal({
 
         {isRisky(plan as ConfigPlan) ? (
           <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-800">
-            <p className="mb-1 text-(length:--text-app-meta) uppercase tracking-wide text-amber-400/80">
+            <p className="mb-1 text-(length:--text-app-meta) uppercase tracking-wide text-amber-700">
               提交前请确认后果
             </p>
             <ul className="flex list-disc flex-col gap-1 pl-4">
@@ -371,7 +371,7 @@ function CompatBlock({ report }: { report: ConfigCompatReport }) {
     <div className="flex flex-col gap-2">
       {blocked.length ? (
         <div className="rounded-md border border-rose-200 bg-rose-50 p-3 text-rose-800">
-          <p className="mb-1 text-(length:--text-app-meta) uppercase tracking-wide text-rose-400/80">
+          <p className="mb-1 text-(length:--text-app-meta) uppercase tracking-wide text-rose-700">
             集群版本不支持（当前 {version}）
           </p>
           <ul className="flex list-disc flex-col gap-1 pl-4">

@@ -134,7 +134,7 @@ export function ConnectPage() {
         <h1 className="text-(length:--text-app-display) font-semibold tracking-tight text-slate-900">
           开始使用
         </h1>
-        <p className="mt-1 text-xs leading-relaxed text-slate-500">
+        <p className="mt-1 text-(length:--text-app-body) leading-relaxed text-slate-500">
           {saved.length > 0
             ? `连过的 ${saved.length} 个环境都还在，点「重连」直接接回来，不用重填地址`
             : "还没有连接记录。挑一种中间件连上，就能开始管理主题、队列与消息"}
@@ -268,7 +268,7 @@ function TabButton({
       className={cn(
         // 选中项靠 2px 主色下划线 + 深一档的字重说话，不再叠半透明底：
         // 一段 24px 高的淡靛蓝方块比线更抢眼，而它表达的只是「当前页签」。
-        "-mb-px border-b-2 px-3 py-2 text-xs transition-colors",
+        "-mb-px border-b-2 px-3 py-2 text-(length:--text-app-body) transition-colors",
         active
           ? "border-indigo-600 font-semibold text-slate-900"
           : "border-transparent font-medium text-slate-500 hover:text-slate-800",
@@ -327,7 +327,7 @@ function KindCard({
       </span>
       <span className="min-w-0 flex-1">
         <span className="flex items-baseline gap-2">
-          <span className="text-xs font-semibold text-slate-900">{displayName}</span>
+          <span className="text-(length:--text-app-body) font-semibold text-slate-900">{displayName}</span>
           <span className="text-(length:--text-app-micro) text-meta">
             端口 {hint.port}
           </span>
@@ -378,7 +378,7 @@ function SavedRow({
       </span>
       <div className="min-w-0 flex-1">
         {/* 第一行：名字 + 类型 + 用户；第二个行：端点。信息分两层，扫读先认名字。 */}
-        <p className="flex items-baseline gap-2 truncate text-xs font-medium text-slate-900">
+        <p className="flex items-baseline gap-2 truncate text-(length:--text-app-body) font-medium text-slate-900">
           <span className="truncate">{entry.name}</span>
           <span className="shrink-0 text-(length:--text-app-micro) font-normal text-meta">
             {BROKER_LABEL[config.kind]}
@@ -423,12 +423,14 @@ function SavedRow({
 
 function EmptySaved({ onCreate }: { onCreate: () => void }) {
   return (
-    <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center">
-      <span className="flex size-10 items-center justify-center rounded-full bg-slate-100 text-meta">
+    // 空态用 `Empty` 的同一套长相：实心浅灰圆 + 一句标题 + 一句引导 + 一个主动作。
+    // 以前这里是一整块虚线描边的大方框，和「新建连接」页签里的卡片长得不像同一套东西。
+    <div className="flex flex-col items-center gap-3 rounded-xl bg-white px-6 py-12 text-center ring-1 ring-slate-200">
+      <span className="flex size-10 items-center justify-center rounded-full bg-slate-100 text-secondary">
         <Plug className="size-5" />
       </span>
       <div>
-        <p className="text-xs font-medium text-slate-600">还没有连过的环境</p>
+        <p className="text-(length:--text-app-title) font-medium text-slate-800">还没有连过的环境</p>
         <p className="mt-1 text-(length:--text-app-meta) text-meta">
           连上一次之后，这里会留下地址与用户名，下次点一下就回来
         </p>

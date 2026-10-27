@@ -139,7 +139,7 @@ export function QueuesPage() {
           onValueChange={setKeyword}
           placeholder="按队列名过滤"
           aria-label="过滤队列"
-          className="h-8 w-64 text-xs"
+          className="h-8 w-64 text-(length:--text-app-body)"
         />
       </PageToolbar>
 
@@ -187,7 +187,7 @@ export function QueuesPage() {
           </DataTable>
           {!isLoading && !filtered.length ? (
             <div className="flex flex-col items-center gap-1 px-4 py-6 text-center">
-              <p className="text-xs text-slate-500">没有名称匹配的队列</p>
+              <p className="text-(length:--text-app-body) text-slate-500">没有名称匹配的队列</p>
               <Button size="xs" variant="ghost" onClick={() => setKeyword("")}>
                 清除过滤
               </Button>

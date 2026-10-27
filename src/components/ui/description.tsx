@@ -47,7 +47,7 @@ export function DescriptionGrid({
   }[columns];
 
   return (
-    <dl className={cn("grid grid-cols-1 gap-x-6 gap-y-2 text-xs", columnClass, className)}>
+    <dl className={cn("grid grid-cols-1 gap-x-6 gap-y-2 text-(length:--text-app-body)", columnClass, className)}>
       {items.map((item) => (
         <div key={item.label} className={cn("flex min-w-0 flex-col gap-0.5", item.wide && "sm:col-span-full")}>
           <dt className="text-(length:--text-app-meta) text-meta">{item.label}</dt>
@@ -76,7 +76,9 @@ export function SectionTitle({
 }) {
   return (
     <div className={cn("mb-1.5 flex items-baseline gap-2", className)}>
-      <h4 className="text-(length:--text-app-meta) tracking-wide text-slate-500 uppercase">{children}</h4>
+      <h4 className="text-(length:--text-app-meta) font-medium tracking-wide text-secondary uppercase">
+        {children}
+      </h4>
       {extra ? <span className="text-(length:--text-app-meta) text-meta">{extra}</span> : null}
     </div>
   );
@@ -98,7 +100,7 @@ export function Callout({
   className?: string;
 }) {
   const toneClass = {
-    info: "border-slate-300 text-slate-600",
+    info: "border-slate-300 text-secondary",
     success: "border-success/30 text-success",
     warning: "border-warning/30 text-warning",
     danger: "border-danger/30 text-danger",
@@ -107,7 +109,7 @@ export function Callout({
   return (
     <p
       className={cn(
-        "animate-fade-in rounded-md border-l-2 bg-white py-1.5 pr-3 pl-2.5 text-xs",
+        "animate-fade-in rounded-md border-l-2 bg-white py-1.5 pr-3 pl-2.5 text-(length:--text-app-body)",
         toneClass,
         className,
       )}

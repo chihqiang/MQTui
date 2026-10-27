@@ -52,7 +52,7 @@ function ToastCard({ toast }: { toast: ToastItem }) {
     <div
       role="status"
       className={cn(
-        "animate-slide-up pointer-events-auto flex w-full items-start gap-2 rounded-md border px-3 py-2 text-xs shadow-lg",
+        "animate-slide-up pointer-events-auto flex w-full items-start gap-2 rounded-md border px-3 py-2 text-(length:--text-app-body) shadow-lg",
         KIND_CLASS[toast.kind],
       )}
     >

@@ -75,7 +75,7 @@ export function MigrationPanel({
       />
       <CardBody className="flex flex-col gap-3">
         {disabled ? (
-          <p className="text-xs text-amber-700">{disabledReason ?? "该主题不支持分区迁移"}</p>
+          <p className="text-(length:--text-app-body) text-amber-700">{disabledReason ?? "该主题不支持分区迁移"}</p>
         ) : null}
 
         <div className="flex flex-wrap items-center gap-2">
@@ -114,7 +114,7 @@ export function MigrationPanel({
           }}
           rows={8}
           spellCheck={false}
-          className="font-mono text-xs"
+          className="font-mono text-(length:--text-app-body)"
           placeholder={
             '{"version":1,"partitions":[{"topic":"orders","partition":0,"replicas":[1,2]}]}'
           }
@@ -122,7 +122,7 @@ export function MigrationPanel({
         />
 
         {check ? (
-          <div className="rounded-md border border-slate-200 px-3 py-2 text-xs">
+          <div className="rounded-md border border-slate-200 px-3 py-2 text-(length:--text-app-body)">
             {check.ok ? (
               <p className="text-emerald-700">
                 计划可用：{check.plan?.partitions.length ?? 0} 个分区
@@ -154,7 +154,7 @@ export function MigrationPanel({
 function ProgressTable({ report }: { report: MigrationReport }) {
   return (
     <div className="rounded-md border border-slate-200">
-      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 px-3 py-2 text-xs">
+      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 px-3 py-2 text-(length:--text-app-body)">
         <Badge tone={report.running || report.unknown ? "warning" : "success"}>
           {report.running || report.unknown ? "迁移未完成" : "迁移完成"}
         </Badge>
@@ -164,8 +164,8 @@ function ProgressTable({ report }: { report: MigrationReport }) {
         <span className="text-slate-500">{report.verdict}</span>
       </div>
       <div className="max-h-64 overflow-auto">
-        <table className="w-full text-left text-xs">
-          <thead className="text-(length:--text-app-meta) uppercase tracking-wide text-slate-500">
+        <table className="w-full text-left text-(length:--text-app-body)">
+          <thead className="text-(length:--text-app-meta) uppercase tracking-wide text-secondary font-medium">
             <tr className="border-b border-slate-200">
               <th className="px-3 py-1.5 font-normal">分区</th>
               <th className="px-3 py-1.5 font-normal">状态</th>

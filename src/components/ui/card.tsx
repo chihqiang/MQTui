@@ -14,7 +14,7 @@ export function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
 export function CardHeader({ title, extra }: { title: ReactNode; extra?: ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-2.5">
-      <h2 className="min-w-0 truncate text-sm font-medium text-slate-800">{title}</h2>
+      <h2 className="min-w-0 truncate text-(length:--text-app-title) font-medium text-slate-800">{title}</h2>
       {extra ? <div className="flex shrink-0 items-center gap-2">{extra}</div> : null}
     </div>
   );

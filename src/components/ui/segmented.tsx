@@ -1,3 +1,5 @@
+import { useRef } from "react";
+
 import { cn } from "@/lib/cn";
 
 export interface SegmentedOption<T extends string> {
@@ -23,6 +25,15 @@ export function Segmented<T extends string>({
   onChange: (next: T) => void;
   className?: string;
 }) {
+  // 键盘操作：分段控件是「一组单选」，用户按 → 就该换到下一段。
+  // 以前只有鼠标能点，方向键什么都不做 —— 键盘用户被困在第一段。
+  const buttons = useRef<(HTMLButtonElement | null)[]>([]);
+  const move = (delta: number, index: number) => {
+    const next = (index + delta + options.length) % options.length;
+    onChange(options[next].value);
+    buttons.current[next]?.focus();
+  };
+
   return (
     <div
       role="tablist"
@@ -33,24 +44,39 @@ export function Segmented<T extends string>({
         className,
       )}
     >
-      {options.map((option) => {
+      {options.map((option, index) => {
         const active = option.value === value;
         return (
           <button
             key={option.value}
+            ref={(element) => {
+              buttons.current[index] = element;
+            }}
             role="tab"
             type="button"
             aria-selected={active}
+            // 只有当前选中项进 Tab 序列：一组单选按一次 Tab 就过去，
+            // 逐段停一次会让设置弹窗里的五组控件吃掉十几次 Tab。
+            tabIndex={active ? 0 : -1}
             title={option.title}
+            onKeyDown={(event) => {
+              if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+                event.preventDefault();
+                move(1, index);
+              } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+                event.preventDefault();
+                move(-1, index);
+              }
+            }}
             onClick={() => onChange(option.value)}
             className={cn(
-              "rounded px-2.5 py-1 text-xs whitespace-nowrap transition-colors",
+              "cursor-pointer rounded px-2.5 py-1 text-(length:--text-app-body) whitespace-nowrap transition-colors",
               // 选中态是「浅灰槽里的一块白」—— 与全站卡片同一套层级语言：
               // 白 = 当前，灰 = 底。以前选中项和未选中项都带白色描边，
               // 目光扫过去分不出哪一段是结果、哪一段是候选。
               active
                 ? "bg-white font-medium text-indigo-700 shadow-xs"
-                : "text-slate-500 hover:bg-slate-200/60 hover:text-slate-800",
+                : "text-secondary hover:bg-slate-200/60 hover:text-slate-900",
             )}
           >
             {option.label}

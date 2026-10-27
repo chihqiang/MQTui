@@ -50,12 +50,14 @@ export function CommandPalette() {
 
   return (
     <div
-      className="animate-fade-in fixed inset-0 z-50 flex items-start justify-center bg-black/60 px-6 pt-24 backdrop-blur-[2px]"
+      // 遮罩从 `black/60` 收到 `slate-900/20`：浅色主题下 60% 纯黑会把背景压成
+      // 一块墨，弹窗浮在上面像另一个应用；20% 的冷灰只负责「把后面推远」。
+      className="animate-fade-in fixed inset-0 z-50 flex items-start justify-center bg-slate-900/20 px-6 pt-24 backdrop-blur-[1px]"
       onClick={close}
       role="presentation"
     >
       <div
-        className="animate-pop-in flex w-full max-w-xl flex-col overflow-hidden rounded-lg border border-slate-300 bg-white shadow-2xl shadow-black/50"
+        className="animate-pop-in flex w-full max-w-xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl shadow-slate-900/15"
         onClick={(event) => event.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -69,21 +71,21 @@ export function CommandPalette() {
             onChange={(event) => onQueryChange(event.target.value)}
             onKeyDown={onKeyDown}
             placeholder="搜索页面或连接，回车跳转"
-            className="w-full bg-transparent py-3 text-sm text-slate-900 placeholder:text-slate-500 focus:outline-none"
+            className="w-full bg-transparent py-3 text-(length:--text-app-title) text-slate-900 placeholder:text-meta focus:outline-none"
             aria-label="搜索命令"
             aria-controls="command-list"
             aria-activedescendant={selected >= 0 ? `command-${selected}` : undefined}
             role="combobox"
             aria-expanded
           />
-          <kbd className="shrink-0 rounded border border-slate-300 px-1 py-0.5 text-(length:--text-app-micro) text-slate-500">
+          <kbd className="shrink-0 rounded border border-slate-200 bg-slate-50 px-1 py-0.5 text-(length:--text-app-micro) text-secondary">
             Esc
           </kbd>
         </div>
 
         <div id="command-list" ref={listRef} className="max-h-80 overflow-auto py-1" role="listbox">
           {matches.length === 0 ? (
-            <p className="px-4 py-6 text-center text-xs text-slate-500">
+            <p className="px-4 py-6 text-center text-(length:--text-app-body) text-secondary">
               没有匹配的命令。先连一个集群，菜单才会出现。
             </p>
           ) : (
@@ -141,7 +143,7 @@ function CommandRow({
   return (
     <>
       {group ? (
-        <p className="px-4 pt-2 pb-1 text-(length:--text-app-meta) tracking-wider text-slate-500 uppercase">
+        <p className="px-4 pt-2 pb-1 text-(length:--text-app-meta) font-medium tracking-wider text-secondary uppercase">
           {group}
         </p>
       ) : null}
@@ -156,14 +158,14 @@ function CommandRow({
         onMouseMove={onHover}
         onClick={onClick}
         className={cn(
-          "flex w-full items-center justify-between gap-3 px-4 py-1.5 text-left text-sm transition-colors",
+          "flex w-full items-center justify-between gap-3 px-4 py-1.5 text-left text-(length:--text-app-title) transition-colors",
           active
             ? "bg-selection font-medium text-slate-900"
-            : "text-slate-600 hover:bg-slate-50",
+            : "text-secondary hover:bg-slate-50",
         )}
       >
         <span className="truncate">{children}</span>
-        {active ? <span className="text-(length:--text-app-meta) text-slate-500">↵</span> : null}
+        {active ? <span className="text-(length:--text-app-meta) text-meta">↵</span> : null}
       </button>
     </>
   );

@@ -201,7 +201,7 @@ export function ParameterEditor({
             onChange={(event) => update({ value: event.currentTarget.value })}
             rows={14}
             spellCheck={false}
-            className="text-xs leading-relaxed"
+            className="text-(length:--text-app-body) leading-relaxed"
           />
         </Field>
 
@@ -214,10 +214,10 @@ export function ParameterEditor({
 /** 校验结论：阻断项在前（红），提醒项在后（黄）。 */
 function ReviewBlock({ review }: { review: ParameterReview }) {
   if (!review.errors.length && !review.caveats.length) {
-    return <p className="text-xs text-emerald-700">校验通过，可以保存</p>;
+    return <p className="text-(length:--text-app-body) text-emerald-700">校验通过，可以保存</p>;
   }
   return (
-    <div className="flex flex-col gap-1 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
+    <div className="flex flex-col gap-1 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-(length:--text-app-body)">
       {review.errors.map((message) => (
         <p key={message} className="text-rose-700">
           阻断：{message}

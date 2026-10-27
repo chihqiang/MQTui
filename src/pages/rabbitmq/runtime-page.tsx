@@ -123,7 +123,7 @@ export function RuntimePage() {
         }
       >
         <Input
-          className="h-8 w-64 text-xs"
+          className="h-8 w-64 text-(length:--text-app-body)"
           value={keyword}
           placeholder="连接名 / 客户端名 / 账号 / 对端地址"
           aria-label="过滤连接"
@@ -142,7 +142,7 @@ export function RuntimePage() {
       {isLoading && !data ? <SkeletonRows rows={6} label="读取运行时…" /> : null}
 
       {data && data.connections.length === 0 ? (
-        <p className="max-w-md text-xs text-slate-500">
+        <p className="max-w-md text-(length:--text-app-body) text-slate-500">
           读不到连接列表。运行时视图依赖 RabbitMQ 管理插件，请检查连接配置里的管理 API 地址。
         </p>
       ) : null}
@@ -160,7 +160,7 @@ export function RuntimePage() {
       ) : null}
 
       {data && data.connections.length > 0 && connections.length === 0 ? (
-        <p className="text-xs text-slate-500">
+        <p className="text-(length:--text-app-body) text-slate-500">
           {onlyProblem
             ? `共 ${data.connections.length} 条连接，没有一条有问题。`
             : "没有符合条件的连接。"}
@@ -179,7 +179,7 @@ function ModalFreeError({ message, onRetry }: { message: string; onRetry: () => 
       <PageHeader title="连接与通道" />
       <div className="flex flex-1 items-center justify-center">
         <div className="flex flex-col items-center gap-2 text-center" role="alert">
-          <p className="selectable max-w-xl text-sm text-rose-700">{message}</p>
+          <p className="selectable max-w-xl text-(length:--text-app-title) text-rose-700">{message}</p>
           <Button variant="ghost" size="sm" onClick={onRetry}>
             重试
           </Button>
@@ -210,7 +210,7 @@ function ConnectionCard({
       title={
         <span className="flex items-center gap-2">
           <Badge tone={connectionTone(connection)}>{connection.state}</Badge>
-          <span className="truncate font-mono text-xs text-slate-800">
+          <span className="truncate font-mono text-(length:--text-app-body) text-slate-800">
             {connection.clientName || connection.name}
           </span>
         </span>
@@ -239,7 +239,7 @@ function ConnectionCard({
       {channels.length === 0 ? (
         <p className="px-3 py-2 text-(length:--text-app-meta) text-slate-500">这条连接上没有打开的通道。</p>
       ) : (
-        <DataTable columns={CHANNEL_COLUMNS} stickyHeader className="text-xs">
+        <DataTable columns={CHANNEL_COLUMNS} stickyHeader className="text-(length:--text-app-body)">
           {channels.map((channel) => (
             <ChannelTableRow
               key={channel.name}
@@ -332,7 +332,7 @@ function CloseConfirmModal({
         });
       }}
     >
-      <div className="flex flex-col gap-2 text-xs text-slate-600">
+      <div className="flex flex-col gap-2 text-(length:--text-app-body) text-slate-600">
         <p className="font-mono break-all text-slate-800">{target.name}</p>
         {isConnection ? (
           <p>

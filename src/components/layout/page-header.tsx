@@ -28,7 +28,7 @@ export function PageHeader({
           {title}
         </h1>
         {description ? (
-          <p className="mt-0.5 truncate text-(length:--text-app-meta) text-slate-500">
+          <p className="mt-0.5 truncate text-(length:--text-app-meta) text-meta">
             {description}
           </p>
         ) : null}
@@ -59,7 +59,7 @@ export function PageToolbar({
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
       {children}
-      {hint ? <p className="min-w-0 truncate text-xs text-slate-500">{hint}</p> : null}
+      {hint ? <p className="min-w-0 truncate text-(length:--text-app-body) text-secondary">{hint}</p> : null}
       {actions ? <div className="ml-auto flex shrink-0 items-center gap-2">{actions}</div> : null}
     </div>
   );

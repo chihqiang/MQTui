@@ -140,14 +140,14 @@ export function ClusterPage() {
       {nodes.length === 0 ? (
         <div className="flex flex-1 items-center justify-center">
           {data && data.nodes.length > 0 ? (
-            <p className="text-xs text-slate-500">
+            <p className="text-(length:--text-app-body) text-slate-500">
               没有需要处理的节点（共 {data.nodes.length} 个，都正常）。
               <Button variant="ghost" size="sm" onClick={() => setOnlyAttention(false)}>
                 显示全部
               </Button>
             </p>
           ) : (
-            <p className="max-w-md text-center text-xs text-slate-500">
+            <p className="max-w-md text-center text-(length:--text-app-body) text-slate-500">
               读不到节点列表。RabbitMQ 的节点信息依赖管理插件（管理 API 地址）；Kafka 需要
               bootstrap 可达。
             </p>
@@ -178,7 +178,7 @@ function needsAttention(node: ClusterNode, verdict: NodeVerdict | undefined): bo
 
 function AlertLine({ alert }: { alert: ClusterAlert }) {
   return (
-    <div className="flex items-baseline gap-2 text-xs">
+    <div className="flex items-baseline gap-2 text-(length:--text-app-body)">
       <Badge tone={SEVERITY_TONE[alert.severity]}>
         {alert.severity === "warn" ? "需要处理" : "提醒"}
       </Badge>
@@ -223,7 +223,7 @@ function NodeCard({
               )}
             />
           ) : null}
-          <span className="font-mono text-xs text-slate-800">{node.name}</span>
+          <span className="font-mono text-(length:--text-app-body) text-slate-800">{node.name}</span>
           <Badge tone={roleTone(node.role)}>{node.roleLabel}</Badge>
           <Badge tone={nodeTone(node)}>{node.running ? "运行中" : "未运行"}</Badge>
         </span>

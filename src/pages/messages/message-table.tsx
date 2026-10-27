@@ -68,7 +68,7 @@ function MessageListSkeleton({ target }: { target: string }) {
       role="status"
       aria-label="读取消息中"
     >
-      <div className="flex items-center gap-2 border-b border-slate-200 px-3 py-1.5 text-xs text-slate-500">
+      <div className="flex items-center gap-2 border-b border-slate-200 px-3 py-1.5 text-(length:--text-app-body) text-slate-500">
         {target} · 读取消息中…
       </div>
       <div className="flex flex-col gap-1 p-2">
@@ -305,8 +305,8 @@ export function MessageTable({
             onRetry={() => void refetch()}
           />
         ) : null}
-        <p className="text-sm text-slate-500">该 {target} 暂无消息</p>
-        <p className="text-xs text-slate-500">生产者还没写入，或者消息已被消费且未被保留</p>
+        <p className="text-(length:--text-app-title) text-slate-500">该 {target} 暂无消息</p>
+        <p className="text-(length:--text-app-body) text-slate-500">生产者还没写入，或者消息已被消费且未被保留</p>
         <Button size="xs" variant="secondary" onClick={() => void refetch()} title="丢掉游标重新读最新一页">
           重新读取
         </Button>
@@ -333,7 +333,7 @@ export function MessageTable({
         </div>
       ) : null}
 
-      <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-3 py-1.5 text-xs text-slate-500">
+      <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-3 py-1.5 text-(length:--text-app-body) text-slate-500">
         <span className="min-w-0 truncate">
           {target} · 已加载 <span className="tabular">{formatNumber(loaded.length)}</span> 条
           {isFilterActive(filter) ? (
@@ -376,14 +376,14 @@ export function MessageTable({
           onValueChange={(key) => setFilter((prev) => ({ ...prev, key }))}
           placeholder="按 key 过滤"
           aria-label="按 key 过滤"
-          className="h-7 w-40 text-xs"
+          className="h-7 w-40 text-(length:--text-app-body)"
         />
         <SearchInput
           value={filter.content}
           onValueChange={(content) => setFilter((prev) => ({ ...prev, content }))}
           placeholder="按内容过滤（不区分大小写）"
           aria-label="按内容过滤"
-          className="h-7 min-w-0 flex-1 text-xs"
+          className="h-7 min-w-0 flex-1 text-(length:--text-app-body)"
         />
         {isFilterActive(filter) ? (
           <Button size="xs" variant="ghost" onClick={() => setFilter(EMPTY_FILTER)}>
@@ -434,9 +434,9 @@ export function MessageTable({
           />
         </div>
       ) : (
-        <div className="flex flex-1 flex-col items-center justify-center gap-1 p-6 text-center text-sm text-slate-500">
+        <div className="flex flex-1 flex-col items-center justify-center gap-1 p-6 text-center text-(length:--text-app-title) text-slate-500">
           <p>已加载的 {formatNumber(loaded.length)} 条消息里没有匹配项</p>
-          <p className="text-xs text-slate-500">
+          <p className="text-(length:--text-app-body) text-slate-500">
             {keepLoadMoreVisible({ hasMore: Boolean(hasNextPage), visibleCount: 0 })
               ? "继续往下翻会重新过滤，或清掉过滤条件"
               : "日志已经读完，清掉过滤条件看看全部消息"}
@@ -539,8 +539,8 @@ const MessageRow = memo(function MessageRow({
       style={{ height: rowHeight }}
       className={
         active
-          ? "group flex w-full items-center gap-3 border-b border-slate-200 bg-selection px-3 text-xs"
-          : "group flex w-full items-center gap-3 border-b border-slate-200 px-3 text-xs transition-colors hover:bg-slate-100"
+          ? "group flex w-full items-center gap-3 border-b border-slate-200 bg-selection px-3 text-(length:--text-app-body)"
+          : "group flex w-full items-center gap-3 border-b border-slate-200 px-3 text-(length:--text-app-body) transition-colors hover:bg-slate-100"
       }
     >
       {/* 勾选框点选即加入批量，不进详情；整行点击仍然是「看这条」。 */}

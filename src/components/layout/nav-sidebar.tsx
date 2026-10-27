@@ -46,7 +46,7 @@ export function NavSidebar({ grouped }: { grouped: boolean }) {
             {/* 只分出一项的组不画标题：为一个菜单项加一行小标题，
                 换来的只是多一层缩进和一次视线跳跃。 */}
             {section.items.length > 1 ? (
-              <p className="px-2 pt-2 pb-1 text-(length:--text-app-micro) font-medium tracking-wider text-meta uppercase">
+              <p className="px-2 pt-2 pb-1 text-(length:--text-app-micro) font-semibold tracking-wider text-secondary uppercase">
                 {NAV_GROUP_LABEL[section.group]}
               </p>
             ) : null}
@@ -89,7 +89,7 @@ function NavItemLink({
       to={target}
       title={item.description}
       className={cn(
-        "rounded-lg px-2 py-1.5 text-xs whitespace-nowrap transition-colors",
+        "rounded-lg px-2 py-1.5 text-(length:--text-app-body) whitespace-nowrap transition-colors",
         // 选中态：浅靛蓝底 + 主色字 + 左侧 2px 竖条（用 ring 充当，不额外占位）
         isSectionActive(currentPath, target)
           ? "bg-white font-medium text-indigo-700 shadow-xs ring-1 ring-slate-200"

@@ -136,7 +136,7 @@ export function MessageLocatePanel({ connectionId, target, onSelect }: Props) {
             value={form.key}
             onChange={(event) => update({ key: event.currentTarget.value })}
             placeholder="如 order-1001"
-            className="h-8 w-44 text-xs"
+            className="h-8 w-44 text-(length:--text-app-body)"
           />
         </label>
         <label className="flex flex-col gap-1">
@@ -145,7 +145,7 @@ export function MessageLocatePanel({ connectionId, target, onSelect }: Props) {
             value={form.content}
             onChange={(event) => update({ content: event.currentTarget.value })}
             placeholder="如 timeout"
-            className="h-8 w-44 text-xs"
+            className="h-8 w-44 text-(length:--text-app-body)"
           />
         </label>
         <label className="flex flex-col gap-1">
@@ -154,7 +154,7 @@ export function MessageLocatePanel({ connectionId, target, onSelect }: Props) {
             type="datetime-local"
             value={form.after}
             onChange={(event) => update({ after: event.currentTarget.value })}
-            className="h-8 w-52 text-xs"
+            className="h-8 w-52 text-(length:--text-app-body)"
           />
         </label>
         <label className="flex flex-col gap-1">
@@ -163,7 +163,7 @@ export function MessageLocatePanel({ connectionId, target, onSelect }: Props) {
             type="datetime-local"
             value={form.before}
             onChange={(event) => update({ before: event.currentTarget.value })}
-            className="h-8 w-52 text-xs"
+            className="h-8 w-52 text-(length:--text-app-body)"
           />
         </label>
         {contentMode ? (
@@ -219,7 +219,7 @@ export function MessageLocatePanel({ connectionId, target, onSelect }: Props) {
       </form>
 
       {locate.error ? (
-        <div className="flex items-center gap-2 px-3 py-2 text-xs text-rose-700">
+        <div className="flex items-center gap-2 px-3 py-2 text-(length:--text-app-body) text-rose-700">
           <span>{errorMessage(locate.error)}</span>
           <Button size="sm" variant="ghost" onClick={page ? resume : () => start()}>
             重试
@@ -229,7 +229,7 @@ export function MessageLocatePanel({ connectionId, target, onSelect }: Props) {
 
       {page ? (
         <>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-slate-200 px-3 py-2 text-xs text-slate-500">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-slate-200 px-3 py-2 text-(length:--text-app-body) text-slate-500">
             <span>
               {describeScanProgress({
                 scanned: page.totalScanned,
@@ -266,7 +266,7 @@ export function MessageLocatePanel({ connectionId, target, onSelect }: Props) {
               )}
             />
           ) : (
-            <p className="p-4 text-sm text-slate-500">
+            <p className="p-4 text-(length:--text-app-title) text-slate-500">
               已扫描 {formatNumber(page.totalScanned)} 条消息，没有命中
               {page.truncated ? "（扫描被截断，较早的消息还没读到）" : ""}
             </p>
@@ -285,7 +285,7 @@ export function MessageLocatePanel({ connectionId, target, onSelect }: Props) {
           </div>
         </>
       ) : (
-        <p className="p-4 text-sm text-slate-500">
+        <p className="p-4 text-(length:--text-app-title) text-slate-500">
           {submittedEmpty
             ? "填写 key、内容片段或时间区间后点「定位」。定位是从指定位置开始顺序读取，不是全文检索。"
             : "正在等待定位结果…"}
@@ -301,7 +301,7 @@ function LocateRow({ message, onClick }: { message: MessageSummary; onClick: () 
       type="button"
       onClick={onClick}
       style={{ height: ROW_HEIGHT }}
-      className="flex w-full items-center gap-3 border-b border-slate-200 px-3 text-left text-xs hover:bg-slate-100"
+      className="flex w-full items-center gap-3 border-b border-slate-200 px-3 text-left text-(length:--text-app-body) hover:bg-slate-100"
     >
       <span className="w-40 shrink-0 truncate text-slate-500">
         {formatTimestamp(message.timestamp)}

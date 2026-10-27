@@ -131,19 +131,19 @@ export function ParametersPage() {
           onValueChange={setKeyword}
           placeholder="按名称 / vhost / 值过滤"
           aria-label="过滤参数"
-          className="h-8 w-64 text-xs"
+          className="h-8 w-64 text-(length:--text-app-body)"
         />
       </PageToolbar>
 
       {!data?.componentFilterSupported ? (
-        <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+        <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-(length:--text-app-body) text-amber-800">
           当前管理 API 不支持按组件过滤参数，部分组件可能读不到。老版本 RabbitMQ 需要升级管理插件。
         </p>
       ) : null}
 
       {/* 权限不足 / 插件未启用只影响对应那一块，不该整页报错。 */}
       {data?.errors.length ? (
-        <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+        <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-(length:--text-app-body) text-slate-500">
           {data.errors.map((item) => (
             <p key={item.component}>
               <span className="text-slate-600">{componentLabel(item.component)}</span> 读取失败：

@@ -21,7 +21,7 @@ export function GraphSkeleton({ label }: { label: string }) {
           <Skeleton className="h-px flex-1" />
           <Skeleton className="h-24 w-40" />
         </div>
-        <p className="text-center text-xs text-slate-500">{label}</p>
+        <p className="text-center text-(length:--text-app-body) text-slate-500">{label}</p>
       </div>
     </div>
   );

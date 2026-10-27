@@ -110,12 +110,12 @@ export function TopologyPage() {
           onValueChange={setKeyword}
           placeholder="按名称 / routing key 过滤"
           aria-label="过滤拓扑"
-          className="h-8 w-64 text-xs"
+          className="h-8 w-64 text-(length:--text-app-body)"
         />
       </PageToolbar>
 
       {data.omitted ? (
-        <p className="text-xs text-amber-700">
+        <p className="text-(length:--text-app-body) text-amber-700">
           拓扑规模超过绘图上限，还有 {formatNumber(data.omitted)} 个节点没画出来。
           这一页回答「结构长什么样」，全量数据请看「交换机」页。
         </p>
@@ -175,7 +175,7 @@ function SelectionDetail({
       <CardHeader
         title={
           <span className="flex items-center gap-2">
-            <span className="font-mono text-xs text-slate-800">
+            <span className="font-mono text-(length:--text-app-body) text-slate-800">
               {nodeTitle(node, DEFAULT_EXCHANGE_LABEL)}
             </span>
             <Badge tone={node.kind === "queue" ? "success" : "info"}>
@@ -198,7 +198,7 @@ function SelectionDetail({
           ) : null
         }
       />
-      <CardBody className="max-h-48 overflow-auto p-0 text-xs">
+      <CardBody className="max-h-48 overflow-auto p-0 text-(length:--text-app-body)">
         <table className="w-full text-left">
           <tbody>
             {incoming.map((edge) => (

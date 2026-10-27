@@ -81,7 +81,16 @@
   --color-selection: var(--color-indigo-50);
   --color-selection-quiet: var(--color-slate-100);
 
-  /* 次级信息文字色：时间戳、位点、端点这类「要读」的元数据停在 slate-500。 */
+  /*
+   * 文字三级。浅色底上最难的一件事是「把三层分清楚而不靠字号」：
+   * - 正文 `slate-800`：表格单元、按钮、表单的输入值；
+   * - 次级 `slate-600`（--color-secondary）：标签、说明、卡片副标题 ——
+   *   以前它们和正文同在 12px，只用 slate-500 和正文拉距离，
+   *   落到白卡上就发灰，读起来像被禁用了；
+   * - 元数据 `slate-500`（--color-meta）：时间戳、位点、端点这类「要读但不必争」的信息；
+   * - 装饰 `slate-400`（--color-meta-dim）：占位符、分隔线。
+   */
+  --color-secondary: var(--color-slate-600);
   --color-meta: var(--color-slate-500);
   --color-meta-dim: var(--color-slate-400);
 }
@@ -196,6 +205,21 @@
    * 表单控件基线。深色时代浏览器默认的浅色 input 一眼就能看出，
    * 浅色之后默认长相又太"网页"：固定住高度与圆角，页面只管排版。
    */
+  /*
+   * 手型。Tailwind 4 的 preflight 把 button 的 `cursor: pointer` 去掉了
+   * （浏览器默认是 arrow），而桌面面板里按钮密度高、又常常紧挨着不可点的标签 ——
+   * 没有手型时，用户只能点一下才知道哪个能点。禁用态交回 not-allowed。
+   */
+  button:not(:disabled),
+  [role="tab"]:not(:disabled),
+  [role="option"] {
+    cursor: pointer;
+  }
+
+  button:disabled {
+    cursor: not-allowed;
+  }
+
   input,
   select,
   textarea {
@@ -224,6 +248,10 @@
  */
 @utility text-meta {
   color: var(--color-meta);
+}
+
+@utility text-secondary {
+  color: var(--color-secondary);
 }
 
 @utility text-meta-dim {

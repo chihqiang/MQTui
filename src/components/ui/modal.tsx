@@ -40,7 +40,7 @@ export function Modal({
 
   return (
     <div
-      className="animate-fade-in fixed inset-0 z-40 flex items-center justify-center bg-slate-900/25 p-6 backdrop-blur-[2px]"
+      className="animate-fade-in fixed inset-0 z-40 flex items-center justify-center bg-slate-900/20 p-6 backdrop-blur-[1px]"
       onClick={onClose}
       role="presentation"
     >
@@ -58,12 +58,12 @@ export function Modal({
         aria-label={typeof title === "string" ? title : undefined}
       >
         <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-          <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
+          <h3 className="text-(length:--text-app-title) font-semibold text-slate-900">{title}</h3>
           <button
             type="button"
             onClick={onClose}
             aria-label="关闭"
-            className="rounded-md p-1 text-meta transition-colors hover:bg-slate-100 hover:text-slate-700"
+            className="rounded-md p-1 text-meta transition-colors hover:bg-slate-100 hover:text-slate-900"
           >
             <IconClose size={14} />
           </button>

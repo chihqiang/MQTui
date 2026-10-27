@@ -50,7 +50,7 @@ export function TopBar({
         <span className="flex size-6 items-center justify-center rounded-md bg-indigo-600 text-(length:--text-app-micro) font-bold text-white">
           MQ
         </span>
-        <span className="text-sm font-semibold tracking-tight text-slate-900">MQTui</span>
+        <span className="text-(length:--text-app-title) font-semibold tracking-tight text-slate-900">MQTui</span>
       </span>
 
       <button
@@ -72,7 +72,7 @@ export function TopBar({
       <CommandTrigger />
 
       {current ? (
-        <div className="flex min-w-0 items-center gap-1.5 text-xs">
+        <div className="flex min-w-0 items-center gap-1.5 text-(length:--text-app-body)">
           <span className="text-meta">/</span>
           <span className="truncate font-medium text-slate-800">{current.name}</span>
           <span className="shrink-0 text-(length:--text-app-meta) text-meta">
@@ -80,7 +80,7 @@ export function TopBar({
           </span>
         </div>
       ) : (
-        <span className="text-xs text-meta">未连接</span>
+        <span className="text-(length:--text-app-body) text-meta">未连接</span>
       )}
 
       <span className="ml-auto flex shrink-0 items-center gap-0.5">

@@ -77,7 +77,7 @@ export function RoutingPage() {
             aria-label="过滤路由"
           />
         </div>
-        <label className="flex items-center gap-2 text-xs text-slate-600">
+        <label className="flex items-center gap-2 text-(length:--text-app-body) text-slate-600">
           <input
             type="checkbox"
             checked={onlyBroken}
@@ -85,7 +85,7 @@ export function RoutingPage() {
           />
           只看有问题的交换机
         </label>
-        <span className="ml-auto text-xs text-slate-500">
+        <span className="ml-auto text-(length:--text-app-body) text-slate-500">
           {formatNumber(data.routes.length)} 个交换机 · {formatNumber(brokenCount)} 个投放异常
         </span>
       </PageToolbar>
@@ -93,7 +93,7 @@ export function RoutingPage() {
       {brokenCount || data.stalled.length ? (
         <Card>
           <CardHeader title="需要关注" />
-          <CardBody className="flex flex-col gap-2 text-xs text-slate-600">
+          <CardBody className="flex flex-col gap-2 text-(length:--text-app-body) text-slate-600">
             {data.deadEnds.length ? (
               <p>
                 <span className="mr-2 text-rose-700">死路</span>
@@ -162,7 +162,7 @@ function ExchangeRouteCard({
       <CardHeader
         title={
           <span className="flex items-center gap-2">
-            <span className="font-mono text-xs text-slate-800">{labelOf(route.exchange)}</span>
+            <span className="font-mono text-(length:--text-app-body) text-slate-800">{labelOf(route.exchange)}</span>
             <Badge tone={CONFIDENCE_TONE[route.confidence]}>
               {ROUTE_CONFIDENCE_LABEL[route.confidence]}
             </Badge>
@@ -178,8 +178,8 @@ function ExchangeRouteCard({
       />
       <CardBody className="p-0">
         {route.queues.length ? (
-          <table className="w-full text-left text-sm">
-            <thead className="text-(length:--text-app-meta) uppercase tracking-wide text-slate-500">
+          <table className="w-full text-left text-(length:--text-app-title)">
+            <thead className="text-(length:--text-app-meta) uppercase tracking-wide text-secondary font-medium">
               <tr className="border-b border-slate-200">
                 <th className="px-4 py-2 font-normal">队列</th>
                 <th className="px-4 py-2 font-normal">routing key</th>
@@ -193,13 +193,13 @@ function ExchangeRouteCard({
                   key={`${hop.queue}|${hop.routingKey}|${hop.viaExchange}`}
                   className="border-b border-slate-200 last:border-0"
                 >
-                  <td className="px-4 py-2 font-mono text-xs text-slate-800">
+                  <td className="px-4 py-2 font-mono text-(length:--text-app-body) text-slate-800">
                     {hop.queue}
                     {stalled.includes(hop.queue) ? (
                       <span className="ml-2 text-(length:--text-app-meta) text-amber-700">无消费者</span>
                     ) : null}
                   </td>
-                  <td className="px-4 py-2 font-mono text-xs text-slate-500">
+                  <td className="px-4 py-2 font-mono text-(length:--text-app-body) text-slate-500">
                     {hop.routingKey || "-"}
                     {hop.share ? (
                       <span className="ml-2 text-(length:--text-app-meta) text-slate-500">
@@ -213,7 +213,7 @@ function ExchangeRouteCard({
                   <td className="px-4 py-2 text-right">
                     <button
                       type="button"
-                      className="rounded border border-slate-300 px-2 py-0.5 text-xs text-slate-600 hover:bg-slate-100"
+                      className="rounded border border-slate-300 px-2 py-0.5 text-(length:--text-app-body) text-slate-600 hover:bg-slate-100"
                       onClick={() => onOpenQueue(hop.queue)}
                     >
                       查看消息
@@ -224,7 +224,7 @@ function ExchangeRouteCard({
             </tbody>
           </table>
         ) : (
-          <p className="px-4 py-3 text-xs text-slate-500">
+          <p className="px-4 py-3 text-(length:--text-app-body) text-slate-500">
             {deadEnd
               ? "这个交换机没有任何出站绑定，消息进入后会被静默丢弃。"
               : "出站绑定只指向交换机，链路最终没有落到队列。"}

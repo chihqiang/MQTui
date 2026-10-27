@@ -150,7 +150,7 @@ export function PoliciesPage() {
           onValueChange={setKeyword}
           placeholder="按名称 / 模式 / 键过滤"
           aria-label="过滤策略"
-          className="h-8 w-64 text-xs"
+          className="h-8 w-64 text-(length:--text-app-body)"
         />
       </PageToolbar>
 
@@ -196,7 +196,7 @@ export function PoliciesPage() {
         />
         <CardBody className="p-0">
           {data?.operatorError ? (
-            <p className="px-4 py-3 text-xs text-slate-500">
+            <p className="px-4 py-3 text-(length:--text-app-body) text-slate-500">
               拉取失败：{data.operatorError}
               <br />
               老版本 RabbitMQ（3.8 之前）没有这个接口，不影响上面的普通策略。
@@ -208,7 +208,7 @@ export function PoliciesPage() {
               ))}
             </DataTable>
           ) : (
-            <p className="px-4 py-3 text-xs text-slate-500">
+            <p className="px-4 py-3 text-(length:--text-app-body) text-slate-500">
               没有操作员策略。运维可以用它兜住底线（例如禁止无限长队列），用户无法覆盖
             </p>
           )}

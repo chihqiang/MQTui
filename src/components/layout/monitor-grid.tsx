@@ -94,7 +94,7 @@ export function MonitorCard({
       )}
     >
       <header className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-200 px-3 py-2">
-        <h2 className="min-w-0 truncate text-xs font-medium text-slate-800">{title}</h2>
+        <h2 className="min-w-0 truncate text-(length:--text-app-body) font-medium text-slate-800">{title}</h2>
         {extra ? <div className="flex shrink-0 items-center gap-2">{extra}</div> : null}
       </header>
       <div className={cn("min-h-0 flex-1", scroll && "overflow-auto")}>{children}</div>

@@ -22,10 +22,10 @@ export function ConnectionSidebar() {
   return (
     <aside className="flex w-56 shrink-0 flex-col border-r border-slate-200 bg-white">
       <div className="min-h-0 flex-1 overflow-auto px-2 py-3">
-        <p className="px-2 pb-1.5 text-(length:--text-app-micro) font-medium tracking-wider text-meta uppercase">
+        <p className="px-2 pb-1.5 text-(length:--text-app-micro) font-semibold tracking-wider text-secondary uppercase">
           连接
         </p>
-        {isLoading ? <p className="px-2 text-xs text-meta">加载中…</p> : null}
+        {isLoading ? <p className="px-2 text-(length:--text-app-body) text-meta">加载中…</p> : null}
         {data?.length === 0 ? (
           <p className="px-2 text-(length:--text-app-meta) leading-relaxed text-meta">
             还没有连接。点右上角的 + 新建一条。
@@ -41,7 +41,7 @@ export function ConnectionSidebar() {
                   to={connectionPath(connection.id)}
                   aria-current={active ? "true" : undefined}
                   className={cn(
-                    "flex flex-col gap-0.5 rounded-lg px-2 py-1.5 text-xs transition-colors",
+                    "flex flex-col gap-0.5 rounded-lg px-2 py-1.5 text-(length:--text-app-body) transition-colors",
                     active
                       ? "bg-indigo-50 text-indigo-900 ring-1 ring-indigo-100"
                       : "text-slate-600 hover:bg-slate-50 hover:text-slate-900",

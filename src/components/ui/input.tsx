@@ -9,7 +9,7 @@ import { cn } from "@/lib/cn";
 import { IconClose, IconSearch } from "@/lib/icons";
 
 const FIELD_CLASS =
-  "w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-900 " +
+  "w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-(length:--text-app-body) text-slate-900 " +
   "shadow-xs transition-colors duration-(--motion-fast) " +
   "placeholder:text-meta hover:border-slate-300 " +
   "focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/15 focus:outline-none " +
@@ -105,12 +105,12 @@ export function Field({
 }) {
   return (
     <label className="flex flex-col gap-1">
-      <span className="text-xs text-slate-500">{label}</span>
+      <span className="text-(length:--text-app-body) text-secondary">{label}</span>
       {children}
       {error ? (
         <span className="text-(length:--text-app-meta) text-rose-700">{error}</span>
       ) : hint ? (
-        <span className="text-(length:--text-app-meta) text-slate-500">{hint}</span>
+        <span className="text-(length:--text-app-meta) text-meta">{hint}</span>
       ) : null}
     </label>
   );

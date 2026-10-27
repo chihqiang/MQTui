@@ -73,7 +73,7 @@ export function ConfirmDialog({
     >
       <div className="flex flex-col gap-3">
         {description ? (
-          <div className="selectable text-xs leading-relaxed text-slate-500">{description}</div>
+          <div className="selectable text-(length:--text-app-body) leading-relaxed text-slate-500">{description}</div>
         ) : null}
         {children}
         {requirePhrase ? (
@@ -87,7 +87,7 @@ export function ConfirmDialog({
               autoFocus
               spellCheck={false}
               placeholder={requirePhrase}
-              className={cn("h-8 font-mono text-xs", matched || !phrase ? undefined : "border-rose-300")}
+              className={cn("h-8 font-mono text-(length:--text-app-body)", matched || !phrase ? undefined : "border-rose-300")}
             />
           </Field>
         ) : null}

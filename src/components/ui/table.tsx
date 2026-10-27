@@ -11,7 +11,7 @@ import { Skeleton } from "./skeleton";
 /**
  * 表格原语。
  *
- * 面板里 20 多张表原本各写一套 `thead`（`text-(length:--text-app-meta) uppercase tracking-wide text-slate-500`
+ * 面板里 20 多张表原本各写一套 `thead`（`text-(length:--text-app-meta) uppercase tracking-wide text-secondary font-medium`
  * 这一段抄了 20 遍），改一次列间距要翻 20 个文件。这里把「表头长相」定死一处，
  * 页面只描述「有哪些列、每列多宽、怎么对齐」。
  *
@@ -236,8 +236,8 @@ export function TableCell({
         // 而它们 99% 的时间在算同一个值 —— 换密度时全站几百个单元格一起触发更新。
         // `DataTable` 把档位写在 `<table>` 的变量上，行只是消费者。
         "py-(--row-py)",
-        mono && "font-mono text-xs",
-        muted && "text-slate-500",
+        mono && "font-mono text-(length:--text-app-body)",
+        muted && "text-meta",
         numeric && "tabular",
         resolved && ALIGN_CLASS[resolved],
         className,

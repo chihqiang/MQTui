@@ -37,11 +37,11 @@ export function MessageDetailDialog({ connectionId, message, onClose }: Props) {
     <Modal open title="消息详情" onClose={onClose}>
       {/* 骨架与真实内容同形：详情弹窗打开时列表还在后面，跳版会让人以为点错了行。 */}
       {isLoading ? <SkeletonRows rows={5} className="p-0" label="读取详情…" /> : null}
-      {error ? <p className="text-sm text-rose-700">{errorMessage(error)}</p> : null}
+      {error ? <p className="text-(length:--text-app-title) text-rose-700">{errorMessage(error)}</p> : null}
 
       {data ? (
         <div className="flex flex-col gap-4">
-          <dl className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+          <dl className="grid grid-cols-2 gap-2 text-(length:--text-app-body) sm:grid-cols-4">
             <Meta label="Topic" value={data.summary.topic ?? "-"} />
             <Meta label="Partition" value={formatNumber(data.summary.partition)} />
             <Meta label="Offset" value={formatNumber(data.summary.offset)} />
@@ -54,12 +54,12 @@ export function MessageDetailDialog({ connectionId, message, onClose }: Props) {
 
           {data.headers.length > 0 ? (
             <section>
-              <h4 className="mb-1 text-xs text-slate-500">Headers</h4>
+              <h4 className="mb-1 text-(length:--text-app-body) text-slate-500">Headers</h4>
               <ul className="flex flex-col gap-1">
                 {data.headers.map((header, index) => (
                   <li
                     key={`${header.key}-${index}`}
-                    className="flex gap-2 rounded border border-slate-200 px-2 py-1 text-xs"
+                    className="flex gap-2 rounded border border-slate-200 px-2 py-1 text-(length:--text-app-body)"
                   >
                     <span className="shrink-0 font-mono text-info">{header.key}</span>
                     <span className="min-w-0 flex-1 break-all text-slate-600">{header.value}</span>
@@ -78,7 +78,7 @@ export function MessageDetailDialog({ connectionId, message, onClose }: Props) {
 function InlineDetail({ message, payload }: { message: MessageSummary; payload: string }) {
   return (
     <div className="flex flex-col gap-4">
-      <dl className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+      <dl className="grid grid-cols-2 gap-2 text-(length:--text-app-body) sm:grid-cols-4">
         <Meta label="Topic" value={message.topic ?? "-"} />
         <Meta label="Partition" value={formatNumber(message.partition)} />
         <Meta label="Offset" value={formatNumber(message.offset)} />
@@ -115,7 +115,7 @@ function PayloadSection({
   return (
     <section>
       <div className="mb-1 flex items-center justify-between gap-2">
-        <h4 className="text-xs text-slate-500">Payload</h4>
+        <h4 className="text-(length:--text-app-body) text-slate-500">Payload</h4>
         <Button
           size="xs"
           variant="ghost"
@@ -127,7 +127,7 @@ function PayloadSection({
           复制
         </Button>
       </div>
-      <pre className="max-h-72 overflow-auto rounded border border-slate-200 bg-white p-3 text-xs whitespace-pre-wrap break-all text-slate-800">
+      <pre className="max-h-72 overflow-auto rounded border border-slate-200 bg-white p-3 text-(length:--text-app-body) whitespace-pre-wrap break-all text-slate-800">
         {payload || "(空)"}
       </pre>
       {note ? (
@@ -146,7 +146,7 @@ function PayloadSection({
 function Meta({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded border border-slate-200 px-2 py-1.5">
-      <dt className="text-(length:--text-app-micro) uppercase tracking-wide text-slate-500">{label}</dt>
+      <dt className="text-(length:--text-app-micro) uppercase tracking-wide text-secondary font-medium">{label}</dt>
       <dd className="truncate text-slate-800">{value}</dd>
     </div>
   );

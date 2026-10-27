@@ -27,7 +27,7 @@ export type TextSize = "micro" | "meta" | "body" | "title" | "display";
  * - `display`（16px）：页面标题。原来页头也是 14px，和表头差 3px，
  *   视觉上不承担「你现在在哪」的职责。
  *
- * 走变量而不是 Tailwind 的 `text-xs/text-sm`：这两档在 Tailwind 里
+ * 走变量而不是 Tailwind 的 `text-(length:--text-app-body)/text-(length:--text-app-title)`：这两档在 Tailwind 里
  * 分别绑死 12px 和 14px，语义（meta/body/title）和尺寸（1/2/3 档）
  * 混在一起，最后还是有人写 `text-[11px]`。
  */

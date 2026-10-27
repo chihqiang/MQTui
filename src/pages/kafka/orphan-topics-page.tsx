@@ -82,7 +82,7 @@ export function OrphanTopicsPage() {
       <Card>
         <CardHeader
           title="扫描范围"
-          extra={<span className="text-xs text-slate-500">{describeScope(selected, prefix)}</span>}
+          extra={<span className="text-(length:--text-app-body) text-slate-500">{describeScope(selected, prefix)}</span>}
         />
         <CardBody className="flex flex-col gap-3">
           <div className="flex flex-wrap items-end gap-3">
@@ -143,7 +143,7 @@ export function OrphanTopicsPage() {
               );
             })}
             {visibleCandidates.length ? null : (
-              <p className="text-xs text-slate-500">没有匹配的主题</p>
+              <p className="text-(length:--text-app-body) text-slate-500">没有匹配的主题</p>
             )}
           </div>
 
@@ -195,7 +195,7 @@ function ScanResult({
   return (
     <>
       {data.missingTopics?.length ? (
-        <p className="text-xs text-amber-400">
+        <p className="text-(length:--text-app-body) text-amber-400">
           以下主题在集群里不存在，已跳过：{data.missingTopics.join("、")}
         </p>
       ) : null}
@@ -204,14 +204,14 @@ function ScanResult({
           <CardHeader
             title={`无消费组主题（${data.total}）`}
             extra={
-              <span className="text-xs text-slate-500">
+              <span className="text-(length:--text-app-body) text-slate-500">
                 扫描 {data.scannedTopics ?? 0} 个主题 · 按堆积量倒序
               </span>
             }
           />
           <CardBody className="p-0">
-            <table className="w-full text-left text-sm">
-              <thead className="text-(length:--text-app-meta) uppercase tracking-wide text-slate-500">
+            <table className="w-full text-left text-(length:--text-app-title)">
+              <thead className="text-(length:--text-app-meta) uppercase tracking-wide text-secondary font-medium">
                 <tr className="border-b border-slate-200">
                   <th className="px-4 py-2 font-normal">主题</th>
                   <th className="px-4 py-2 font-normal">堆积</th>
@@ -276,7 +276,7 @@ function OrphanRow({
         className="cursor-pointer border-b border-slate-200 last:border-0 hover:bg-slate-50"
         onClick={onToggle}
       >
-        <td className="px-4 py-2 font-mono text-xs text-slate-800">{item.topic}</td>
+        <td className="px-4 py-2 font-mono text-(length:--text-app-body) text-slate-800">{item.topic}</td>
         <td className="px-4 py-2">
           <Badge tone={lagTone(item.messages)}>{formatNumber(item.messages)}</Badge>
         </td>

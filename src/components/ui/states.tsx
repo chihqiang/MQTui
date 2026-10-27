@@ -19,7 +19,7 @@ export function Loading({ label = "加载中…", rows }: { label?: string; rows
   }
 
   return (
-    <div className="flex items-center gap-2 p-6 text-sm text-slate-500" role="status">
+    <div className="flex items-center gap-2 p-6 text-(length:--text-app-body) text-secondary" role="status">
       <span className="size-3 animate-spin rounded-full border-2 border-slate-300 border-t-indigo-500" />
       {label}
     </div>
@@ -53,12 +53,16 @@ export function Empty({
         className,
       )}
     >
-      <div className="mb-1 rounded-full border border-dashed border-slate-300 bg-white p-3 text-slate-500">
+      {/* 图标方块：实心浅灰底而不是虚线描边。虚线圆落在白卡上像是「还没画完的占位」，
+          而空态是**成品页面**，只是暂时没有数据。 */}
+      <div className="mb-1 flex size-10 items-center justify-center rounded-full bg-slate-100 text-secondary">
         {icon ?? <IconInbox size={18} />}
       </div>
-      <p className="text-(length:--text-app-title) font-medium text-slate-600">{title}</p>
+      <p className="text-(length:--text-app-title) font-medium text-slate-800">{title}</p>
       {description ? (
-        <p className="max-w-md text-(length:--text-app-meta) text-slate-500">{description}</p>
+        <p className="max-w-md text-(length:--text-app-meta) leading-relaxed text-meta">
+          {description}
+        </p>
       ) : null}
       {action ? <div className="mt-2">{action}</div> : null}
     </div>
@@ -97,7 +101,7 @@ export function ErrorState({
         <button
           type="button"
           onClick={onRetry}
-          className="rounded-lg bg-white px-3 py-1 text-xs font-medium text-slate-700 shadow-xs ring-1 ring-slate-200 transition-colors hover:bg-slate-50 hover:text-slate-900"
+          className="rounded-lg bg-white px-3 py-1 text-(length:--text-app-body) font-medium text-slate-700 shadow-xs ring-1 ring-slate-200 transition-colors hover:bg-slate-50 hover:text-slate-900"
         >
           重试
         </button>

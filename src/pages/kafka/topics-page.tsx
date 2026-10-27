@@ -149,7 +149,7 @@ export function TopicsPage() {
           onValueChange={setKeyword}
           placeholder="按主题名过滤"
           aria-label="过滤主题"
-          className="h-8 w-64 text-xs"
+          className="h-8 w-64 text-(length:--text-app-body)"
         />
       </PageToolbar>
 
@@ -238,7 +238,7 @@ export function TopicsPage() {
             </DataTable>
             {!skeleton && !filtered.length ? (
               <div className="flex flex-col items-center gap-1 px-4 py-6 text-center">
-                <p className="text-xs text-slate-500">没有名称匹配的主题</p>
+                <p className="text-(length:--text-app-body) text-slate-500">没有名称匹配的主题</p>
                 <Button size="xs" variant="ghost" onClick={() => setKeyword("")}>
                   清除过滤
                 </Button>
@@ -326,7 +326,7 @@ function CreateTopicModal({ open, onClose }: { open: boolean; onClose: () => voi
           </Field>
         </div>
         {partitionsInvalid ? (
-          <p className="text-xs text-rose-700">分区数至少为 1</p>
+          <p className="text-(length:--text-app-body) text-rose-700">分区数至少为 1</p>
         ) : null}
       </div>
     </Modal>
@@ -359,14 +359,14 @@ function HotspotPanel({ report, onClear }: { report: HotspotReport; onClear: () 
           </p>
         ) : null}
         {report.topics.length === 0 ? (
-          <p className="px-4 py-3 text-xs text-slate-500">选中的主题都不存在了。</p>
+          <p className="px-4 py-3 text-(length:--text-app-body) text-slate-500">选中的主题都不存在了。</p>
         ) : report.hotspots.length === 0 ? (
-          <p className="px-4 py-3 text-xs text-slate-500">
+          <p className="px-4 py-3 text-(length:--text-app-body) text-slate-500">
             没有发现分区倾斜：消息在各分区上分布均匀，或者总量太小还看不出趋势。
           </p>
         ) : (
-          <table className="w-full text-left text-xs">
-            <thead className="text-(length:--text-app-meta) uppercase tracking-wide text-slate-500">
+          <table className="w-full text-left text-(length:--text-app-body)">
+            <thead className="text-(length:--text-app-meta) uppercase tracking-wide text-secondary font-medium">
               <tr className="border-b border-slate-200">
                 <th className="px-4 py-2 font-normal">主题</th>
                 <th className="px-4 py-2 font-normal">最热分区</th>

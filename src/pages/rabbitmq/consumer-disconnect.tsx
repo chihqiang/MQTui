@@ -63,7 +63,7 @@ export function ConsumerDisconnectModal({ connectionId, target, onClose }: Props
       }
     >
       {consumer ? (
-        <div className="flex flex-col gap-3 text-xs">
+        <div className="flex flex-col gap-3 text-(length:--text-app-body)">
           <dl className="grid grid-cols-2 gap-x-6 gap-y-2">
             <Item label="队列" value={queue.queue} />
             <Item label="消费者标签" value={consumer.consumerTag} />
@@ -101,7 +101,7 @@ export function ConsumerDisconnectModal({ connectionId, target, onClose }: Props
 function Item({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <dt className="text-(length:--text-app-meta) text-slate-500">{label}</dt>
+      <dt className="text-(length:--text-app-meta) text-meta">{label}</dt>
       <dd className="break-all font-mono text-slate-800">{value}</dd>
     </div>
   );

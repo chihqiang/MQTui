@@ -131,7 +131,7 @@ function DetailBody({
   onDisconnect?: (consumer: QueueConsumer) => void;
 }) {
   return (
-    <div className="flex flex-col gap-4 text-xs">
+    <div className="flex flex-col gap-4 text-(length:--text-app-body)">
       {/* 三态必须拆开写：总数 / 待投递 / 未确认。一个「消息数」看不出是没人消费
           还是消费者卡在确认上，这两件事的处置完全相反。 */}
       <DescriptionGrid items={describeFacts(detail)} />
@@ -156,7 +156,7 @@ function DetailBody({
         {consumers ? (
           <ConsumerBlock links={consumers} queue={detail.name} onDisconnect={onDisconnect} />
         ) : (
-          <p className="text-xs text-slate-500">消费者信息需要管理 API，暂不可用。</p>
+          <p className="text-(length:--text-app-body) text-slate-500">消费者信息需要管理 API，暂不可用。</p>
         )}
       </section>
 
