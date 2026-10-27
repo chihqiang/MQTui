@@ -26,6 +26,8 @@ export const STORAGE_KEYS = {
   messageTargets: "message-targets",
   /** 命令面板最近执行过的命令，用于把高频路径顶到前面。 */
   recentCommands: "recent-commands",
+  /** 侧栏里被手动折起来的组（中间件 / 当前连接的页面菜单）。 */
+  collapsedGroups: "collapsed-groups",
 } as const;
 
 function fullKey(key: string): string {

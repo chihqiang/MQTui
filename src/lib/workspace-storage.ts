@@ -96,3 +96,25 @@ export function rememberTarget(memoryKey: string, target: string): void {
     [memoryKey]: [target, ...others].slice(0, MAX_TARGETS),
   });
 }
+
+/**
+ * 侧栏里被手动折起来的组。
+ *
+ * 存「折起来的」而不是「展开的」：新增的连接与新增的菜单项默认是展开的，
+ * 若存展开集合，一份旧的快照会把新东西一直藏在折叠里。
+ *
+ * 组键形如 `kind:kafka`（中间件组）与 `pages:<connectionId>`（某条连接的页面菜单）。
+ */
+const COLLAPSED_KEY = STORAGE_KEYS.collapsedGroups;
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+export function readCollapsedGroups(): string[] {
+  return readJson(COLLAPSED_KEY, isStringArray) ?? [];
+}
+
+export function saveCollapsedGroups(keys: readonly string[]): void {
+  writeJson(COLLAPSED_KEY, [...keys]);
+}

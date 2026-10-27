@@ -14,9 +14,23 @@ import {
   LuArrowRight,
   LuChevronDown,
   LuChevronRight,
+  LuChartColumn,
+  LuCirclePlay,
+  LuCompass,
+  LuActivity,
+  LuCable,
+  LuGitBranch,
   LuCopy,
   LuCornerUpLeft,
   LuInbox,
+  LuLayers,
+  LuMail,
+  LuNetwork,
+  LuSettings2,
+  LuSlidersHorizontal,
+  LuTable2,
+  LuUsers,
+  LuWaypoints,
   LuLoaderCircle,
   LuPanelLeftClose,
   LuPanelLeftOpen,
@@ -58,6 +72,23 @@ export const IconResend = make(LuSend);
 export const IconRepeat = make(LuRepeat);
 export const IconSearch = make(LuSearch);
 export const IconServer = make(LuServer);
+
+/* 菜单图标。能力 → 形状在 `lib/nav.ts` 的 `NAV_LABELS` 里登记，
+   这里只负责「有这些形状可用」。 */
+export const IconOverview = make(LuCompass);
+export const IconCluster = make(LuNetwork);
+export const IconRuntime = make(LuCable);
+export const IconTopics = make(LuLayers);
+export const IconQueues = make(LuTable2);
+export const IconMessages = make(LuMail);
+export const IconProduce = make(LuCirclePlay);
+export const IconGroups = make(LuUsers);
+export const IconExchanges = make(LuGitBranch);
+export const IconRouting = make(LuWaypoints);
+export const IconTopology = make(LuActivity);
+export const IconGraph = make(LuChartColumn);
+export const IconConfig = make(LuSettings2);
+export const IconSliders = make(LuSlidersHorizontal);
 export const IconTrash = make(LuTrash2);
 
 /** 加载指示器：和 `animate-spin` 一起用。 */

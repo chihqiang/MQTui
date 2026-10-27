@@ -30,8 +30,8 @@ interface Props {
   onSelect: (message: MessageSummary) => void;
 }
 
-/** 行高固定，与消息列表保持一致。 */
-const ROW_HEIGHT = 40;
+/** 行高固定，与消息列表保持一致（正文 14px 之后紧凑档是 36，这里留 2px 余量）。 */
+const ROW_HEIGHT = 38;
 
 /**
  * Kafka 消息定位：按 key 或时间区间在日志里找消息。

@@ -21,13 +21,13 @@ export type TextSize = "micro" | "meta" | "body" | "title" | "display";
  * 字号到类名的映射。
  *
  * - `micro`（11px）：快捷键、分组小标题，只认不读；
- * - `meta`（12px，默认「密」档）：时间戳、位点、端点这类**要读**的次级信息；
- * - `body`（13px）：表格单元、按钮、表单；
- * - `title`（15px）：卡片标题、弹窗标题；
- * - `display`（20px）：页面标题。
+ * - `meta`（12.5px）：时间戳、位点、端点这类**要读**的次级信息；
+ * - `body`（14px）：表格单元、按钮、表单；
+ * - `title`（16px）：卡片标题、弹窗标题；
+ * - `display`（22px）：页面标题。
  *
- * 走变量而不是 Tailwind 的 `text-(length:--text-app-body)/text-(length:--text-app-title)`：这两档在 Tailwind 里
- * 分别绑死 12px 和 14px，语义（meta/body/title）和尺寸（1/2/3 档）
+ * 走变量而不是 Tailwind 的 `text-sm` / `text-base`：这两档在 Tailwind 里
+ * 绑死 14px 和 16px，语义（meta/body/title）和尺寸（1/2/3 档）
  * 混在一起，最后还是有人写 `text-[11px]`。
  */
 export const TEXT_SIZE_CLASS: Record<TextSize, string> = {
@@ -43,42 +43,21 @@ export function textSize(size: TextSize): string {
 }
 
 /**
- * 次级字号（`meta` 档）的两档取值。
+ * 次级字号（`meta` 档）。
  *
- * 评审里最实在的一条是「密度偏小到临界」：129 处 11px 挤在 12px 正文旁边，
- * 在 1440×900 的屏上还行，13 寸 / 高分屏缩放下就偏小。整条字号阶梯后来
- * 统一抬高了一档（正文 13px），这两档也跟着上移：`dense` 11px 只留给
- * 「只认不读」的标记，`normal` 12px 才是默认档。
+ * 单档。它曾经是「偏好设置」里的一个开关（11px / 12px），调的是全站每一处
+ * 时间戳与位点 —— 一个几乎没人调、却能让所有人的界面长得不一样的开关。
+ * 字号档位该由设计定，不由用户现场试出来。
  *
- * 仍然保留这颗开关：一屏 30 行的信息密度是这工具立身的东西，觉得 12px
- * 偏挤的人应该还能往回收一档，而不是去改系统缩放。
+ * 取 12.5px 而不是整数：它要同时满足两条 —— 明显小于 14px 正文（否则
+ * 时间戳会和 payload 抢读），又要在 13 寸屏上读得清（12px 在高分屏缩放
+ * 之后就开始糊）。
  */
-export type MetaScale = "dense" | "normal";
-
-export const META_FONT_SIZE: Record<MetaScale, number> = {
-  dense: 11,
-  normal: 12,
-};
-
-export const META_OPTIONS: { value: MetaScale; label: string; hint: string }[] = [
-  { value: "dense", label: "密", hint: "次级文字 11px，一屏信息最多" },
-  { value: "normal", label: "舒", hint: "次级文字 12px，时间戳与位点更好读（默认）" },
-];
-
-export const DEFAULT_META_SCALE: MetaScale = "normal";
-
-/**
- * 全站使用的次级字号。
- *
- * 这两档曾经是一个「偏好设置」里的开关：能调、但几乎没人调，而它调的是
- * 全站每一处时间戳与位点 —— 一个几乎不被使用、却能让所有人的界面长得不一样
- * 的开关。字号的档位应该由设计决定，不由用户现场试出来。
- */
-export const META_SCALE: MetaScale = DEFAULT_META_SCALE;
+export const META_FONT_SIZE = 12.5;
 
 /** 写到 `--text-app-meta` 上的实际值（带单位）。 */
-export function metaFontSize(scale: MetaScale = META_SCALE): string {
-  return `${META_FONT_SIZE[scale]}px`;
+export function metaFontSize(): string {
+  return `${META_FONT_SIZE}px`;
 }
 
 /**
@@ -159,16 +138,16 @@ export function isSemanticTone(tone: string): boolean {
  * 窗口默认尺寸。
  *
  * 两个约束：
- * 1. 必须大于 `NARROW_WIDTH`（900），否则一启动就被强制降级成极简档，
- *    用户对「分组/平铺/极简」三档的第一印象就是「按钮是灰的」；
+ * 1. 必须大于 `NARROW_WIDTH`（900），否则一启动就被强制降级成图标条，
+ *    用户的第一印象会是「这窗口装不下自己」；
  * 2. 必须放得下 1440×900 这类主流笔记本屏（留出标题栏与任务栏）。
  *
- * 1200×800 是这两条的交点：分组档（连接列表 208 + 菜单 144）之外还有 848px
- * 给表格，一屏能放下六列。
+ * 1280×820 是这两条的交点：侧栏 232px 之外还有 1048px 给表格 —— 正文
+ * 抬到 14px 之后，一屏仍然放得下六列，而且不必挤掉任何一列。
  */
-export const DEFAULT_WINDOW_SIZE = { width: 1200, height: 800 } as const;
+export const DEFAULT_WINDOW_SIZE = { width: 1280, height: 820 } as const;
 
-/** 最小窗口尺寸。低于它连极简档的两列都排不开，拖到更小就没有意义了。 */
+/** 最小窗口尺寸。低于它连图标条那一列都排不开，拖到更小就没有意义了。 */
 export const MIN_WINDOW_SIZE = { width: 720, height: 480 } as const;
 
 /**
@@ -181,7 +160,7 @@ export function initialWindowSize(): { width: number; height: number } {
   return { ...DEFAULT_WINDOW_SIZE };
 }
 
-/** 尺寸是否放得下分组档（即不会一启动就降级）。 */
+/** 尺寸是否放得下侧栏（即不会一启动就降级）。 */
 export function fitsLayout(width: number, narrowWidth: number): boolean {
   return width >= narrowWidth;
 }

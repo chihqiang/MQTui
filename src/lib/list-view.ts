@@ -60,11 +60,12 @@ export function densityRowPadding(density: Density): string {
  * 于是一换到「宽松」档，行就被画矮了：越往下滚，列表内容相对滚动位置偏得越多，
  * 鼠标滚一格，视线落点跳一大截。行高和行内边距必须是同一个来源。
  *
- * 数值 = `densityRowClass` 的上下内边距 + 一行文字的盒子：紧凑 34、宽松 42。
+ * 数值 = `densityRowClass` 的上下内边距 + 一行文字的盒子。正文抬到 14px
+ * 之后行盒子变成 ~20px，整梯因此各加 2：紧凑 36、宽松 44。
  */
 export const DENSITY_ROW_HEIGHT: Record<Density, number> = {
-  compact: 34,
-  comfortable: 42,
+  compact: 36,
+  comfortable: 44,
 };
 
 export function densityRowHeight(density: Density): number {

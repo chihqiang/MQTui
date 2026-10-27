@@ -12,11 +12,9 @@ import test from "node:test";
 
 import { NARROW_WIDTH } from "./layout.ts";
 import {
-  DEFAULT_META_SCALE,
   DEFAULT_STATUS_DENSITY,
   DEFAULT_WINDOW_SIZE,
   META_FONT_SIZE,
-  META_SCALE,
   MIN_WINDOW_SIZE,
   TEXT_SIZE_CLASS,
   brokerIdentity,
@@ -29,16 +27,16 @@ import {
   textSize,
 } from "./visual.ts";
 
-test("默认窗口放得下分组档，不会一启动就降级", () => {
+test("默认窗口放得下侧栏，不会一启动就降级", () => {
   assert.equal(fitsLayout(DEFAULT_WINDOW_SIZE.width, NARROW_WIDTH), true);
-  // 回归：曾经是 800×600，比自家阈值 900 还小，首屏永远是极简档。
+  // 回归：曾经是 800×600，比自家阈值 900 还小，首屏永远是降级档。
   assert.ok(DEFAULT_WINDOW_SIZE.width > NARROW_WIDTH);
 });
 
 test("默认窗口放得进 1440×900 的笔记本屏", () => {
-  // 标题栏 + 任务栏大约吃掉 100px 纵向，横向留边。
+  // 标题栏 + 任务栏大约吃掉 80px 纵向，横向留边。
   assert.ok(DEFAULT_WINDOW_SIZE.width <= 1360);
-  assert.ok(DEFAULT_WINDOW_SIZE.height <= 800);
+  assert.ok(DEFAULT_WINDOW_SIZE.height <= 820);
 });
 
 test("最小窗口小于默认值，且仍能排出两列", () => {
@@ -50,7 +48,7 @@ test("最小窗口小于默认值，且仍能排出两列", () => {
 test("初始尺寸是一份拷贝，调用方改它不会污染常量", () => {
   const size = initialWindowSize();
   size.width = 1;
-  assert.equal(DEFAULT_WINDOW_SIZE.width, 1200);
+  assert.equal(DEFAULT_WINDOW_SIZE.width, 1280);
 });
 
 test("五档字号各有类名，且互不相同", () => {
@@ -86,16 +84,13 @@ test("身份色不落在任何语义色上", () => {
   assert.equal(isSemanticTone("warning"), true);
 });
 
-test("次级字号两档：默认 12px，紧凑档更小", () => {
-  // 回归：整条字号阶梯抬高一档之后，默认档是 12px，11px 只留给「只认不读」的标记。
-  assert.equal(metaFontSize(DEFAULT_META_SCALE), "12px");
-  assert.ok(META_FONT_SIZE.normal > META_FONT_SIZE.dense);
-  assert.equal(metaFontSize("dense"), "11px");
+test("次级字号只有一档，界面不因偏好而变形", () => {
+  assert.equal(metaFontSize(), `${META_FONT_SIZE}px`);
 });
 
-test("次级字号只有一档，界面不因偏好而变形", () => {
-  assert.equal(metaFontSize(), metaFontSize(META_SCALE));
-  assert.equal(metaFontSize(), "12px");
+test("次级字号明显小于正文，又大于「只认不读」的微档", () => {
+  // 12.5px：12px 在 13 寸高分屏缩放下会糊，13px 又和 14px 正文抢读。
+  assert.equal(META_FONT_SIZE, 12.5);
 });
 
 test("状态条紧凑档比宽松档薄，且不为 0", () => {
