@@ -18,6 +18,7 @@ import {
   MIN_WINDOW_SIZE,
   TEXT_SIZE_CLASS,
   brokerIdentity,
+  brokerMark,
   brokerTone,
   fitsLayout,
   initialWindowSize,
@@ -96,4 +97,14 @@ test("次级字号明显小于正文，又大于「只认不读」的微档", ()
 test("状态条紧凑档比宽松档薄，且不为 0", () => {
   assert.ok(statusBarHeight(DEFAULT_STATUS_DENSITY) > 0);
   assert.ok(statusBarHeight("compact") < statusBarHeight("comfortable"));
+});
+
+test("两种中间件的品牌形状不同，未知类型不冒充品牌", () => {
+  // 图标是「这是哪种中间件」的第一识别物。两个形状要是同一个，徽标就退化成
+  // 只是「颜色不一样」—— 那得先记住颜色才用得上。
+  assert.equal(brokerMark("kafka"), "kafka");
+  assert.equal(brokerMark("rabbitMq"), "rabbitmq");
+  assert.notEqual(brokerMark("kafka"), brokerMark("rabbitMq"));
+  // 未知类型给 unknown，调用方画通用图标而不是随便借一个品牌形状。
+  assert.equal(brokerMark("pulsar"), "unknown");
 });

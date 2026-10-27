@@ -15,8 +15,14 @@ import {
   IconSliders,
   IconTopics,
   IconTopology,
+  IconKafka,
+  IconRabbitMq,
 } from "@/lib/icons";
+import { brokerMark } from "@/lib/visual";
 import type { BrokerCapability, BrokerKind } from "@/types";
+
+/** 图标组件的形状。只约束尺寸与配色，形状本身由 `lib/icons` 决定。 */
+export type NavIcon = (props: { size?: number; className?: string }) => ReactElement;
 
 /** 侧边栏菜单项描述。菜单由「能力」驱动，而不是按中间件写死。 */
 export interface NavItem {
@@ -29,7 +35,7 @@ export interface NavItem {
   /** 搜索别名（英文名、拼音首字母），命令面板用。 */
   keywords: string[];
   /** 菜单项的图标。图标条形态下它是唯一的识别物，所以每个能力都必须有。 */
-  Icon: (props: { size?: number; className?: string }) => ReactElement;
+  Icon: NavIcon;
 }
 
 /**
@@ -189,3 +195,21 @@ export const BROKER_LABEL: Record<BrokerKind, string> = {
   kafka: "Kafka",
   rabbitMq: "RabbitMQ",
 };
+
+/**
+ * 中间件图标。
+ *
+ * 两个形状都是商标级差异（齿轮状叶片 / 长耳朵），16px 下也认得出 ——
+ * 而「Kafka 是琥珀色、RabbitMQ 是紫色」这件事，得先记住颜色才用得上。
+ * 形状解决「这是哪种中间件」，颜色继续解决「我在哪一条连接上」。
+ *
+ * 未知类型退回 `null`：宁可不画，也别拿一个通用图标冒充品牌。
+ */
+export const BROKER_ICON: Record<string, NavIcon | null> = {
+  kafka: IconKafka,
+  rabbitmq: IconRabbitMq,
+};
+
+export function brokerIcon(kind: string): NavIcon | null {
+  return BROKER_ICON[brokerMark(kind)] ?? null;
+}

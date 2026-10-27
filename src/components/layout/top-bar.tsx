@@ -3,9 +3,10 @@ import { NavLink, useNavigate } from "react-router";
 
 import { useCloseConnection, useConnections } from "@/hooks/use-connections";
 import { cn } from "@/lib/cn";
-import { IconChevronDown, IconClose, IconPlus } from "@/lib/icons";
-import { BROKER_LABEL, connectionPath } from "@/lib/nav";
+import { IconChevronDown, IconClose, IconPlus, IconServer } from "@/lib/icons";
+import { BROKER_LABEL, brokerIcon, connectionPath } from "@/lib/nav";
 import { disconnectLabel } from "@/lib/reconnect";
+import { BROKER_TONE_CLASS, brokerTone } from "@/lib/visual";
 
 import { CommandTrigger } from "./command-trigger";
 
@@ -90,13 +91,7 @@ export function TopBar({
                 open ? "bg-slate-100" : "hover:bg-slate-100",
               )}
             >
-              <span
-                aria-hidden
-                className={cn(
-                  "size-1.5 shrink-0 rounded-full",
-                  current.kind === "kafka" ? "bg-broker-kafka" : "bg-broker-rabbitmq",
-                )}
-              />
+              <KindBadge kind={current.kind} />
               <span className="truncate font-medium text-slate-800">{current.name}</span>
               <span className="hidden min-w-0 truncate font-mono text-(length:--text-app-meta) text-meta lg:inline">
                 {current.endpoint}
@@ -142,13 +137,7 @@ export function TopBar({
                   }}
                   className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-slate-50"
                 >
-                  <span
-                    aria-hidden
-                    className={cn(
-                      "size-1.5 shrink-0 rounded-full",
-                      connection.kind === "kafka" ? "bg-broker-kafka" : "bg-broker-rabbitmq",
-                    )}
-                  />
+                  <KindBadge kind={connection.kind} />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-(length:--text-app-body) text-slate-800">
                       {connection.name}
@@ -188,5 +177,28 @@ export function TopBar({
         <IconPlus />
       </NavLink>
     </header>
+  );
+}
+
+/**
+ * 中间件类型徽标：浅底 + 身份色品牌图标。
+ *
+ * 原来这里只是一个 1.5 的圆点 —— 圆点区分不了 Kafka 和 RabbitMQ，
+ * 只区分得出「这两个颜色不一样」。下拉清单里还有一行文字兜底，
+ * 顶栏的切换器上则只有它，所以形状必须自己说得清。
+ */
+function KindBadge({ kind }: { kind: string }) {
+  const Icon = brokerIcon(kind);
+  const tone = brokerTone(kind);
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "flex size-5 shrink-0 items-center justify-center rounded",
+        tone === "neutral" ? "bg-slate-100 text-secondary" : BROKER_TONE_CLASS[tone].tint,
+      )}
+    >
+      {Icon ? <Icon size={12} /> : <IconServer size={12} />}
+    </span>
   );
 }

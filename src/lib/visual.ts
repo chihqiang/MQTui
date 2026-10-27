@@ -126,6 +126,37 @@ export function brokerTone(kind: string): BrokerTone | "neutral" {
 }
 
 /**
+ * 中间件徽标的底色 + 文字色。
+ *
+ * 以前每个调用点各写一遍三元表达式（`kind === "kafka" ? "bg-amber-50 …"
+ * : "bg-violet-50 …"`），一共九处 —— 加一种中间件就得改九遍，漏一处
+ * 那个地方的颜色就会退回中性灰。形状同理，见 `brokerIcon`。
+ */
+export const BROKER_TONE_CLASS: Record<BrokerTone, { tint: string; solid: string }> = {
+  "broker-kafka": {
+    tint: "bg-broker-kafka/12 text-broker-kafka",
+    solid: "bg-broker-kafka text-white",
+  },
+  "broker-rabbitmq": {
+    tint: "bg-broker-rabbitmq/12 text-broker-rabbitmq",
+    solid: "bg-broker-rabbitmq text-white",
+  },
+};
+
+/**
+ * 品牌形状 —— 与身份色一一对应的那对图标名。
+ *
+ * 类型放这儿而不是直接引用组件：`lib/visual.ts` 是纯函数模块，被单测
+ * 直接跑在 node 里，一旦它去 import `react-icons`，`npm run test:web`
+ * 就会因为解析不到 JSX 而挂掉。组件映射留在 `lib/nav.ts`。
+ */
+export type BrokerMarkName = "kafka" | "rabbitmq" | "unknown";
+
+export function brokerMark(kind: string): BrokerMarkName {
+  return brokerIdentity(kind);
+}
+
+/**
  * 身份色不许落在语义色上（`info` / `success` / `warning` / `danger`）。
  *
  * 单测钉住它，是因为「徽标颜色」这类东西改错了没人会报 bug，只是慢慢看不清。

@@ -46,6 +46,7 @@ import {
   LuTriangleAlert,
   LuX,
 } from "react-icons/lu";
+import { SiApachekafka, SiRabbitmq } from "react-icons/si";
 import type { IconBaseProps, IconType } from "react-icons";
 
 /** 统一尺寸：14px 配 12/13px 文字，16px 配 14px 文字。 */
@@ -90,6 +91,18 @@ export const IconGraph = make(LuChartColumn);
 export const IconConfig = make(LuSettings2);
 export const IconSliders = make(LuSlidersHorizontal);
 export const IconTrash = make(LuTrash2);
+
+/* 中间件品牌图标：实心商标形状，只有一个尺寸的用途（16~20px 的色块里），
+   所以不走 `make` 那套「14px + 2px 线宽」的基线 —— 实心图标改线宽没有意义，
+   放大到 6 会糊成一团。`size` 由调用方按容器给。 */
+const BRAND: IconBaseProps = { size: 16, "aria-hidden": true };
+
+export const IconKafka = (props: IconBaseProps) => (
+  <SiApachekafka {...BRAND} {...props} />
+);
+export const IconRabbitMq = (props: IconBaseProps) => (
+  <SiRabbitmq {...BRAND} {...props} />
+);
 
 /** 加载指示器：和 `animate-spin` 一起用。 */
 export const IconSpinner = make(LuLoaderCircle);

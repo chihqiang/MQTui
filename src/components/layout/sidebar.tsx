@@ -11,8 +11,9 @@ import {
   IconServer,
 } from "@/lib/icons";
 import { NAV_GROUP_LABEL, groupConnectionsByKind, groupNavItems } from "@/lib/layout";
-import { BROKER_LABEL, buildNavItems, connectionPath, type NavItem } from "@/lib/nav";
+import { BROKER_LABEL, brokerIcon, buildNavItems, connectionPath, type NavItem } from "@/lib/nav";
 import { disconnectLabel } from "@/lib/reconnect";
+import { BROKER_TONE_CLASS, brokerTone } from "@/lib/visual";
 import { readCollapsedGroups, saveCollapsedGroups } from "@/lib/workspace-storage";
 import type { BrokerKind, ConnectionSummary } from "@/types";
 
@@ -100,6 +101,7 @@ export function Sidebar() {
                 className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-(length:--text-app-micro) font-semibold tracking-wider text-secondary uppercase transition-colors hover:text-slate-900"
               >
                 {open ? <IconChevronDown size={11} /> : <IconChevronRight size={11} />}
+                <BrokerMark kind={group.kind} size={12} className="text-meta" />
                 <span className="flex-1 text-left">
                   {BROKER_LABEL[group.kind as keyof typeof BROKER_LABEL] ?? group.kind}
                 </span>
@@ -143,16 +145,6 @@ function ConnectionNode({
 }) {
   return (
     <div className="relative">
-      {/* 身份色竖线：左侧一条 2px，颜色只说明「这是 Kafka 还是 RabbitMQ」，
-          不参与选中态。它只在当前连接上加深，其余保持淡的一档。 */}
-      <span
-        aria-hidden
-        className={cn(
-          "absolute top-1 bottom-1 left-0 w-0.5 rounded-full",
-          connection.kind === "kafka" ? "bg-broker-kafka" : "bg-broker-rabbitmq",
-          active ? "opacity-100" : "opacity-35",
-        )}
-      />
       <div
         className={cn(
           "group/row relative ml-1 flex items-center rounded-lg pr-1 transition-colors",
@@ -163,18 +155,24 @@ function ConnectionNode({
           to={connectionPath(connection.id)}
           title={`${connection.name} · ${connection.endpoint}`}
           aria-current={active ? "page" : undefined}
-          className="flex min-w-0 flex-1 flex-col gap-0.5 py-1.5 pr-1 pl-2"
+          className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pr-1 pl-2"
         >
-          <span
-            className={cn(
-              "truncate text-(length:--text-app-body) font-medium",
-              active ? "text-indigo-800" : "text-slate-700",
-            )}
-          >
-            {connection.name}
-          </span>
-          <span className="truncate font-mono text-(length:--text-app-meta) text-meta">
-            {connection.endpoint}
+          {/* 类型徽标替掉了原来那条 2px 竖线：竖线只说颜色，徽标同时给形状
+              （齿轮 / 耳朵）和颜色 —— 认得出 Kafka 与 RabbitMQ，不用先记住
+              「琥珀是哪个」。徽标不参与选中态，选中态仍是行底色 + 名字变色。 */}
+          <BrokerBadge kind={connection.kind} size={24} iconSize={13} dim={!active} />
+          <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span
+              className={cn(
+                "truncate text-(length:--text-app-body) font-medium",
+                active ? "text-indigo-800" : "text-slate-700",
+              )}
+            >
+              {connection.name}
+            </span>
+            <span className="truncate font-mono text-(length:--text-app-meta) text-meta">
+              {connection.endpoint}
+            </span>
           </span>
         </NavLink>
 
@@ -270,5 +268,57 @@ function PageLink({
       <Icon size={13} className={active ? "text-indigo-600" : "text-meta"} />
       <span className="truncate">{item.label}</span>
     </NavLink>
+  );
+}
+
+/**
+ * 中间件类型图标。分组标题用它来回答「这一组是什么中间件」——
+ * 那个位置原来只有一个大写英文单词，图标和字是同一个答案的两种说法。
+ */
+function BrokerMark({
+  kind,
+  size = 12,
+  className,
+}: {
+  kind: string;
+  size?: number;
+  className?: string;
+}) {
+  const Icon = brokerIcon(kind);
+  if (!Icon) return null;
+  return <Icon size={size} className={className} />;
+}
+
+/**
+ * 连接行左侧的类型徽标：浅色底 + 身份色图标。
+ *
+ * `dim` 让非当前连接淡一档。不是「灰掉」—— 类型信息任何时候都该读得出来，
+ * 只是在当前连接上它才该和最深的文字同层。
+ */
+function BrokerBadge({
+  kind,
+  size = 24,
+  iconSize = 13,
+  dim = false,
+}: {
+  kind: string;
+  size?: number;
+  iconSize?: number;
+  dim?: boolean;
+}) {
+  const Icon = brokerIcon(kind);
+  const tone = brokerTone(kind);
+  return (
+    <span
+      aria-hidden
+      style={{ width: size, height: size }}
+      className={cn(
+        "flex shrink-0 items-center justify-center rounded-md",
+        tone === "neutral" ? "bg-slate-100 text-secondary" : BROKER_TONE_CLASS[tone].tint,
+        dim && "opacity-60",
+      )}
+    >
+      {Icon ? <Icon size={iconSize} /> : <IconServer size={iconSize} />}
+    </span>
   );
 }
