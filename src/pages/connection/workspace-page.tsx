@@ -1,4 +1,3 @@
-import { useEffect } from "react";
 import { useNavigate, useParams } from "react-router";
 
 import { Button, Empty } from "@/components/ui";
@@ -6,12 +5,10 @@ import { useConnections } from "@/hooks/use-connections";
 import { usePersistentWorkspace } from "@/hooks/use-persistent-workspace";
 import { listSavedConnections } from "@/lib/session-storage";
 
-import { useSessionStore } from "@/stores";
-
 import { OverviewPage } from "@/pages/overview-page";
 
 /**
- * 工作区入口：负责会话状态同步，并渲染默认的能力页。
+ * 工作区入口：渲染默认的能力页，并在连接已失效时给出重连出口。
  *
  * `App.tsx` 的子路由会命中更具体的路径；只有当路径停在
  * `/connections/:id` 时才会落到这里。
@@ -19,14 +16,8 @@ import { OverviewPage } from "@/pages/overview-page";
 export function WorkspacePage() {
   const { connectionId } = useParams();
   const navigate = useNavigate();
-  const setActiveConnection = useSessionStore((state) => state.setActiveConnection);
   const { data } = useConnections();
   usePersistentWorkspace();
-
-  // URL 是唯一事实来源：路由变化时同步到 store，供非路由组件（如发送页）使用。
-  useEffect(() => {
-    setActiveConnection(connectionId ?? null);
-  }, [connectionId, setActiveConnection]);
 
   if (!connectionId) {
     return <Empty title="请选择一个连接" description="从左侧列表选择连接，或新建一个连接" />;

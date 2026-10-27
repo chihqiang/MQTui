@@ -2,8 +2,7 @@ import { useSearchParams } from "react-router";
 
 import { Card, CardBody } from "@/components/ui";
 import { PageBody, PageHeader } from "@/components/layout/page-header";
-import { useConnections } from "@/hooks/use-connections";
-import { useSessionStore } from "@/stores";
+import { useActiveConnection } from "@/hooks/use-active-connection";
 import { KafkaProduceForm } from "./produce/kafka-produce-form";
 import { RabbitProduceForm } from "./produce/rabbit-produce-form";
 
@@ -18,10 +17,8 @@ import { RabbitProduceForm } from "./produce/rabbit-produce-form";
  * exchange + routing key + 投递模式 + headers。分开之后，页面上每个格子都有用。
  */
 export function ProducePage() {
-  const connectionId = useSessionStore((state) => state.activeConnectionId);
+  const { connection } = useActiveConnection();
   const [searchParams] = useSearchParams();
-  const { data: connections } = useConnections();
-  const connection = connections?.find((item) => item.id === connectionId);
   // 从消息页带着 `?target=` 过来：那是用户刚刚在看的东西。
   const presetTarget = searchParams.get("target");
 

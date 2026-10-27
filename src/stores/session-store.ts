@@ -1,7 +1,12 @@
 /**
- * 会话状态：当前选中的连接 + toast 通知 + 虚拟列表的全局 UI 状态。
+ * 会话状态：toast 通知。
  *
  * 仅存放「跨页面共享且非服务端数据」的状态；服务端数据一律交给 React Query。
+ *
+ * 「当前选中的连接」曾经也在这里，后来搬去了 URL（见 `useActiveConnection`）。
+ * 原因很简单：它是一份由路由派生出来的副本，而副本会落后 —— 同步它的
+ * `useEffect` 只挂在索引路由上，从连接页直接点进「发送消息」就绕过了它，
+ * 于是页面一边连着一边说「先选一个连接」。路由参数本身没有这个问题。
  */
 
 import { create } from "zustand";
@@ -16,10 +21,7 @@ export interface Toast {
 }
 
 interface SessionState {
-  /** 当前选中的连接 ID，null 表示停留在连接选择页。 */
-  activeConnectionId: string | null;
   toasts: Toast[];
-  setActiveConnection: (id: string | null) => void;
   pushToast: (kind: Toast["kind"], message: string) => string;
   dismissToast: (id: string) => void;
   /** 就地替换一条提示，用于把「进行中」收尾成「成功 / 失败」。 */
@@ -27,9 +29,7 @@ interface SessionState {
 }
 
 export const useSessionStore = create<SessionState>((set) => ({
-  activeConnectionId: null,
   toasts: [],
-  setActiveConnection: (id) => set({ activeConnectionId: id }),
   pushToast: (kind, message) => {
     const id = crypto.randomUUID();
     set((state) => ({ toasts: [...state.toasts, { id, kind, message }] }));

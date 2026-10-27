@@ -1,12 +1,11 @@
-import { NavLink, useParams } from "react-router";
+import { NavLink } from "react-router";
 
 import { useCapabilities } from "@/hooks/use-plugin-kinds";
-import { useConnections } from "@/hooks/use-connections";
+import { useActiveConnection } from "@/hooks/use-active-connection";
 import { cn } from "@/lib/cn";
 import { RAIL_WIDTH } from "@/lib/layout";
 import { buildNavItems, connectionPath } from "@/lib/nav";
 import { brokerIdentity } from "@/lib/visual";
-import { useSessionStore } from "@/stores";
 
 /**
  * 图标条：窄窗口（< 900px）下的侧栏。
@@ -20,10 +19,7 @@ import { useSessionStore } from "@/stores";
  * 悬停和读屏是仅剩的两条出路。
  */
 export function ConnectionRail() {
-  const { connectionId } = useParams();
-  const { data } = useConnections();
-  const activeConnectionId = useSessionStore((state) => state.activeConnectionId);
-  const connection = data?.find((item) => item.id === (connectionId ?? activeConnectionId));
+  const { connection } = useActiveConnection();
   const capabilities = useCapabilities(connection?.kind);
   const items = buildNavItems(capabilities);
 

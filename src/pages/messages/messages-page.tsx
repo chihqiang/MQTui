@@ -6,7 +6,7 @@ import { PageBody, PageHeader, PageToolbar } from "@/components/layout/page-head
 import { IconClose, IconSearch } from "@/lib/icons";
 import { chipOverflow } from "@/lib/list-view";
 import { useQueues, useTopics } from "@/hooks/use-broker-data";
-import { useConnections } from "@/hooks/use-connections";
+import { useActiveConnection } from "@/hooks/use-active-connection";
 import {
   connectionMemoryKey,
   listRecentTargets,
@@ -33,10 +33,8 @@ const MODES = [
 /** 消息：输入 topic / queue，拉取最近消息并支持查看详情。 */
 export function MessagesPage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const activeConnectionId = useSessionStore((state) => state.activeConnectionId);
+  const { connectionId: activeConnectionId, connection } = useActiveConnection();
   const pushToast = useSessionStore((state) => state.pushToast);
-  const { data: connections } = useConnections();
-  const connection = connections?.find((item) => item.id === activeConnectionId);
   const isKafka = connection?.kind === "kafka";
   const { data: topics } = useTopics(activeConnectionId ?? undefined, isKafka);
   // RabbitMQ 侧用队列列表做输入提示，未配置管理 API 时为空，仍可手输。

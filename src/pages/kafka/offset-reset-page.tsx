@@ -16,8 +16,8 @@ import {
   Select,
 } from "@/components/ui";
 import { PageBody, PageHeader } from "@/components/layout/page-header";
+import { useActiveConnection } from "@/hooks/use-active-connection";
 import { useConsumerGroups } from "@/hooks/use-consumer-groups";
-import { useConnections } from "@/hooks/use-connections";
 import { useCommitReset, useResetPhases, useResetPreview } from "@/hooks/use-offset-reset";
 import { useTopics } from "@/hooks/use-broker-data";
 import { dedupeChoices } from "@/lib/choice";
@@ -70,9 +70,7 @@ export function OffsetResetPage() {
    * 最近用过的排前面 —— 它们正是「刚才在那个页面看过的那个组」。
    * 组名与连接记忆的 key 都要真实存在，所以顺手拿到当前连接的标识。
    */
-  const { data: connections } = useConnections();
-  const activeConnectionId = useSessionStore((state) => state.activeConnectionId);
-  const connection = connections?.find((item) => item.id === activeConnectionId);
+  const { connection } = useActiveConnection();
   const memoryKey = connection
     ? connectionMemoryKey(connection.kind, connection.endpoint)
     : "";
