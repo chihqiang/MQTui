@@ -136,6 +136,22 @@ export function useAnalyzeHotspots(connectionId: string | undefined) {
 }
 
 /**
+ * 主题吞吐采样。
+ *
+ * 用 mutation 而不是 query：每次调用都要真等满一个窗口（默认 5 秒），
+ * 自动重取会让页面在后台一直挂着请求。这是「用户点一下，等一会儿，看一个数」。
+ */
+export function useTopicThroughput(connectionId: string | undefined) {
+  const pushToast = useSessionStore((state) => state.pushToast);
+
+  return useMutation({
+    mutationFn: (input: { topic: string; windowMs: number }) =>
+      topicService.sampleThroughput(connectionId as string, input.topic, input.windowMs),
+    onError: (error) => pushToast("error", errorMessage(error)),
+  });
+}
+
+/**
  * 导出重分配计划。
  *
  * 用 mutation 而不是 query：导出的结果是「这一刻的布局快照」，用户把它拿去改，

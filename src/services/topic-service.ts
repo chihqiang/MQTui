@@ -11,6 +11,7 @@ import type {
 } from "@/types/topic";
 import type { MigrationReport, MigrationRunbook, PlanCheck, VerifyResult } from "@/types/reassignment";
 import type { ConfigChange, ConfigOutcome, ConfigPreview } from "@/types/topic-config";
+import type { TopicThroughput } from "@/types/topic-throughput";
 
 export const topicService = {
   /** 主题详情：分区布局、副本同步、非默认配置项。 */
@@ -42,6 +43,13 @@ export const topicService = {
    */
   analyzeHotspots: (id: string, topics: string[]) =>
     call<HotspotReport>("analyze_partition_hotspots", { id, topics }),
+
+  /**
+   * 采样主题吞吐。这个调用会等满 `windowMs` —— 速率必须有时间差才算得出来，
+   * 不是「慢」，而是「必然要等」。
+   */
+  sampleThroughput: (id: string, topic: string, windowMs: number) =>
+    call<TopicThroughput>("sample_topic_throughput", { id, topic, windowMs }),
 
   /**
    * 导出当前分区布局为一份重分配计划文本。

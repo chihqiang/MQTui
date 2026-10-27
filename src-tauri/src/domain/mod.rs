@@ -25,6 +25,7 @@ pub mod resend;
 pub mod runtime;
 pub mod topic;
 pub mod topic_config;
+pub mod topic_throughput;
 pub mod topology;
 pub mod topology_graph;
 pub mod topology_insight;
@@ -112,6 +113,10 @@ pub use topic::{
 pub use topic_config::{
     ConfigBlock, ConfigChange, ConfigLock, ConfigOutcome, ConfigPlan, ConfigPlanItem, ConfigType,
     KNOWN_CONFIGS, lock_of as config_lock_of, plan as plan_config_changes,
+};
+pub use topic_throughput::{
+    MAX_WINDOW_MS, MIN_WINDOW_MS, PartitionRate, PartitionWatermark, SampleWindow, TopicSample,
+    TopicThroughput, compute as compute_throughput,
 };
 pub use topology::{
     BindingDestination, BindingInfo, BindingKey, BindingSpec, BindingTarget, ExchangeInfo,

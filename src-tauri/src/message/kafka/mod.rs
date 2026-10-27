@@ -11,6 +11,7 @@ pub mod locate_cursor;
 pub mod migrations;
 pub mod orphans;
 pub mod resend;
+pub mod throughput;
 pub mod topics;
 
 use std::collections::BTreeMap;

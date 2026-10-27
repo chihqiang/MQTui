@@ -6,14 +6,15 @@
 
 use tauri::State;
 
-use crate::domain::VerifySummary;
 use crate::domain::{
     ConfigChange, ConfigOutcome, ConnectionId, MigrationReport, MigrationRunbook,
     PartitionExpansion, TopicCapabilities, TopicDetail, TopicOutcome, TopicSpec,
 };
+use crate::domain::{TopicThroughput, VerifySummary};
 use crate::error::{AppError, AppResult};
 use crate::message::kafka::hotspots::{self, HotspotReport};
 use crate::message::kafka::migrations::{self, PlanCheck};
+use crate::message::kafka::throughput;
 use crate::message::kafka::topics::{self, ConfigPreview};
 use crate::state::AppState;
 
@@ -189,6 +190,22 @@ pub async fn analyze_partition_hotspots(
 ) -> AppResult<HotspotReport> {
     let connection = state.connections.get(&id).await?;
     hotspots::analyze(connection.as_kafka()?, topics).await
+}
+
+/// 采样主题吞吐：读两次水位，相减除以秒数。
+///
+/// `window_ms` 由前端给（界面上是 3 / 5 / 10 / 30 秒这样的选项），
+/// 缺省 5 秒，下限 1 秒、上限 1 分钟 —— 太短算出来是噪音，太长等于页面卡死。
+/// 这个命令本身会阻塞 `window_ms` 那么久，属于设计如此：没有历史数据就不可能有速率。
+#[tauri::command]
+pub async fn sample_topic_throughput(
+    state: State<'_, AppState>,
+    id: ConnectionId,
+    topic: String,
+    window_ms: Option<u64>,
+) -> AppResult<TopicThroughput> {
+    let connection = state.connections.get(&id).await?;
+    throughput::sample(connection.as_kafka()?, &topic, window_ms).await
 }
 
 /// 提交配置项修改。走增量接口，未列出的配置项保持原样。

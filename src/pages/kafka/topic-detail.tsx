@@ -30,6 +30,7 @@ import { IconBack } from "@/lib/icons";
 import { connectionPath } from "@/lib/nav";
 import { MigrationPanel } from "@/components/broker/migration-panel";
 import { TopicConfigEditor } from "@/components/broker/topic-config-editor";
+import { TopicThroughputCard } from "@/components/broker/topic-throughput-card";
 import { PARTITION_COLUMNS } from "@/types/topic";
 import type { TopicDetail, TopicPartitionInfo } from "@/types";
 
@@ -158,6 +159,10 @@ export function TopicDetailPage() {
           </DataTable>
         </CardBody>
       </Card>
+
+      {data ? (
+        <TopicThroughputCard connectionId={connectionId} topic={data.name} />
+      ) : null}
 
       {data ? (
         <MigrationPanel

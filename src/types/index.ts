@@ -14,6 +14,7 @@ export * from "./reassignment";
 export * from "./runtime";
 export * from "./topic";
 export * from "./topic-config";
+export * from "./topic-throughput";
 export * from "./topology";
 export * from "./topology-graph";
 export * from "./topology-insight";

@@ -52,6 +52,7 @@ pub fn run() {
             commands::topic::preview_topic_configs,
             commands::topic::update_topic_configs,
             commands::topic::analyze_partition_hotspots,
+            commands::topic::sample_topic_throughput,
             commands::topic::export_reassignment_plan,
             commands::topic::check_reassignment_plan,
             commands::topic::get_migration_progress,
