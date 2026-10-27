@@ -12,6 +12,13 @@ export interface MessageQuery {
   limit?: number;
   /** 上一页返回的游标，原样回传表示「加载更多」；缺省表示从头读。 */
   cursor?: string;
+  /**
+   * 只看某个分区（仅 Kafka）。
+   *
+   * 它只决定**首次读取**挑哪些分区；带游标续读时由游标决定进度，
+   * 所以「加载更多」不需要重复传。
+   */
+  partition?: number;
 }
 
 export interface MessageSummary {

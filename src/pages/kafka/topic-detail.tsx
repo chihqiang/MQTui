@@ -48,6 +48,7 @@ const PARTITION_COLUMNS: DataTableColumn[] = [
   { key: "low", label: "起始位点", width: "w-28", align: "right" },
   { key: "high", label: "末尾位点", width: "w-28", align: "right" },
   { key: "messages", label: "消息数", width: "w-28", align: "right" },
+  { key: "actions", label: <span className="sr-only">操作</span>, width: "w-24", align: "right" },
 ];
 
 /**
@@ -163,7 +164,7 @@ export function TopicDetailPage() {
             loadingRows={isLoading && !data ? 6 : undefined}
           >
             {data?.partitions.map((partition) => (
-              <PartitionRow key={partition.partition} partition={partition} />
+              <PartitionRow key={partition.partition} partition={partition} topic={data.name} />
             ))}
           </DataTable>
         </CardBody>
@@ -208,9 +209,20 @@ export function TopicDetailPage() {
   );
 }
 
-function PartitionRow({ partition }: { partition: TopicPartitionInfo }) {
+/**
+ * 一个分区一行。
+ *
+ * 行尾的「看消息」带上了分区与位点区间：看到某个分区明显落后、或者某段位点可疑时，
+ * 下一步一定是去翻那一段消息。让用户自己回消息页再选分区、再掐位点，
+ * 等于把这一行刚给出的结论丢掉重来一次。
+ */
+function PartitionRow({ partition, topic }: { partition: TopicPartitionInfo; topic: string }) {
+  const { connectionId } = useParams();
+  const navigate = useNavigate();
   const inSync = partition.replicas.length === partition.inSyncReplicas.length;
   const messages = Math.max(partition.high - partition.low, 0);
+  // 空分区没有可看的消息，不给按钮：点了只会得到一张空表。
+  const hasMessages = messages > 0;
 
   return (
     <TableRow className={inSync ? undefined : "bg-rose-50"}>
@@ -234,6 +246,22 @@ function PartitionRow({ partition }: { partition: TopicPartitionInfo }) {
       </TableCell>
       <TableCell numeric className="text-slate-600">
         {formatNumber(messages)}
+      </TableCell>
+      <TableCell align="right">
+        {hasMessages ? (
+          <Button
+            size="xs"
+            variant="ghost"
+            title={`看 topic ${topic} 分区 ${partition.partition} 的消息`}
+            onClick={() =>
+              navigate(
+                `${connectionPath(connectionId as string, "messages")}?target=${encodeURIComponent(topic)}&partition=${partition.partition}`,
+              )
+            }
+          >
+            看消息
+          </Button>
+        ) : null}
       </TableCell>
     </TableRow>
   );

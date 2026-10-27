@@ -31,9 +31,21 @@ export const queryKeys = {
     ["connections", "detail", id, "policy-preview", fingerprint] as const,
   /** 所有连接下所有查询的共同前缀，写操作后统一失效最省心。 */
   allConnections: () => ["connections", "detail"] as const,
-  /** 消息分页带上单页条数：分页策略变了就该是另一份缓存，不会读到按旧条数切好的页。 */
-  messages: (id: string, target: string, pageSize: number) =>
-    ["connections", "detail", id, "messages", target, pageSize] as const,
+  /**
+   * 消息分页带上单页条数：分页策略变了就该是另一份缓存，不会读到按旧条数切好的页。
+   *
+   * `partition` 是可选后缀：不按分区筛时键与原来完全一致，缓存前缀不受影响。
+   */
+  messages: (id: string, target: string, pageSize: number, partition?: number) =>
+    [
+      "connections",
+      "detail",
+      id,
+      "messages",
+      target,
+      pageSize,
+      ...(partition === undefined ? [] : [partition]),
+    ] as const,
   /** 定位结果按条件缓存：同一条件重复查询不该重扫一遍日志。 */
   messageSearch: (id: string, target: string, conditionKey: string) =>
     ["connections", "detail", id, "message-search", target, conditionKey] as const,

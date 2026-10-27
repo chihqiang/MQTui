@@ -82,6 +82,20 @@ fn parse_cursor(cursor: &str, topic: &str) -> AppResult<BTreeMap<i32, i64>> {
     Ok(starts)
 }
 
+/// 只看某个分区时，把「元数据里的分区总数」换算成这次要读的分区列表。
+///
+/// 越界必须报错而不是返回空列表：空列表在界面上与「这个分区没消息」长得一样，
+/// 而实际原因是分区号过期了（例如扩容前从详情页带过来的 P8）。
+fn partitions_to_read(total: usize, only: Option<i32>) -> AppResult<Vec<i32>> {
+    match only {
+        Some(partition) if partition < 0 || partition as usize >= total => Err(AppError::Invalid(
+            format!("分区 {partition} 不存在：该主题只有 {total} 个分区"),
+        )),
+        Some(partition) => Ok(vec![partition]),
+        None => Ok((0..total as i32).collect()),
+    }
+}
+
 /// 在指定 topic 上拉取消息。
 ///
 /// 分页语义是「从新到旧」：请求不带游标表示「加载最新」——丢掉历史位置，
@@ -98,6 +112,9 @@ pub async fn list(client: &KafkaClient, query: MessageQuery) -> AppResult<Messag
         .filter(|cursor| !cursor.is_empty())
         .map(|cursor| parse_cursor(cursor, &topic))
         .transpose()?;
+
+    // 只看某个分区：它只影响「首次读取」时挑哪些分区，续读仍由游标说了算。
+    let only_partition = query.partition;
 
     let config = client.consumer_config(&format!("{GROUP_PREFIX}-{}", uuid::Uuid::new_v4()));
     let consumer: BaseConsumer = config.create().map_err(AppError::from)?;
@@ -116,6 +133,7 @@ pub async fn list(client: &KafkaClient, query: MessageQuery) -> AppResult<Messag
         if partitions == 0 {
             return Err(AppError::NotFound(format!("主题 {task_topic}")));
         }
+        let partitions = partitions_to_read(partitions, only_partition)?;
 
         // 每个分区的最早可读位点：既是首次读取的起点下界，也是判断
         // 「是不是已经翻到日志头」的依据（见 `build_page`）。
@@ -125,9 +143,9 @@ pub async fn list(client: &KafkaClient, query: MessageQuery) -> AppResult<Messag
             None => {
                 // 首次读取：每个分区从末尾往前 batch 条开始，符合“看最近消息”的习惯。
                 // 按分区均摊，避免 10 个分区时一次拉回 10 × limit 条。
-                let batch = per_partition_batch(limit, partitions) as i64;
+                let batch = per_partition_batch(limit, partitions.len()) as i64;
                 let mut starts = BTreeMap::new();
-                for partition in 0..partitions as i32 {
+                for &partition in &partitions {
                     let (low, high) = watermarks(&worker, &task_topic, partition)?;
                     floors.insert(partition, low);
                     starts.insert(partition, (high - batch).max(low));
@@ -326,6 +344,21 @@ mod tests {
         assert!(parse_cursor("orders", "orders").is_err());
         assert!(parse_cursor("orders@x:1", "orders").is_err());
         assert!(parse_cursor("orders@0:1:2", "orders").is_err());
+    }
+
+    #[test]
+    fn partition_filter_picks_only_that_partition() {
+        assert_eq!(partitions_to_read(4, None).expect("全部"), vec![0, 1, 2, 3]);
+        assert_eq!(partitions_to_read(4, Some(2)).expect("单个"), vec![2]);
+    }
+
+    #[test]
+    fn partition_filter_rejects_out_of_range() {
+        // 越界要报错：返回空列表会被读成「这个分区没有消息」。
+        assert!(partitions_to_read(4, Some(4)).is_err());
+        assert!(partitions_to_read(4, Some(-1)).is_err());
+        // 只有一个分区时，P0 仍然合法。
+        assert_eq!(partitions_to_read(1, Some(0)).expect("单个"), vec![0]);
     }
 
     #[test]

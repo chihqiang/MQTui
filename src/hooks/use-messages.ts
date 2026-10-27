@@ -7,6 +7,8 @@ import type { MessagePage } from "@/types";
 interface Options {
   connectionId: string;
   target: string;
+  /** 只看某个分区（仅 Kafka）；换分区等同于换一份列表。 */
+  partition?: number;
   enabled?: boolean;
 }
 
@@ -16,12 +18,13 @@ interface Options {
  * 每个 topic / queue 一份缓存，`getNextPageParam` 直接复用后端返回的游标，
  * 前端不自己推算 offset，避免和后端的分页语义绑死。
  */
-export function useMessages({ connectionId, target, enabled = true }: Options) {
+export function useMessages({ connectionId, target, partition, enabled = true }: Options) {
   // 条数进 queryKey：分页策略变了就该是另一份缓存，否则会拿到按旧条数切好的页。
   const pageSize = DEFAULT_PAGE_SIZE;
 
   return useInfiniteQuery({
-    queryKey: queryKeys.messages(connectionId, target, pageSize),
+    // 分区进 key：切分区是一份新列表，不是在同一条时间线上过滤。
+    queryKey: queryKeys.messages(connectionId, target, pageSize, partition),
     enabled: enabled && Boolean(connectionId) && Boolean(target),
     initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam }) =>
@@ -30,6 +33,7 @@ export function useMessages({ connectionId, target, enabled = true }: Options) {
         target,
         limit: pageSize,
         cursor: pageParam,
+        partition,
       }),
     getNextPageParam: (lastPage: MessagePage) =>
       lastPage.hasMore ? lastPage.cursor : undefined,

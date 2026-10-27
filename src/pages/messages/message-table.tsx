@@ -43,6 +43,8 @@ import { MessageResendDialog } from "@/pages/messages/message-resend";
 interface Props {
   connectionId: string;
   target: string;
+  /** 只看某个分区（仅 Kafka）；不传表示全部分区。 */
+  partition?: number;
   /** 选中一行。回传整条摘要，RabbitMQ 的 payload 就在里面，详情无需再请求。 */
   onSelect: (message: MessageSummary) => void;
   /** 是否显示 RabbitMQ 的消息处置入口（重投 / 移入死信）。 */
@@ -99,6 +101,7 @@ function MessageListSkeleton({ target }: { target: string }) {
 export function MessageTable({
   connectionId,
   target,
+  partition,
   onSelect,
   canDispose,
   canResend,
@@ -116,7 +119,7 @@ export function MessageTable({
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
-  } = useMessages({ connectionId, target });
+  } = useMessages({ connectionId, target, partition });
 
   // 分页结果按页顺序摊平，第一页是最新的，越往后越旧。
   const loaded = useMemo(() => data?.pages.flatMap((page) => page.items) ?? [], [data]);
@@ -128,7 +131,7 @@ export function MessageTable({
   // 换数据源时清空过滤条件，免得带着上一个 topic 的关键字看空列表。
   useEffect(() => {
     setFilter(EMPTY_FILTER);
-  }, [connectionId, target]);
+  }, [connectionId, target, partition]);
 
   // 处置弹窗：记录「哪条消息 + 哪个动作」，关掉即清空。
   const [disposal, setDisposal] = useState<{
@@ -147,7 +150,7 @@ export function MessageTable({
   // 换数据源时清空选中集：上一个 topic 的投递标签在新队列里毫无意义。
   useEffect(() => {
     setSelected(new Set());
-  }, [connectionId, target]);
+  }, [connectionId, target, partition]);
 
   const toggle = useCallback((id: string) => {
     setSelected((prev) => {

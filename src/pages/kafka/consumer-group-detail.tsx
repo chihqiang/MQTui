@@ -1,5 +1,8 @@
+import { useNavigate } from "react-router";
+
 import {
   Badge,
+  Button,
   DataTable,
   ErrorState,
   Loading,
@@ -15,6 +18,7 @@ import { errorMessage } from "@/lib/errors";
 import { failureText } from "@/lib/failure";
 import { formatLag, groupState, lagTone } from "@/lib/consumer";
 import { formatNumber } from "@/lib/format";
+import { connectionPath } from "@/lib/nav";
 import type { ConsumerGroupInfo } from "@/types";
 
 const OFFSET_COLUMNS: DataTableColumn[] = [
@@ -38,6 +42,7 @@ interface Props {
  * 避免几百个组一次性把集群问一遍。
  */
 export function ConsumerGroupDialog({ connectionId, group, onClose }: Props) {
+  const navigate = useNavigate();
   const { data, isLoading, error, refetch } = useConsumerGroup(
     connectionId,
     group.name,
@@ -107,7 +112,32 @@ export function ConsumerGroupDialog({ connectionId, group, onClose }: Props) {
           </section>
 
           <section>
-            <SectionTitle extra={`共 ${formatNumber(data.offsets.length)} 个分区`}>分区进度</SectionTitle>
+            <SectionTitle
+              extra={
+                <span className="flex items-center gap-2">
+                  <span>共 {formatNumber(data.offsets.length)} 个分区</span>
+                  {/* 滞后是在这一页看见的，所以重置的入口也放在这一页：
+                      让用户记住组名再跑到「位点重置」页重敲一遍，等于把刚看到的东西丢掉。
+                      只带上组名，主题仍由用户在那一页选 —— 一个组往往横跨多个 topic。 */}
+                  {data.offsets.length ? (
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      onClick={() =>
+                        navigate(
+                          `${connectionPath(connectionId as string, "offsetReset")}?group=${encodeURIComponent(group.name)}`,
+                        )
+                      }
+                      title="带着这个组名去位点重置页"
+                    >
+                      重置位点
+                    </Button>
+                  ) : null}
+                </span>
+              }
+            >
+              分区进度
+            </SectionTitle>
             {data.offsets.length ? (
               <div className="max-h-72 overflow-auto rounded border border-slate-200">
                 <DataTable columns={OFFSET_COLUMNS} className="text-(length:--text-app-body)">

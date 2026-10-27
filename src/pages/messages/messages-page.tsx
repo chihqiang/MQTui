@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router";
 
 import { Button, Empty, Input, Segmented } from "@/components/ui";
 import { PageBody, PageHeader, PageToolbar } from "@/components/layout/page-header";
-import { IconSearch } from "@/lib/icons";
+import { IconClose, IconSearch } from "@/lib/icons";
 import { chipOverflow } from "@/lib/list-view";
 import { useQueues, useTopics } from "@/hooks/use-broker-data";
 import { useConnections } from "@/hooks/use-connections";
@@ -44,6 +44,14 @@ export function MessagesPage() {
   const targets = isKafka ? topics?.map((topic) => topic.name) : queues?.map((queue) => queue.name);
 
   const target = searchParams.get("target") ?? "";
+  /**
+   * `?partition=` 来自主题详情页的分区行：「这个分区是不是落后了」的下一步
+   * 一定是翻那个分区的消息。分区筛选只对 Kafka 有意义，也从 URL 读——
+   * 刷新、前进后退都该保持在同一屏。
+   */
+  const partitionParam = searchParams.get("partition");
+  const parsedPartition = partitionParam === null ? Number.NaN : Number(partitionParam);
+  const partitionFilter = isKafka && Number.isInteger(parsedPartition) ? parsedPartition : undefined;
   // 记住每个连接最近看过的 topic / queue，下次进来直接有个候选列表。
   const memoryKey = connection
     ? connectionMemoryKey(connection.kind, connection.endpoint)
@@ -98,6 +106,7 @@ export function MessagesPage() {
             pushToast("error", "请填写主题或队列名");
             return;
           }
+          // 手输新目标时丢掉分区：那是上一个 topic 的分区号，很可能越界。
           setSearchParams({ target: draft.trim() });
         }}
       >
@@ -130,6 +139,20 @@ export function MessagesPage() {
               ))}
             </datalist>
           </div>
+          {/* 分区筛选只在真的被指定时出现，并且是可点掉的：
+              从主题详情跳过来时，人需要一眼看到「我现在只看 P3」，
+              也要有一条明路回到全部分区 —— 否则会以为这个 topic 真的只有这么点消息。 */}
+          {partitionFilter !== undefined ? (
+            <button
+              type="button"
+              onClick={() => setSearchParams({ target })}
+              title="只看这个分区的消息，点掉即回到全部分区"
+              className="flex h-8.5 items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 font-mono text-(length:--text-app-meta) text-indigo-700 transition-colors hover:border-indigo-300 hover:bg-indigo-100"
+            >
+              只看 P{partitionFilter}
+              <IconClose size={11} />
+            </button>
+          ) : null}
         </PageToolbar>
 
         {/* 最近的候选一键切换：翻来覆去对照同一批 topic 时比重新输入快得多。
@@ -156,6 +179,7 @@ export function MessagesPage() {
             <MessageTable
               connectionId={activeConnectionId}
               target={target}
+              partition={partitionFilter}
               onSelect={setSelected}
               // 重投 / 移入死信是 AMQP 的概念，Kafka 的消息只能再 produce 一条新的。
               canDispose={!isKafka}

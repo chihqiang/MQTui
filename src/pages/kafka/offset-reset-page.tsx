@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useParams } from "react-router";
+import { useParams, useSearchParams } from "react-router";
 
 import {
   Badge,
@@ -50,8 +50,14 @@ const TARGETS: { value: ResetTarget; label: string; hint: string }[] = [
  */
 export function OffsetResetPage() {
   const { connectionId } = useParams();
+  const [searchParams] = useSearchParams();
   const { data: topics } = useTopics(connectionId, true);
-  const [group, setGroup] = useState("");
+  /**
+   * 组名可以由别的页面带过来（消费组详情里的「重置位点」）：
+   * 那个组名是人刚刚在上一页看见的东西，不该让他记住再敲一遍。
+   * 只认初始值 —— 之后用户自己改的以输入框为准。
+   */
+  const [group, setGroup] = useState(() => searchParams.get("group") ?? "");
   const [topic, setTopic] = useState("");
   const [target, setTarget] = useState<ResetTarget>("earliest");
   const [previewing, setPreviewing] = useState(false);
@@ -62,6 +68,15 @@ export function OffsetResetPage() {
 
   // 换条件就丢掉旧计划：留着上一轮的对照表，用户很容易看成这一轮的结果。
   useEffect(() => setPreviewing(false), [group, topic, target]);
+
+  // 带组名进来时，主题这一格是该页唯一还空着的填空 —— 把光标放过去。
+  // 依赖是「这次要不要聚焦」这个布尔：`searchParams` 对象每次导航都换引用，
+  // 直接依赖它会在同一页里反复抢焦点。`null` 读到 URL 之后就不会变了。
+  const focusTopic = searchParams.get("group") !== null;
+  useEffect(() => {
+    if (!focusTopic) return;
+    document.querySelector<HTMLSelectElement>('[data-offset-reset="topic"]')?.focus();
+  }, [focusTopic]);
 
   return (
     <PageBody>
@@ -81,7 +96,11 @@ export function OffsetResetPage() {
             />
           </Field>
           <Field label="主题">
-            <Select value={topic} onChange={(event) => setTopic(event.currentTarget.value)}>
+            <Select
+              data-offset-reset="topic"
+              value={topic}
+              onChange={(event) => setTopic(event.currentTarget.value)}
+            >
               <option value="">选择主题…</option>
               {(topics ?? []).map((item) => (
                 <option key={item.name} value={item.name}>

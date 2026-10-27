@@ -17,6 +17,12 @@ pub struct MessageQuery {
     /// 上一页返回的游标，前端原样回传表示「加载更多」；缺省表示从头读。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cursor: Option<String>,
+    /// 只看某个分区（仅 Kafka）。
+    ///
+    /// 排查「这个分区是不是热点 / 落后」时，多分区混在一起的列表根本读不出来。
+    /// 只影响**首次读取**的起点，续读仍由游标决定 —— 否则翻到一半改条件会前后矛盾。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub partition: Option<i32>,
 }
 
 /// 列表中的消息摘要，只包含渲染列表必需的信息。

@@ -23,6 +23,14 @@ pub async fn list(client: &RabbitMqClient, query: MessageQuery) -> AppResult<Mes
         ));
     }
 
+    // 分区是 Kafka 的概念。这里不静默忽略：悄悄返回全部消息，
+    // 前端会以为过滤生效了。
+    if query.partition.is_some() {
+        return Err(AppError::Unsupported(
+            "RabbitMQ 的队列没有分区，不能按分区筛选".to_owned(),
+        ));
+    }
+
     let limit = super::clamp_limit(query.limit);
     let queue = query.target;
 
