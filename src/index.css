@@ -41,14 +41,20 @@
    * 字号五档。写在 `@theme` 里，Tailwind 会生成 `text-(length:--text-app-body)`
    * 这样的工具类（见 `lib/visual.ts` 的映射），组件只写语义档位。
    *
-   * `micro`（10px）只给快捷键提示（`kbd`）、分组小标题、画布坐标这类
+   * `micro`（11px）只给快捷键提示（`kbd`）、分组小标题、画布坐标这类
    * **不读、只认**的标记用，不参与信息层级。
+   *
+   * 整条阶梯在有记录之后被整体抬高过一档。起因是「整个界面看着小气」这句评价：
+   * 正文 12px、页标题 16px 是**编辑器**的比例，不是桌面应用的比例 —— 一屏
+   * 30 行的信息密度是这工具立身的东西，但密度靠留白和行高换，不靠把字压小。
+   * 现在正文 13px、页标题 20px，标题重新拉开与表头的距离（原来是 16 / 14，
+   * 差 2px 等于没有层级）。
    */
-  --text-app-micro: 10px;
-  --text-app-meta: 11px;
-  --text-app-body: 12px;
-  --text-app-title: 14px;
-  --text-app-display: 16px;
+  --text-app-micro: 11px;
+  --text-app-meta: 12px;
+  --text-app-body: 13px;
+  --text-app-title: 15px;
+  --text-app-display: 20px;
 
   /*
    * 语义色。命名按「用它做什么」而不是「它是什么颜色」—— 换品牌色只改这一处。

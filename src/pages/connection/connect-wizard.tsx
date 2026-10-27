@@ -274,7 +274,7 @@ function KindStep({
   const list = plugins ?? [{ kind: "kafka" as BrokerKind, displayName: "Kafka", capabilities: [] }];
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-4">
       <p className="text-(length:--text-app-meta) leading-relaxed text-meta">
         先选一种中间件，下一步填它的连接地址与凭据。
         <span className="ml-1 text-meta">（↑↓ 选，Enter 确认，或按 1 / 2）</span>
@@ -284,7 +284,7 @@ function KindStep({
       <div
         data-wizard-keys
         tabIndex={-1}
-        className="flex flex-col gap-2 outline-none"
+        className="flex flex-col gap-2.5 outline-none"
         role="listbox"
         aria-label="选择中间件"
       >
@@ -297,35 +297,35 @@ function KindStep({
             data-kind={plugin.kind}
             onClick={() => onPick(plugin.kind)}
             className={cn(
-              "group flex items-center gap-3 rounded-xl bg-white p-3 text-left transition-colors",
-              "ring-1 ring-slate-200 hover:ring-indigo-400",
+              "group flex items-center gap-4 rounded-xl bg-white p-4 text-left shadow-xs transition-colors",
+              "ring-1 ring-slate-200/80 hover:ring-indigo-400",
               selected === plugin.kind && "ring-indigo-500 bg-indigo-50/40",
             )}
           >
             <span
               className={cn(
-                "flex size-8 shrink-0 items-center justify-center rounded-lg",
+                "flex size-11 shrink-0 items-center justify-center rounded-xl",
                 plugin.kind === "kafka"
                   ? "bg-amber-50 text-broker-kafka"
                   : "bg-violet-50 text-broker-rabbitmq",
               )}
             >
-              <Server className="size-4" />
+              <Server className="size-5" />
             </span>
             <span className="min-w-0 flex-1">
               <span className="flex items-baseline gap-2">
-                <span className="text-(length:--text-app-body) font-semibold text-slate-900">
+                <span className="text-(length:--text-app-title) font-semibold text-slate-900">
                   {plugin.displayName}
                 </span>
                 <span className="text-(length:--text-app-micro) text-meta">
                   默认端口 {DEFAULT_PORT[plugin.kind]}
                 </span>
               </span>
-              <span className="mt-0.5 block truncate text-(length:--text-app-meta) text-meta">
+              <span className="mt-1 block truncate text-(length:--text-app-meta) text-meta">
                 {KIND_SUMMARY[plugin.kind]}
               </span>
             </span>
-            <ArrowRight className="size-3.5 shrink-0 text-meta transition-colors group-hover:text-indigo-600" />
+            <ArrowRight className="size-4 shrink-0 text-meta transition-colors group-hover:text-indigo-600" />
           </button>
         ))}
       </div>
@@ -376,7 +376,7 @@ function FormStep({
           <button
             type="button"
             onClick={onChangeKind}
-            className="ml-auto shrink-0 rounded px-1.5 py-0.5 text-(length:--text-app-micro) text-indigo-600 transition-colors hover:bg-indigo-50"
+            className="ml-auto shrink-0 rounded-md px-2 py-1 text-(length:--text-app-micro) text-indigo-600 transition-colors hover:bg-indigo-50"
           >
             <Repeat className="mr-0.5 inline size-3" />
             换一种中间件

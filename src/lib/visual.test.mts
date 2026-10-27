@@ -86,10 +86,11 @@ test("身份色不落在任何语义色上", () => {
   assert.equal(isSemanticTone("warning"), true);
 });
 
-test("次级字号两档：默认保持 11px，另一档更大", () => {
-  assert.equal(metaFontSize(DEFAULT_META_SCALE), "11px");
+test("次级字号两档：默认 12px，紧凑档更小", () => {
+  // 回归：整条字号阶梯抬高一档之后，默认档是 12px，11px 只留给「只认不读」的标记。
+  assert.equal(metaFontSize(DEFAULT_META_SCALE), "12px");
   assert.ok(META_FONT_SIZE.normal > META_FONT_SIZE.dense);
-  assert.equal(metaFontSize("normal"), "12px");
+  assert.equal(metaFontSize("dense"), "11px");
 });
 
 test("字号档位校验挡住脏数据", () => {

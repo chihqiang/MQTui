@@ -17,13 +17,20 @@ const VARIANT_CLASS: Record<Variant, string> = {
 };
 
 /**
- * 尺寸。高度都在 24px 以上、`xs` 也是 24 —— 桌面面板里一排按钮常挤在一起，
- * 20px 高的按钮点错一次就去隔壁行了。
+ * 尺寸。三档，高度 24 / 30 / 34。
+ *
+ * 早先是 24 / 28 / 32 且都只给 12px 字 —— 按钮看着像标签，一行里排三个
+ * 「编辑连接 / 重连 / 删除」时，最右那个总像临时贴上去的。整梯抬了一档：
+ * - `xs`（24px）：表格行内、一行里出现三个以上按钮时的配角；
+ * - `sm`（30px）：工具栏、列表行上的主动作；
+ * - `md`（34px）：页头、弹窗页脚这类一屏只有一两个的地方。
+ *
+ * 桌面面板里一排按钮常挤在一起，所以 `xs` 仍然守住 24px 的手指点选下限。
  */
 const SIZE_CLASS: Record<Size, string> = {
-  xs: "h-6 gap-1 rounded-md px-2 text-(length:--text-app-meta)",
-  sm: "h-7 gap-1.5 rounded-md px-2.5 text-(length:--text-app-body)",
-  md: "h-8 gap-1.5 rounded-lg px-3 text-(length:--text-app-body)",
+  xs: "h-6 gap-1 rounded-md px-2 text-(length:--text-app-micro)",
+  sm: "h-7.5 gap-1.5 rounded-md px-2.5 text-(length:--text-app-body)",
+  md: "h-8.5 gap-1.5 rounded-lg px-3.5 text-(length:--text-app-body)",
 };
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {

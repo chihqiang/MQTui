@@ -147,13 +147,13 @@ export function ConnectPage() {
 
   return (
     <div className="h-full overflow-auto">
-      <div className="mx-auto w-full max-w-2xl px-6 py-8">
+      <div className="mx-auto w-full max-w-3xl px-8 py-10">
         {/* 从别的页面点「＋」进来时说明一句。它只在本次跳转后出现，
             刷新或手动关掉都不会再来 —— 常态页面不该常驻一条指南。 */}
         {justArrived ? (
           <div
             role="status"
-            className="animate-fade-in mb-4 flex items-start gap-2 rounded-lg border border-indigo-100 bg-indigo-50/70 px-3 py-2 text-(length:--text-app-meta) text-slate-600"
+            className="animate-fade-in mb-6 flex items-start gap-2.5 rounded-xl border border-indigo-100 bg-indigo-50/70 px-4 py-3 text-(length:--text-app-meta) text-slate-600"
           >
             <span className="min-w-0 flex-1 leading-relaxed">
               已打开新建向导：<span className="font-medium text-slate-800">先选中间件</span>，再填连接地址与凭据。
@@ -172,14 +172,15 @@ export function ConnectPage() {
             所以标题、顺序、视觉重量都跟着状态换一次，而不是让「开始使用」常驻在最上面。 */}
         {hasSaved ? (
           <>
-            <h1 className="text-(length:--text-app-display) font-semibold tracking-tight text-slate-900">
+            {/* ui-lint-allow: 首页展示级标题 */}
+            <h1 className="text-[28px] leading-9 font-semibold tracking-tight text-slate-900">
               连接记录
             </h1>
-            <p className="mt-1 text-(length:--text-app-body) leading-relaxed text-slate-500">
+            <p className="mt-2 text-(length:--text-app-body) leading-relaxed text-slate-500">
               点「重连」直接接回去；换地址或口令走「编辑连接」
             </p>
 
-            <ul className="mt-5 flex flex-col gap-2">
+            <ul className="mt-6 flex flex-col gap-2.5">
               {saved.map((entry) => (
                 <li key={entry.id}>
                   <SavedRow
@@ -203,14 +204,19 @@ export function ConnectPage() {
           </>
         ) : (
           <>
-            <h1 className="text-(length:--text-app-display) font-semibold tracking-tight text-slate-900">
+            {/* 全屏只有这一处内容，所以标题单独走一档 28px 的展示级 —— 五档语义阶梯
+                同时要服务 30 行的表格，压不下这个尺寸。 */}
+            {/* ui-lint-allow: 首页空态展示级标题 */}
+            <h1 className="text-[28px] leading-9 font-semibold tracking-tight text-slate-900">
               开始使用
             </h1>
-            <p className="mt-1 text-(length:--text-app-body) leading-relaxed text-slate-500">
+            <p className="mt-2 text-(length:--text-app-body) leading-relaxed text-slate-500">
               选择要连接的中间件，下一步填连接信息
             </p>
 
-            <div className="mt-5 grid gap-2 sm:grid-cols-2">
+            {/* 两张卡之间留 12px 而不是 8px：这是全屏唯一的内容，卡片太挤会显得
+                整个首页像一张没写完的表单。 */}
+            <div className="mt-7 grid gap-3 sm:grid-cols-2">
               {pluginList.map((plugin) => (
                 <KindCard
                   key={plugin.kind}
@@ -224,7 +230,7 @@ export function ConnectPage() {
               ))}
             </div>
 
-            <p className="mt-3 text-(length:--text-app-meta) text-meta">
+            <p className="mt-4 text-(length:--text-app-meta) text-meta">
               连过一次之后会留在这里，下次点一下就回来
             </p>
           </>
@@ -263,8 +269,8 @@ function NewConnectionRow({
   onPick: (kind: BrokerKind) => void;
 }) {
   return (
-    <div className="mt-6 flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-slate-300 px-3 py-2.5">
-      <Plus className="size-3.5 shrink-0 text-meta" />
+    <div className="mt-8 flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-slate-300 px-4 py-3">
+      <Plus className="size-4 shrink-0 text-meta" />
       <span className="text-(length:--text-app-meta) text-secondary">新建连接</span>
       {kinds.map((item) => (
         <Button key={item.kind} size="sm" variant="ghost" onClick={() => onPick(item.kind)}>
@@ -295,31 +301,31 @@ function KindCard({
       data-kind={kind}
       onClick={onPick}
       className={cn(
-        "group flex items-center gap-3 rounded-xl bg-white p-3.5 text-left transition-colors",
-        "ring-1 ring-slate-200 hover:ring-indigo-300",
+        "group flex items-center gap-4 rounded-2xl bg-white p-5 text-left shadow-xs transition-all duration-(--motion-base)",
+        "ring-1 ring-slate-200/80 hover:-translate-y-0.5 hover:shadow-md hover:ring-indigo-300",
       )}
     >
       <span
         className={cn(
-          "flex size-9 shrink-0 items-center justify-center rounded-lg",
+          "flex size-12 shrink-0 items-center justify-center rounded-xl",
           kind === "kafka" ? "bg-amber-50 text-broker-kafka" : "bg-violet-50 text-broker-rabbitmq",
         )}
       >
-        <Server className="size-4" />
+        <Server className="size-6" />
       </span>
       <span className="min-w-0 flex-1">
         <span className="flex items-baseline gap-2">
-          <span className="text-(length:--text-app-body) font-semibold text-slate-900">
+          <span className="text-(length:--text-app-title) font-semibold text-slate-900">
             {displayName}
           </span>
           <span className="text-(length:--text-app-micro) text-meta">端口 {hint.port}</span>
         </span>
-        <span className="mt-0.5 block truncate text-(length:--text-app-meta) text-meta">
+        <span className="mt-1 block truncate text-(length:--text-app-meta) text-meta">
           {hint.summary}
         </span>
       </span>
       {/* 箭头只在悬停时上色：两张大白卡常驻一个主色按钮，会把「选一个」变成「点按钮」。 */}
-      <ArrowRight className="size-3.5 shrink-0 text-meta transition-colors group-hover:text-indigo-600" />
+      <ArrowRight className="size-4 shrink-0 text-meta transition-colors group-hover:text-indigo-600" />
     </button>
   );
 }
@@ -350,14 +356,14 @@ function SavedRow({
   const missingSecret = !canReconnect(entry);
 
   return (
-    <Card className="flex items-center gap-3 px-3 py-2 transition-colors hover:ring-slate-300">
+    <Card className="flex items-center gap-3.5 px-4 py-3 transition-colors hover:ring-slate-300">
       <span
         className={cn(
-          "flex size-7 shrink-0 items-center justify-center rounded-lg",
+          "flex size-9 shrink-0 items-center justify-center rounded-lg",
           config.kind === "kafka" ? "bg-amber-50 text-broker-kafka" : "bg-violet-50 text-broker-rabbitmq",
         )}
       >
-        <Plug className="size-3.5" />
+        <Plug className="size-4" />
       </span>
       <div className="min-w-0 flex-1">
         {/* 第一行：名字 + 类型 + 用户；第二行：端点。信息分两层，扫读先认名字。 */}
@@ -377,7 +383,7 @@ function SavedRow({
             </span>
           ) : null}
         </p>
-        <p className="truncate font-mono text-(length:--text-app-meta) text-meta">{endpoint}</p>
+        <p className="mt-0.5 truncate font-mono text-(length:--text-app-meta) text-meta">{endpoint}</p>
       </div>
       {/* 一行里只留一个主色按钮：记录列表竖着排十行时，十个实心主色按钮
           会连成一条比内容还显眼的色带。 */}

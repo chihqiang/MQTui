@@ -19,7 +19,7 @@ export function CommandTrigger() {
     <button
       type="button"
       onClick={open}
-      className="flex h-7 w-56 min-w-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2 text-(length:--text-app-meta) text-slate-500 transition-colors hover:border-slate-300 hover:bg-white hover:text-slate-800"
+      className="flex h-8 w-64 min-w-0 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-(length:--text-app-meta) text-slate-500 transition-colors hover:border-slate-300 hover:bg-white hover:text-slate-800"
       aria-label="打开命令面板"
     >
       <IconSearch size={12} />

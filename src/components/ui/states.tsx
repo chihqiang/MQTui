@@ -49,14 +49,14 @@ export function Empty({
   return (
     <div
       className={cn(
-        "animate-fade-in flex flex-col items-center justify-center gap-2 p-10 text-center",
+        "animate-fade-in flex flex-col items-center justify-center gap-2.5 p-12 text-center",
         className,
       )}
     >
       {/* 图标方块：实心浅灰底而不是虚线描边。虚线圆落在白卡上像是「还没画完的占位」，
           而空态是**成品页面**，只是暂时没有数据。 */}
-      <div className="mb-1 flex size-10 items-center justify-center rounded-full bg-slate-100 text-secondary">
-        {icon ?? <IconInbox size={18} />}
+      <div className="mb-1 flex size-12 items-center justify-center rounded-full bg-slate-100 text-secondary">
+        {icon ?? <IconInbox size={22} />}
       </div>
       <p className="text-(length:--text-app-title) font-medium text-slate-800">{title}</p>
       {description ? (
@@ -132,7 +132,7 @@ export function SkeletonTable({ rows = 8 }: { rows?: number }) {
  */
 export function PageLoading() {
   return (
-    <div className="flex h-full flex-col gap-3 p-4" role="status" aria-label="页面加载中">
+    <div className="flex h-full flex-col gap-3 p-5" role="status" aria-label="页面加载中">
       <Skeleton className="h-7 w-40" />
       <Skeleton className="h-4 w-64" />
       <div className="mt-2 flex flex-col gap-2">

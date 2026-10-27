@@ -48,16 +48,16 @@ export function Modal({
         ref={panelRef}
         tabIndex={-1}
         className={cn(
-          "animate-pop-in flex max-h-[90vh] w-full flex-col overflow-hidden rounded-xl",
+          "animate-pop-in flex max-h-[90vh] w-full flex-col overflow-hidden rounded-2xl",
           "border border-slate-200 bg-white shadow-2xl shadow-slate-900/15 outline-none",
-          size === "sm" ? "max-w-md" : "max-w-3xl",
+          size === "sm" ? "max-w-lg" : "max-w-3xl",
         )}
         onClick={(event) => event.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-label={typeof title === "string" ? title : undefined}
       >
-        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3.5">
           <h3 className="text-(length:--text-app-title) font-semibold text-slate-900">{title}</h3>
           <button
             type="button"
@@ -68,9 +68,9 @@ export function Modal({
             <IconClose size={14} />
           </button>
         </div>
-        <div className="selectable min-h-0 flex-1 overflow-auto p-4">{children}</div>
+        <div className="selectable min-h-0 flex-1 overflow-auto p-5">{children}</div>
         {footer ? (
-          <div className="flex justify-end gap-2 border-t border-slate-200 bg-white px-4 py-3">
+          <div className="flex justify-end gap-2 border-t border-slate-200 bg-slate-50/60 px-5 py-3.5">
             {footer}
           </div>
         ) : null}

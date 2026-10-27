@@ -26,7 +26,7 @@ export function ConnectionRail() {
           to={connectionPath(connection.id)}
           title={`${connection.name} · ${connection.endpoint}`}
           className={cn(
-            "flex size-7 shrink-0 items-center justify-center rounded-md text-(length:--text-app-meta) font-semibold transition-colors",
+            "flex size-8 shrink-0 items-center justify-center rounded-lg text-(length:--text-app-meta) font-semibold transition-colors",
             connectionId === connection.id
               ? "bg-indigo-600 text-white"
               : "text-slate-500 hover:bg-slate-100 hover:text-slate-900",

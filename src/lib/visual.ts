@@ -20,12 +20,11 @@ export type TextSize = "micro" | "meta" | "body" | "title" | "display";
 /**
  * 字号到类名的映射。
  *
- * - `meta`（11px）：时间戳、位点、端点这类**要读**的次级信息，
- *   颜色给 slate-400 而不是 slate-500，深色底上才过得了对比度；
- * - `body`（12px）：表格单元、按钮、表单；
- * - `title`（14px）：卡片标题、弹窗标题；
- * - `display`（16px）：页面标题。原来页头也是 14px，和表头差 3px，
- *   视觉上不承担「你现在在哪」的职责。
+ * - `micro`（11px）：快捷键、分组小标题，只认不读；
+ * - `meta`（12px，默认「密」档）：时间戳、位点、端点这类**要读**的次级信息；
+ * - `body`（13px）：表格单元、按钮、表单；
+ * - `title`（15px）：卡片标题、弹窗标题；
+ * - `display`（20px）：页面标题。
  *
  * 走变量而不是 Tailwind 的 `text-(length:--text-app-body)/text-(length:--text-app-title)`：这两档在 Tailwind 里
  * 分别绑死 12px 和 14px，语义（meta/body/title）和尺寸（1/2/3 档）
@@ -47,11 +46,12 @@ export function textSize(size: TextSize): string {
  * 次级字号（`meta` 档）的两档取值。
  *
  * 评审里最实在的一条是「密度偏小到临界」：129 处 11px 挤在 12px 正文旁边，
- * 在 1440×900 的屏上还行，13 寸 / 高分屏缩放下就偏小。但也不能一律调大 ——
- * 一屏 30 行的信息密度是这工具立身的东西。
+ * 在 1440×900 的屏上还行，13 寸 / 高分屏缩放下就偏小。整条字号阶梯后来
+ * 统一抬高了一档（正文 13px），这两档也跟着上移：`dense` 11px 只留给
+ * 「只认不读」的标记，`normal` 12px 才是默认档。
  *
- * 所以做成一颗开关：默认保持 11px（不变就是最好的兼容），
- * 觉得费眼的用户可以拨到 12px，全站同步。
+ * 仍然保留这颗开关：一屏 30 行的信息密度是这工具立身的东西，觉得 12px
+ * 偏挤的人应该还能往回收一档，而不是去改系统缩放。
  */
 export type MetaScale = "dense" | "normal";
 
@@ -61,11 +61,11 @@ export const META_FONT_SIZE: Record<MetaScale, number> = {
 };
 
 export const META_OPTIONS: { value: MetaScale; label: string; hint: string }[] = [
-  { value: "dense", label: "密", hint: "次级文字 11px，一屏信息最多（默认）" },
-  { value: "normal", label: "舒", hint: "次级文字 12px，时间戳与位点更好读" },
+  { value: "dense", label: "密", hint: "次级文字 11px，一屏信息最多" },
+  { value: "normal", label: "舒", hint: "次级文字 12px，时间戳与位点更好读（默认）" },
 ];
 
-export const DEFAULT_META_SCALE: MetaScale = "dense";
+export const DEFAULT_META_SCALE: MetaScale = "normal";
 
 export function isMetaScale(value: unknown): value is MetaScale {
   return value === "dense" || value === "normal";

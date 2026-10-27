@@ -20,9 +20,9 @@ export function ConnectionSidebar() {
   const { data, isLoading } = useConnections();
 
   return (
-    <aside className="flex w-56 shrink-0 flex-col border-r border-slate-200 bg-white">
-      <div className="min-h-0 flex-1 overflow-auto px-2 py-3">
-        <p className="px-2 pb-1.5 text-(length:--text-app-micro) font-semibold tracking-wider text-secondary uppercase">
+    <aside className="flex w-60 shrink-0 flex-col border-r border-slate-200 bg-white">
+      <div className="min-h-0 flex-1 overflow-auto px-2.5 py-4">
+        <p className="px-2 pb-2 text-(length:--text-app-micro) font-semibold tracking-wider text-secondary uppercase">
           连接
         </p>
         {isLoading ? <p className="px-2 text-(length:--text-app-body) text-meta">加载中…</p> : null}
@@ -32,7 +32,7 @@ export function ConnectionSidebar() {
           </p>
         ) : null}
 
-        <ul className="flex flex-col gap-0.5">
+        <ul className="flex flex-col gap-1">
           {data?.map((connection) => {
             const active = connectionId === connection.id;
             return (
@@ -41,7 +41,7 @@ export function ConnectionSidebar() {
                   to={connectionPath(connection.id)}
                   aria-current={active ? "true" : undefined}
                   className={cn(
-                    "flex flex-col gap-0.5 rounded-lg px-2 py-1.5 text-(length:--text-app-body) transition-colors",
+                    "flex flex-col gap-1 rounded-lg px-2.5 py-2 text-(length:--text-app-body) transition-colors",
                     active
                       ? "bg-indigo-50 text-indigo-900 ring-1 ring-indigo-100"
                       : "text-slate-600 hover:bg-slate-50 hover:text-slate-900",

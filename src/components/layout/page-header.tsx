@@ -22,13 +22,14 @@ export function PageHeader({
     <header className="flex flex-wrap items-center gap-x-3 gap-y-2">
       {back}
       <div className="min-w-0 flex-1">
-        {/* 标题走 `display` 档（16px）。原来是 14px，和表头只差 3px、和正文差 2px，
-            页头在视觉上不承担「你现在在哪」的职责。 */}
-        <h1 className="flex items-center gap-2 truncate text-(length:--text-app-display) leading-6 font-semibold tracking-tight text-slate-900">
+        {/* 标题走 `display` 档（20px）。原来是 14px → 16px，和表头只差 2~3px，
+            页头在视觉上不承担「你现在在哪」的职责。20px + `leading-7` 之后，
+            页标题和卡片标题之间终于有了真正的一档落差。 */}
+        <h1 className="flex items-center gap-2 truncate text-(length:--text-app-display) leading-7 font-semibold tracking-tight text-slate-900">
           {title}
         </h1>
         {description ? (
-          <p className="mt-0.5 truncate text-(length:--text-app-meta) text-meta">
+          <p className="mt-1 truncate text-(length:--text-app-meta) text-meta">
             {description}
           </p>
         ) : null}
@@ -73,7 +74,7 @@ export function PageToolbar({
  */
 export function PageBody({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <div className={`flex h-full flex-col gap-3 overflow-auto p-4 ${className ?? ""}`}>
+    <div className={`flex h-full flex-col gap-4 overflow-auto p-5 ${className ?? ""}`}>
       {children}
     </div>
   );
@@ -88,6 +89,6 @@ export function PageBody({ children, className }: { children: ReactNode; classNa
  */
 export function PageFrame({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <div className={`flex h-full min-h-0 flex-col gap-3 p-4 ${className ?? ""}`}>{children}</div>
+    <div className={`flex h-full min-h-0 flex-col gap-4 p-5 ${className ?? ""}`}>{children}</div>
   );
 }

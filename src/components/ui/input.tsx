@@ -73,7 +73,7 @@ export function SearchInput({
     <div
       className={cn(
         "group relative min-w-0 cursor-text border border-slate-200 bg-white shadow-xs",
-        box === "page" ? "h-8 rounded-lg" : "h-7 rounded-md",
+        box === "page" ? "h-8.5 rounded-lg" : "h-8 rounded-lg",
         "transition-colors duration-(--motion-fast)",
         "hover:border-slate-300",
         "focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/15",
