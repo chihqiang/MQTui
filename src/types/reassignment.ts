@@ -102,3 +102,32 @@ export const VERIFY_LABEL: Record<VerifyState, string> = {
   failed: "失败",
   unknown: "未识别",
 };
+
+/** 分区迁移进度的状态色。 */
+export const MIGRATION_TONE: Record<PartitionMigration, "success" | "warning" | "danger"> = {
+  done: "success",
+  syncing: "warning",
+  pending: "warning",
+  unknown: "danger",
+};
+
+/**
+ * 前置检查的状态色。
+ *
+ * `block` 用危险色不是「不好看」：它挡住的是不可逆的迁移。
+ * `unknown` 用提示色而不是绿色 —— 没读到不等于通过。
+ */
+export const PRECONDITION_TONE: Record<PreconditionState, "success" | "warning" | "danger" | "info"> = {
+  ok: "success",
+  warn: "warning",
+  block: "danger",
+  unknown: "info",
+};
+
+/** 校验结果的状态色。`unknown` 同理：读不到不能当通过。 */
+export const VERIFY_TONE: Record<VerifyState, "success" | "warning" | "danger" | "info"> = {
+  completed: "success",
+  inProgress: "warning",
+  failed: "danger",
+  unknown: "info",
+};

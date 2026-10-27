@@ -56,3 +56,14 @@ export interface DisconnectRequest {
   consumerTag: string;
   confirm: string;
 }
+
+/** 消费者表的列。 */
+export const CONSUMER_COLUMNS = [
+  { key: "connection", label: "连接" },
+  { key: "user", label: "账号", width: "w-24" },
+  { key: "ack", label: "ack", width: "w-16" },
+  { key: "prefetch", label: "预取", width: "w-20", align: "right" },
+  { key: "unacked", label: "未确认", width: "w-20", align: "right" },
+  { key: "state", label: "状态", width: "w-24" },
+  { key: "actions", label: "操作", width: "w-16", align: "right" },
+] as const;

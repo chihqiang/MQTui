@@ -54,3 +54,11 @@ export interface ParameterRemoval {
   allowed: boolean;
   detail: string;
 }
+
+/** 参数表的列。 */
+export const PARAMETER_COLUMNS = [
+  { key: "name", label: "名称" },
+  { key: "vhost", label: "vhost", width: "w-32" },
+  { key: "summary", label: "摘要" },
+  { key: "actions", label: "操作", width: "w-32", align: "right" },
+] as const;

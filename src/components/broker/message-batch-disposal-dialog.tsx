@@ -1,26 +1,13 @@
 import { useState } from "react";
 
-import { Badge, Button, ComboInput, Field, Modal } from "@/components/ui";
+import { Badge, Button, ComboInput, Field, MetaGrid, Modal } from "@/components/ui";
 import {
   useBatchDisposeMessages,
   useRetryStrandedMessages,
 } from "@/hooks/use-message-disposal";
 import { canRetryStranded, strandedRetryRequest } from "@/lib/stranded";
-import { MAX_BATCH_SIZE, type BatchDisposalItem, type DisposalAction, type MessageSummary } from "@/types";
-
-interface Props {
-  connectionId: string;
-  /** 选中的消息，顺序即回报顺序。 */
-  messages: MessageSummary[];
-  action: DisposalAction;
-  onClose: () => void;
-  /** 有消息真的被处置成功时回调，让列表把这几行从选中集里摘掉。 */
-  onDisposed: (messageIds: string[]) => void;
-  /** 拓扑里确切的交换机名；`null` 表示没读到，目标交换机退回自由输入。 */
-  exchangeNames: string[] | null;
-  /** 同上：全局去重后的 routing key。 */
-  routingKeys: string[] | null;
-}
+import { MAX_BATCH_SIZE, type BatchDisposalItem } from "@/types";
+import type { MessageBatchDisposalProps } from "@/types/message";
 
 /**
  * 批量处置确认框。
@@ -37,7 +24,7 @@ export function MessageBatchDisposalDialog({
   onDisposed,
   exchangeNames,
   routingKeys,
-}: Props) {
+}: MessageBatchDisposalProps) {
   const batch = useBatchDisposeMessages(connectionId);
   const retry = useRetryStrandedMessages(connectionId);
   const [exchange, setExchange] = useState("");
@@ -53,37 +40,6 @@ export function MessageBatchDisposalDialog({
 
   const stranded = outcome?.stranded ?? [];
   const showRetry = canRetryStranded(outcome);
-  const retryStranded = () => {
-    // 原样递回上一轮结果里的那批 ID：它们是用户没选中的消息，
-    // 不该按「现在选中的那几条」重算 —— 选中集早就清空了。
-    const payload = strandedRetryRequest(outcome, {
-      action,
-      queue,
-      exchange: exchange.trim(),
-      routingKey: routingKey.trim(),
-    });
-    if (payload) retry.mutate(payload);
-  };
-
-  const submit = () => {
-    batch.mutate(
-      {
-        action,
-        messageIds: messages.map((message) => message.id),
-        exchange: exchange.trim(),
-        routingKey: routingKey.trim(),
-      },
-      {
-        onSuccess: (result) => {
-          const done = result.items
-            .filter((item) => item.status === "ok")
-            .map((item) => item.messageId);
-          if (done.length) onDisposed(done);
-        },
-      },
-    );
-  };
-
   return (
     <Modal
       open
@@ -95,7 +51,17 @@ export function MessageBatchDisposalDialog({
             {outcome ? "关闭" : "取消"}
           </Button>
           {showRetry ? (
-            <Button size="sm" variant="secondary" loading={retry.isPending} onClick={retryStranded}>
+            <Button size="sm" variant="secondary" loading={retry.isPending} onClick={() => {
+              // 原样递回上一轮结果里的那批 ID：它们是用户没选中的消息，
+              // 不该按「现在选中的那几条」重算 —— 选中集早就清空了。
+              const payload = strandedRetryRequest(outcome, {
+                action,
+                queue,
+                exchange: exchange.trim(),
+                routingKey: routingKey.trim(),
+              });
+              if (payload) retry.mutate(payload);
+            }}>
               重试这批放回（{stranded.length} 条）
             </Button>
           ) : null}
@@ -103,7 +69,24 @@ export function MessageBatchDisposalDialog({
             size="sm"
             variant={action === "deadLetter" ? "danger" : "primary"}
             disabled={batch.isPending || tooMany || Boolean(batch.data)}
-            onClick={submit}
+            onClick={() =>
+            batch.mutate(
+              {
+                action,
+                messageIds: messages.map((item) => item.id),
+                exchange: exchange.trim(),
+                routingKey: routingKey.trim(),
+              },
+              {
+                onSuccess: (result) => {
+                  const done = result.items
+                    .filter((item) => item.status === "ok")
+                    .map((item) => item.messageId);
+                  if (done.length) onDisposed(done);
+                },
+              },
+            )
+          }
           >
             {batch.isPending ? "处理中…" : "确认执行"}
           </Button>
@@ -117,11 +100,14 @@ export function MessageBatchDisposalDialog({
           ，剩下的原样留在队列里——不做半截处置。
         </p>
 
-        <dl className="grid grid-cols-3 gap-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-(length:--text-app-body)">
-          <Meta label="队列" value={queue} />
-          <Meta label="条数" value={String(messages.length)} />
-          <Meta label="上限" value={`${MAX_BATCH_SIZE} 条`} />
-        </dl>
+        <MetaGrid
+          columns={3}
+          items={[
+            { label: "队列", value: queue },
+            { label: "条数", value: String(messages.length) },
+            { label: "上限", value: `${MAX_BATCH_SIZE} 条` },
+          ]}
+        />
 
         {tooMany ? (
           <p className="text-(length:--text-app-body) text-amber-700">
@@ -266,15 +252,4 @@ function StatusBadge({ status }: { status: BatchDisposalItem["status"] }) {
   } as const;
   const { tone, label } = map[status];
   return <Badge tone={tone}>{label}</Badge>;
-}
-
-function Meta({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="min-w-0">
-      <dt className="text-(length:--text-app-meta) text-meta">{label}</dt>
-      <dd className="truncate font-mono text-slate-800" title={value}>
-        {value}
-      </dd>
-    </div>
-  );
 }

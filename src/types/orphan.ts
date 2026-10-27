@@ -36,3 +36,11 @@ export interface OrphanTopicPage {
   /** 用户点名但集群里不存在的主题。 */
   missingTopics?: string[];
 }
+
+/** 孤儿主题表的列。 */
+export const ORPHAN_COLUMNS = [
+  { key: "topic", label: "主题" },
+  { key: "messages", label: "堆积", width: "w-28" },
+  { key: "partitions", label: "未消费分区", width: "w-32" },
+  { key: "actions", label: "操作", width: "w-28", align: "right" },
+] as const;

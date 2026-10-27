@@ -95,7 +95,10 @@ export function ratioText(used: number, total: number): string {
  * 这里给出的是**身份色**，不是告警色：身份色必须是中性的，把 amber / rose
  * 留给 warn 与 danger，否则「这张卡是 violet」会被读成「这台节点有事」。
  */
-export type BrokerBadgeTone = "broker-kafka" | "broker-rabbitmq";
+import type { BrokerTone } from "../types/tone.ts";
+
+export type BrokerBadgeTone = BrokerTone;
+
 
 /**
  * 身份色的唯一出口在 `visual.ts`，这里只做「未知中间件不标」这一层判断。

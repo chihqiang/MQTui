@@ -5,7 +5,7 @@ import { useConnections } from "@/hooks/use-connections";
 import { usePersistentWorkspace } from "@/hooks/use-persistent-workspace";
 import { listSavedConnections } from "@/lib/session-storage";
 
-import { OverviewPage } from "@/pages/overview-page";
+import { OverviewPanel } from "@/components/broker/overview-panel";
 
 /**
  * 工作区入口：渲染默认的能力页，并在连接已失效时给出重连出口。
@@ -49,5 +49,5 @@ export function WorkspacePage() {
     );
   }
 
-  return <OverviewPage />;
+  return <OverviewPanel />;
 }

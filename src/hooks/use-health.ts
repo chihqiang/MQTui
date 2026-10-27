@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
 
 import { brokerService, queryKeys } from "@/services";
-import { writeAllowed } from "@/types/health";
+import { writeAllowed } from "@/lib/health";
 
 /**
  * 连接健康检查。

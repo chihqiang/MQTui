@@ -97,6 +97,7 @@ npm run tauri dev
 ```bash
 npm run typecheck    # 前端类型检查
 npm run lint:ui      # 浅色主题颜色与字号守卫
+npm run lint:layers  # 目录分层守卫（pages / types / lib / components）
 npm run build        # typecheck + lint:ui + vite build
 npm run test:rust    # 后端核心逻辑单测（--no-default-features，不需要图形环境）
 npm run test:web     # 前端纯逻辑单测（node --test）
@@ -110,6 +111,7 @@ npm run test:web     # 前端纯逻辑单测（node --test）
 # 前端
 npm run typecheck
 npm run lint:ui
+npm run lint:layers
 npm run test:web
 npm run build
 
@@ -120,6 +122,29 @@ npm run test:rust
 
 `cargo clippy` 需要默认特性（含 `desktop`），因此依赖上面那套系统库；
 `cargo test` 走 `--no-default-features`，脱离图形环境也能跑。
+
+## 目录分层
+
+四条线，各管一件事，由 `npm run lint:layers` 守着（破了不报错、只是慢慢漂移，所以才写成脚本）：
+
+| 目录 | 放什么 | 不许做什么 |
+| --- | --- | --- |
+| `src/pages/` | 只写页面：取数据、排版、调动作 | 不许定义常量 / 方法 / 接口 / 枚举；不许跨页 import（`index.ts` 与 `lazy.tsx` 除外） |
+| `src/types/` | 接口、枚举、常量表、列定义 | 不许有函数体；不许引 `lib` / `components` / `hooks` / `react` |
+| `src/lib/` | 纯逻辑与方法 | 不许引 `react`（`nav.ts` 只引类型）、`components`、`pages` |
+| `src/components/` | 通用界面块 | 不许引 `pages`、`services`（数据由页面通过 props 传入） |
+
+几条具体的落点：
+
+- 一个常量在**两个页面**出现，就说明它不属于任何一个页面 —— 进 `src/types` 对应领域文件。
+  列定义（`TOPIC_COLUMNS` 这类）同理：它是「一页数据长什么样」，不是渲染。
+- 一段逻辑在页面里被反复抄 —— 进 `src/lib`，并补一条 `node --test` 单测。
+- 一块界面被两个页面用（弹窗、卡片、表单）—— 进 `src/components/broker`，命名以 `-dialog` /
+  `-panel` / `-card` 结尾，避免与页面同名。
+- 纯逻辑模块之间用相对路径 `./x.ts` / `../types/x.ts`，不要用 `@/` —— `node --test` 直接跑 `.mts`
+  时解析不到路径别名。
+
+例外写行内注释 `// layer-lint-allow: 原因`。
 
 ## 代码约定
 

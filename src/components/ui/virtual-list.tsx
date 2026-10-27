@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, type ReactNode, type UIEvent } from "react";
 
 import { clampScrollTop, isRestorable, restoreMoved, type ScrollMemory } from "@/lib/scroll-restore";
-import { useVirtualWindow } from "@/lib/virtual-window";
+import { useVirtualWindow } from "@/hooks/use-virtual-window";
 
 /** 滚动停下多久之后把位置写进记忆表。 */
 const SAVE_IDLE_MS = 150;

@@ -7,7 +7,8 @@
  */
 
 import { STORAGE_KEYS, guards, readJson, removeKey, writeJson } from "@/lib/storage";
-import type { BrokerKind, ConnectionConfig } from "@/types";
+import type { BrokerKind, ConnectionConfig } from "../types/broker.ts";
+import type { SavedConnection } from "../types/connection.ts";
 
 /** 最近使用列表的上限，超出丢弃最旧的。 */
 const MAX_RECENT = 10;
@@ -31,14 +32,7 @@ export interface RecentConnection {
 }
 
 /** 已保存的连接：完整配置，可直接用来重连。 */
-export interface SavedConnection {
-  /** 稳定标识，由 kind + name 派生，同名同类型视为同一条。 */
-  id: string;
-  name: string;
-  config: ConnectionConfig;
-  /** 保存时间（毫秒）。 */
-  savedAt: number;
-}
+export type { SavedConnection } from "../types/connection.ts";
 
 function isRecent(value: unknown): value is RecentConnection {
   if (!guards.record(value)) return false;

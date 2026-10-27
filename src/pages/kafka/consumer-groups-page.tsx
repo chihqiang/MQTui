@@ -16,23 +16,15 @@ import {
   TableActions,
   TableCell,
   TableRow,
-  type DataTableColumn,
 } from "@/components/ui";
 import { useConsumerGroups } from "@/hooks/use-consumer-groups";
 import { errorMessage } from "@/lib/errors";
 import { formatLag, groupState, lagTone } from "@/lib/consumer";
 import { formatNumber } from "@/lib/format";
+import { GROUP_COLUMNS } from "@/types/consumer";
 import type { ConsumerGroupInfo } from "@/types";
 
-import { ConsumerGroupDialog } from "@/pages/kafka/consumer-group-detail";
-
-const GROUP_COLUMNS: DataTableColumn[] = [
-  { key: "name", label: "组名" },
-  { key: "state", label: "状态", width: "w-28" },
-  { key: "members", label: "成员", width: "w-20", align: "right" },
-  { key: "lag", label: "滞后", width: "w-28", align: "right" },
-  { key: "actions", label: <span className="sr-only">操作</span>, width: "w-20", align: "right" },
-];
+import { ConsumerGroupDialog } from "@/components/broker/consumer-group-dialog";
 
 /**
  * Kafka 消费组列表。

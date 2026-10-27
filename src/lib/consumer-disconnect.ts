@@ -9,7 +9,7 @@
  * （快照可能已经过期，消费者也许刚好领了一批消息开始干活）。
  */
 
-import type { DisconnectVerdict, QueueConsumer } from "@/types";
+import type { DisconnectVerdict, QueueConsumer } from "../types/consumer-link.ts";
 
 /** 面板自己创建的消费者 tag 前缀，与后端 `PANEL_TAG_PREFIX` 一致。 */
 export const PANEL_TAG_PREFIX = "mqtui";

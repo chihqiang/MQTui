@@ -40,9 +40,23 @@ export const NODE_PREFIX = {
   connection: "c:",
 } as const;
 
-/** 节点标识里取类型前缀，用来决定颜色与图标。 */
-export function kindOf(nodeId: string): LinkNodeKind {
-  if (nodeId.startsWith(NODE_PREFIX.exchange)) return "exchange";
-  if (nodeId.startsWith(NODE_PREFIX.connection)) return "connection";
-  return "queue";
-}
+/**
+ * 节点配色：类型决定色系，连接的健康状态决定边框警示。
+ *
+ * 放在 types 而不是页面里，是因为 `lib/consumer-graph.ts` 与页面都需要它，
+ * 而它是纯粹的「类型 → 颜色」映射，没有任何逻辑。
+ */
+export const LINK_NODE_TONE: Record<string, string> = {
+  exchange: "border-sky-300 bg-sky-50 hover:border-sky-500",
+  queue: "border-emerald-300 bg-emerald-50 hover:border-emerald-500",
+  "connection:warn": "border-amber-400 bg-amber-50 hover:border-amber-500",
+  "connection:idle": "border-slate-300 bg-white hover:border-slate-400",
+  connection: "border-violet-300 bg-violet-50 hover:border-violet-500",
+};
+
+/** 节点类型的中文名，明细区用。 */
+export const LINK_KIND_LABEL: Record<LinkNodeKind, string> = {
+  exchange: "交换机",
+  queue: "队列",
+  connection: "消费者连接",
+};

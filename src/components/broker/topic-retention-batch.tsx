@@ -14,7 +14,7 @@ import {
 import { describePlan } from "@/lib/topic-config";
 import { topicService } from "@/services";
 import { useSessionStore } from "@/stores";
-import { ConfigConfirmModal } from "@/pages/kafka/topic-config-confirm";
+import { ConfigConfirmModal } from "./topic-config-confirm";
 import type { ConfigPreview } from "@/types";
 
 /**

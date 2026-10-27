@@ -6,24 +6,8 @@ import type {
   MigrationRunbook,
   PreconditionState,
   VerifyResult,
-  VerifyState,
 } from "@/types/reassignment";
-import { VERIFY_LABEL } from "@/types/reassignment";
-import type { Tone } from "@/types/tone";
-
-const STATE_TONE: Record<PreconditionState, Tone> = {
-  ok: "success",
-  warn: "warning",
-  block: "danger",
-  unknown: "info",
-};
-
-const VERIFY_TONE: Record<VerifyState, Tone> = {
-  completed: "success",
-  inProgress: "warning",
-  failed: "danger",
-  unknown: "info",
-};
+import { PRECONDITION_TONE, VERIFY_LABEL, VERIFY_TONE } from "@/types/reassignment";
 
 /**
  * 迁移执行方案。
@@ -184,7 +168,7 @@ function RunbookBody({ runbook }: { runbook: MigrationRunbook }) {
         <ul className="flex flex-col divide-y divide-slate-200/60 text-(length:--text-app-body)">
           {runbook.preconditions.map((item) => (
             <li key={item.key} className="flex items-start gap-2 px-3 py-2">
-              <Badge tone={STATE_TONE[item.state]}>{labelOf(item.state)}</Badge>
+              <Badge tone={PRECONDITION_TONE[item.state]}>{labelOf(item.state)}</Badge>
               <div className="min-w-0">
                 <p className="text-slate-800">{item.title}</p>
                 <p className="text-slate-500">{item.detail}</p>
@@ -290,6 +274,7 @@ function VerifyBody({ result }: { result: VerifyResult }) {
 }
 
 /** 空串与非法输入都按「没填」处理：多一个默认值就多一次猜。 */
+/** 数字输入框的取值：空串与非法输入都当作「没填」，不要 `0`。 */
 function toNumber(raw: string): number | undefined {
   const value = raw.trim();
   if (!value) return undefined;
@@ -297,6 +282,7 @@ function toNumber(raw: string): number | undefined {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }
 
+/** 前置检查的人类读法。后端的 `title` 已经在列表里，这里只给「通过 / 提醒 / 挡住」。 */
 function labelOf(state: PreconditionState): string {
   switch (state) {
     case "ok":

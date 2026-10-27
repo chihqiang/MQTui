@@ -1,8 +1,9 @@
 /**
- * 虚拟窗口计算：纯函数 + 一个轻量 hook，便于单测也便于复用。
+ * 虚拟窗口计算：纯函数，便于单测也便于复用。
+ *
+ * 这里**不**放 hook：`node --test` 直接跑 `.mts`，模块一旦 import `react`
+ * 就解析不到包（lib 是给纯逻辑用的）。React 那一层见 `hooks/use-virtual-window.ts`。
  */
-
-import { useCallback, useState } from "react";
 
 export interface ComputeRangeInput {
   itemCount: number;
@@ -40,39 +41,6 @@ export function computeRange({
     end,
     offsetY: start * itemHeight,
     totalHeight: itemCount * itemHeight,
-  };
-}
-
-/**
- * 维护滚动位置并返回当前可视区间。
- *
- * 关键点：渲染调用只依赖「哪几行该画」和「内容层的位移」 —
- * 只要这几个数字没变，滚动就不该引发 React 更新。
- *
- * 实测一次滚轮连发（120Hz 触控板一秒能发一百多个事件）里，绝大多数事件
- * 落在同一行之内：区间没变、位移也可以直接由 DOM 承担。原来每来一个事件就
- * `setState`，于是「滚动」= 「每帧重渲染一屏元素」，列表越复杂越顿。
- */
-export function useVirtualWindow(input: {
-  itemCount: number;
-  itemHeight: number;
-  overscan?: number;
-  defaultViewportHeight?: number;
-}) {
-  const { itemCount, itemHeight, overscan, defaultViewportHeight = 600 } = input;
-  const [scrollTop, setScrollTop] = useState(0);
-  const [viewportHeight, setViewportHeight] = useState(defaultViewportHeight);
-
-  const onScroll = useCallback((nextScrollTop: number, nextViewportHeight: number) => {
-    // 两个 `setState` 放在同一个 React 批次里，但值相同会被 React 直接跳过：
-    // 滚动落在同一行之内时，这次调用等于免费的 —— 这是「滚一下不重渲染一屏」的关键。
-    setScrollTop(nextScrollTop);
-    setViewportHeight((current) => (current === nextViewportHeight ? current : nextViewportHeight));
-  }, []);
-
-  return {
-    ...computeRange({ itemCount, itemHeight, scrollTop, viewportHeight, overscan }),
-    onScroll,
   };
 }
 

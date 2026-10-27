@@ -174,3 +174,12 @@ export function chipOverflow(total: number, max: number, slot = 0): {
   const visible = slot > 0 && max > 1 ? max - slot : max;
   return { visible, hidden: total - visible };
 }
+
+/**
+ * 消息页候选 chip 一次平铺几个。
+ *
+ * 六个是一屏放得下、又不至于把工具条挤成两行的档位；溢出规则见 `chipOverflow`
+ * （它知道「更多」也得占一格）。这曾是页面里的一个常量 `VISIBLE_CHIPS`，
+ * 而它影响的是「候选看不看得全」这件行为，不该由某一页自己决定。
+ */
+export const VISIBLE_CHIPS = 6;

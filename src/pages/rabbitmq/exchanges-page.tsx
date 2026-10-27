@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useParams } from "react-router";
 import { useListFilter } from "@/hooks/use-list-filter";
 
 import {
@@ -17,46 +17,35 @@ import {
   Input,
   Modal,
   RefreshButton,
-  SearchInput,
   StaleNotice,
   Select,
   TableActions,
   TableCell,
   TableRow,
-  type DataTableColumn,
 } from "@/components/ui";
+import { FilterBar, NavigateButton } from "@/components/broker";
 import { PageBody, PageHeader, PageToolbar } from "@/components/layout/page-header";
 import { useTopology } from "@/hooks/use-broker-data";
 import { useHealth } from "@/hooks/use-health";
 import { useCreateBinding, useCreateExchange, useDeleteBinding, useDeleteExchange } from "@/hooks/use-queue-actions";
+import { messagesPath } from "@/lib/actions";
 import { errorMessage } from "@/lib/errors";
+import {
+  DEFAULT_EXCHANGE_SPEC,
+  bindingKey,
+  filterTopology,
+  formatRate,
+  initialBinding,
+  removalReason,
+} from "@/lib/exchange";
 import { failureText } from "@/lib/failure";
-import type { BindingInfo, BindingSpec, ExchangeInfo, ExchangeKind, ExchangeSpec } from "@/types";
-import type { Tone } from "@/types/tone";
-
-/** 交换机类型对应的色调与文案，未识别类型统一按中性色展示。 */
-const EXCHANGE_TONE: Record<ExchangeKind, Tone> = {
-  direct: "info",
-  fanout: "success",
-  topic: "warning",
-  headers: "neutral",
-  unknown: "neutral",
-};
-
-const EXCHANGE_COLUMNS: DataTableColumn[] = [
-  { key: "name", label: "名称" },
-  { key: "type", label: "类型", width: "w-24" },
-  { key: "vhost", label: "vhost", width: "w-28" },
-  { key: "rate", label: "入站速率", width: "w-24", align: "right" },
-  { key: "actions", label: <span className="sr-only">操作</span>, width: "w-32", align: "right" },
-];
-
-const BINDING_COLUMNS: DataTableColumn[] = [
-  { key: "source", label: "源交换机" },
-  { key: "routingKey", label: "routing key" },
-  { key: "destination", label: "目标" },
-  { key: "actions", label: <span className="sr-only">操作</span>, width: "w-32", align: "right" },
-];
+import {
+  BINDING_COLUMNS,
+  EXCHANGE_COLUMNS,
+  EXCHANGE_KIND_OPTIONS,
+  EXCHANGE_KIND_TONE,
+} from "@/types/exchange";
+import type { BindingInfo, BindingSpec, ExchangeInfo, ExchangeSpec } from "@/types";
 
 /**
  * RabbitMQ 拓扑：交换机 + 绑定关系。
@@ -66,7 +55,6 @@ const BINDING_COLUMNS: DataTableColumn[] = [
  */
 export function ExchangesPage() {
   const { connectionId } = useParams();
-  const navigate = useNavigate();
   const { data, isLoading, error, refetch } = useTopology(connectionId, true);
   const { canWrite } = useHealth(connectionId);
   // 过滤词存 URL：点进详情再返回时，刚打的字还在。
@@ -77,17 +65,8 @@ export function ExchangesPage() {
 
   const filtered = useMemo(() => {
     if (!data) return { exchanges: [], bindings: [] };
-    const needle = keyword.trim().toLowerCase();
-    const match = (value: string) => !needle || value.toLowerCase().includes(needle);
     // 选中交换机时只看它的出站绑定；未选中时展示全部，方便一屏看到全貌。
-    return {
-      exchanges: data.exchanges.filter((item) => match(item.name)),
-      bindings: data.bindings.filter(
-        (item) =>
-          (!selected || item.source === selected || item.destination === selected) &&
-          (match(item.source) || match(item.destination) || match(item.routingKey)),
-      ),
-    };
+    return filterTopology(data, keyword, selected);
   }, [data, keyword, selected]);
 
   if (error && !data?.exchanges.length) {
@@ -160,14 +139,11 @@ export function ExchangesPage() {
           </>
         }
       >
-        <SearchInput
+        <FilterBar
           value={keyword}
           onValueChange={setKeyword}
           placeholder="按名称 / routing key 过滤"
-          aria-label="过滤交换机与绑定"
-          icon
-          box="page"
-          className="w-64"
+          ariaLabel="过滤交换机与绑定"
         />
       </PageToolbar>
 
@@ -195,7 +171,7 @@ export function ExchangesPage() {
                   ) : null}
                 </TableCell>
                 <TableCell>
-                  <Badge tone={EXCHANGE_TONE[exchange.exchangeType]}>{exchange.kind}</Badge>
+                  <Badge tone={EXCHANGE_KIND_TONE[exchange.exchangeType] ?? "neutral"}>{exchange.kind}</Badge>
                 </TableCell>
                 <TableCell muted>{exchange.vhost}</TableCell>
                 <TableCell muted numeric>
@@ -249,17 +225,9 @@ export function ExchangesPage() {
                   <TableCell>
                     <TableActions>
                       {binding.destinationType === "queue" ? (
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          onClick={() =>
-                            navigate(
-                              `/connections/${connectionId}/messages?target=${encodeURIComponent(binding.destination)}`,
-                            )
-                          }
-                        >
+                        <NavigateButton to={messagesPath(connectionId, binding.destination)}>
                           查看消息
-                        </Button>
+                        </NavigateButton>
                       ) : null}
                       <DeleteBindingButton
                         binding={binding}
@@ -350,14 +318,6 @@ function DeleteExchangeButton({
   );
 }
 
-/** 不可删除的原因；可删除时返回 null。 */
-function removalReason(exchange: ExchangeInfo): string | null {
-  if (!exchange.name) return "默认交换机由服务端隐式提供，不可删除";
-  if (exchange.name.startsWith("amq.")) return "`amq.` 前缀是 RabbitMQ 保留交换机，不可删除";
-  if (exchange.internal) return "内置（internal）交换机不可删除";
-  return null;
-}
-
 /**
  * 删除绑定。
  *
@@ -428,17 +388,6 @@ function DeleteBindingButton({
   );
 }
 
-/** 绑定唯一键：同一对 source/destination 可以有多条不同 routing key 的绑定。 */
-function bindingKey(binding: BindingInfo): string {
-  return `${binding.source}|${binding.destinationType}|${binding.destination}|${binding.routingKey}`;
-}
-
-/** 速率保留两位小数，0 直接显示为 `-`，避免一屏全是 0。 */
-function formatRate(exchange: ExchangeInfo): string {
-  if (!exchange.messageRate) return "-";
-  return `${exchange.messageRate.toFixed(2)}/s`;
-}
-
 /** 新建交换机弹窗。类型限定在 AMQP 内置的四种，其余留给服务端插件自己注册。 */
 function CreateExchangeModal({
   open,
@@ -451,10 +400,6 @@ function CreateExchangeModal({
   const create = useCreateExchange(connectionId);
   const [spec, setSpec] = useState<ExchangeSpec>(DEFAULT_EXCHANGE_SPEC);
 
-  const submit = () => {
-    // 关掉弹窗只在成功后：失败时要保留用户填的内容，方便改完再试。
-    create.mutate(spec, { onSuccess: () => onClose() });
-  };
 
   return (
     <Modal
@@ -466,7 +411,12 @@ function CreateExchangeModal({
           <Button size="sm" variant="secondary" onClick={onClose}>
             取消
           </Button>
-          <Button size="sm" loading={create.isPending} onClick={submit}>
+          {/* 关掉弹窗只在成功后：失败时要保留用户填的内容，方便改完再试。 */}
+          <Button
+            size="sm"
+            loading={create.isPending}
+            onClick={() => create.mutate(spec, { onSuccess: () => onClose() })}
+          >
             创建
           </Button>
         </>
@@ -476,7 +426,8 @@ function CreateExchangeModal({
         className="flex flex-col gap-3"
         onSubmit={(event) => {
           event.preventDefault();
-          submit();
+          // 关掉弹窗只在成功后：失败时要保留用户填的内容，方便改完再试。
+          create.mutate(spec, { onSuccess: () => onClose() });
         }}
       >
         <Field label="名称">
@@ -520,20 +471,6 @@ function CreateExchangeModal({
   );
 }
 
-const DEFAULT_EXCHANGE_SPEC: ExchangeSpec = {
-  name: "",
-  kind: "direct",
-  durable: true,
-  autoDelete: false,
-};
-
-const EXCHANGE_KIND_OPTIONS = [
-  { value: "direct", label: "direct（按 routing key 精确匹配）" },
-  { value: "topic", label: "topic（按模式匹配）" },
-  { value: "fanout", label: "fanout（广播到全部绑定）" },
-  { value: "headers", label: "headers（按消息头匹配）" },
-];
-
 /** 新建绑定弹窗。 */
 function CreateBindingModal({
   open,
@@ -563,9 +500,6 @@ function CreateBindingModal({
   const isHeaders = sourceKind === "headers";
   const destinationKind = spec.destination.kind;
 
-  const submit = () => {
-    create.mutate(spec, { onSuccess: () => onClose() });
-  };
 
   return (
     <Modal
@@ -577,7 +511,11 @@ function CreateBindingModal({
           <Button size="sm" variant="secondary" onClick={onClose}>
             取消
           </Button>
-          <Button size="sm" loading={create.isPending} onClick={submit}>
+          <Button
+            size="sm"
+            loading={create.isPending}
+            onClick={() => create.mutate(spec, { onSuccess: () => onClose() })}
+          >
             绑定
           </Button>
         </>
@@ -587,7 +525,8 @@ function CreateBindingModal({
         className="flex flex-col gap-3"
         onSubmit={(event) => {
           event.preventDefault();
-          submit();
+          // 关掉弹窗只在成功后：失败时要保留用户填的内容，方便改完再试。
+          create.mutate(spec, { onSuccess: () => onClose() });
         }}
       >
         <Field label="源交换机" hint="留空表示默认交换机（按队列名直投）">
@@ -694,11 +633,3 @@ function CreateBindingModal({
   );
 }
 
-function initialBinding(source: string): BindingSpec {
-  return {
-    source,
-    destination: { name: "", kind: "queue" },
-    routingKey: "",
-    arguments: [],
-  };
-}

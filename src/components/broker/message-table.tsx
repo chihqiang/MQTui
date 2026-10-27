@@ -5,8 +5,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type KeyboardEvent,
-  type ReactNode,
 } from "react";
 
 import {
@@ -28,32 +26,16 @@ import { DENSITY, densityRowHeight } from "@/lib/list-view";
 import { keepLoadMoreVisible } from "@/lib/refresh";
 import type { ScrollMemory } from "@/lib/scroll-restore";
 import { IconDeadLetter, IconRedeliver, IconResend } from "@/lib/icons";
-import {
-  EMPTY_FILTER,
-  filterMessages,
-  isFilterActive,
-  type MessageFilter,
-} from "@/lib/message-filter";
+import { EMPTY_FILTER, filterMessages, isFilterActive, type MessageFilter } from "@/lib/message-filter";
 import type { DisposalAction, MessageSummary } from "@/types";
 
 import { useTopics, useTopology } from "@/hooks/use-broker-data";
 import { exactChoices, routingKeyChoices } from "@/lib/choice";
-import { MessageBatchDisposalDialog } from "@/pages/messages/message-batch-disposal";
-import { MessageDisposalDialog } from "@/pages/messages/message-disposal";
-import { MessageResendDialog } from "@/pages/messages/message-resend";
-
-interface Props {
-  connectionId: string;
-  target: string;
-  /** 只看某个分区（仅 Kafka）；不传表示全部分区。 */
-  partition?: number;
-  /** 选中一行。回传整条摘要，RabbitMQ 的 payload 就在里面，详情无需再请求。 */
-  onSelect: (message: MessageSummary) => void;
-  /** 是否显示 RabbitMQ 的消息处置入口（重投 / 移入死信）。 */
-  canDispose?: boolean;
-  /** 是否显示 Kafka 的重发入口。 */
-  canResend?: boolean;
-}
+import { MessageBatchDisposalDialog } from "./message-batch-disposal-dialog";
+import { MessageDisposalDialog } from "./message-disposal-dialog";
+import { MessageResendDialog } from "./message-resend-dialog";
+import { RowAction } from "./row-action";
+import type { MessageTableProps } from "@/types";
 
 /**
  * 行高跟随全站密度档。
@@ -107,7 +89,7 @@ export function MessageTable({
   onSelect,
   canDispose,
   canResend,
-}: Props) {
+}: MessageTableProps) {
   const {
     data,
     isLoading,
@@ -262,40 +244,6 @@ export function MessageTable({
     ],
   );
 
-  const moveCursor = (delta: number) => {
-    if (!items.length) return;
-    const next = cursor < 0 ? (delta > 0 ? 0 : items.length - 1) : cursor + delta;
-    const clamped = Math.min(Math.max(next, 0), items.length - 1);
-    setCursor(clamped);
-    // 让选中行始终留在视口里。虚拟列表的 DOM 会随滚动增删，用滚动容器算更稳。
-    const container = listRef.current;
-    if (!container) return;
-    const top = clamped * rowHeight;
-    const bottom = top + rowHeight;
-    if (top < container.scrollTop) container.scrollTop = top;
-    else if (bottom > container.scrollTop + container.clientHeight) {
-      container.scrollTop = bottom - container.clientHeight;
-    }
-  };
-
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (!items.length) return;
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      event.preventDefault();
-      moveCursor(event.key === "ArrowDown" ? 1 : -1);
-      return;
-    }
-    const current = items[cursor];
-    if (!current) return;
-    if (event.key === "Enter") {
-      event.preventDefault();
-      onSelect(current);
-    }
-    if (event.key === " " && selectable) {
-      event.preventDefault();
-      toggle(current.id);
-    }
-  };
 
   // 首屏没有数据才铺骨架；之后任何一次重新读取都不该把列表换成灰条 ——
   // 「加载最新」时整块闪一下，位置和当前读到的内容全丢了。
@@ -444,7 +392,38 @@ export function MessageTable({
         <div
           ref={listRef}
           tabIndex={0}
-          onKeyDown={onKeyDown}
+          onKeyDown={(event) => {
+            if (!items.length) return;
+            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+              event.preventDefault();
+              // 上下键在列表里移动光标：光标越界时夹在两端，而不是原地不动。
+              const delta = event.key === "ArrowDown" ? 1 : -1;
+              const next = Math.min(Math.max(cursor < 0 ? (delta > 0 ? 0 : items.length - 1) : cursor + delta, 0), items.length - 1);
+              setCursor(next);
+              // 让选中行始终留在视口里：虚拟列表的 DOM 会随滚动增删，
+              // 所以用滚动容器的几何来算，而不是 `scrollIntoView`。
+              const container = listRef.current;
+              if (container) {
+                const top = next * rowHeight;
+                const bottom = top + rowHeight;
+                if (top < container.scrollTop) container.scrollTop = top;
+                else if (bottom > container.scrollTop + container.clientHeight) {
+                  container.scrollTop = bottom - container.clientHeight;
+                }
+              }
+              return;
+            }
+            const current = items[cursor];
+            if (!current) return;
+            if (event.key === "Enter") {
+              event.preventDefault();
+              onSelect(current);
+            }
+            if (event.key === " " && selectable) {
+              event.preventDefault();
+              toggle(current.id);
+            }
+          }}
           role="grid"
           aria-label="消息列表"
           className="min-h-0 flex-1 overflow-auto outline-none"
@@ -644,25 +623,3 @@ const MessageRow = memo(function MessageRow({
     </div>
   );
 });
-
-/** 行内小动作。悬停才出现，避免满屏按钮抢走内容。 */
-function RowAction({
-  label,
-  icon,
-  onClick,
-}: {
-  label: string;
-  icon?: ReactNode;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="inline-flex items-center gap-1 rounded border border-slate-300 px-1.5 py-0.5 text-(length:--text-app-meta) text-slate-600 transition-colors hover:border-accent hover:text-info"
-    >
-      {icon}
-      {label}
-    </button>
-  );
-}

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useParams } from "react-router";
 
 import {
   Badge,
@@ -12,14 +12,15 @@ import {
   Input,
   Loading,
 } from "@/components/ui";
+import { NavigateButton } from "@/components/broker";
 import { PageBody, PageHeader } from "@/components/layout/page-header";
 import { useOrphanCandidates, useOrphanTopics } from "@/hooks/use-broker-data";
 import { errorMessage } from "@/lib/errors";
 import { failureText } from "@/lib/failure";
+import { messagesPath } from "@/lib/actions";
 import { formatNumber } from "@/lib/format";
-import type { OrphanTopic } from "@/types";
-import type { OrphanScanScope } from "@/types/orphan";
-import type { Tone } from "@/types/tone";
+import { describeScope, orphanTone } from "@/lib/orphan-topics";
+import type { OrphanScanScope, OrphanTopic } from "@/types/orphan";
 
 /**
  * Kafka 无消费组主题。
@@ -55,13 +56,6 @@ export function OrphanTopicsPage() {
     return names.filter((name) => name.toLowerCase().includes(needle));
   }, [candidates.data, keyword]);
 
-  const scan = () => {
-    setExpanded(null);
-    // 范围没变时也要重新扫：用户点「扫描」的意图通常就是「再算一次」。
-    setScanned({ ...scope });
-    void result.refetch();
-  };
-
   if (candidates.isLoading) return <Loading label="读取主题列表…" />;
   if (candidates.error) {
     return (
@@ -82,7 +76,7 @@ export function OrphanTopicsPage() {
       <Card>
         <CardHeader
           title="扫描范围"
-          extra={<span className="text-(length:--text-app-body) text-slate-500">{describeScope(selected, prefix)}</span>}
+          extra={<span className="text-(length:--text-app-body) text-slate-500">{describeScope(scope)}</span>}
         />
         <CardBody className="flex flex-col gap-3">
           <div className="flex flex-wrap items-end gap-3">
@@ -102,7 +96,16 @@ export function OrphanTopicsPage() {
                 onChange={(event) => setKeyword(event.currentTarget.value)}
               />
             </div>
-            <Button size="sm" onClick={scan} disabled={result.isFetching}>
+            <Button
+              size="sm"
+              disabled={result.isFetching}
+              // 范围没变时也要重新扫：用户点「扫描」的意图通常就是「再算一次」。
+              onClick={() => {
+                setExpanded(null);
+                setScanned({ ...scope });
+                void result.refetch();
+              }}
+            >
               {targeted ? "扫描选中" : "全量扫描（慢）"}
             </Button>
             {selected.length || prefix ? (
@@ -247,15 +250,6 @@ function ScanResult({
   );
 }
 
-/** 范围摘要，放在卡片右上角，避免用户忘了自己选的是什么。 */
-function describeScope(topics: string[], prefix: string): string {
-  const trimmed = prefix.trim();
-  if (topics.length && trimmed) return `${topics.length} 个主题 + 前缀 ${trimmed}`;
-  if (topics.length) return `${topics.length} 个指定主题`;
-  if (trimmed) return `前缀 ${trimmed}`;
-  return "全量扫描";
-}
-
 /** 一行主题；展开后列出各分区的堆积量，排查时能直接看到是不是单分区热点。 */
 function OrphanRow({
   item,
@@ -268,8 +262,6 @@ function OrphanRow({
   expanded: boolean;
   onToggle: () => void;
 }) {
-  const navigate = useNavigate();
-
   return (
     <>
       <tr
@@ -278,22 +270,11 @@ function OrphanRow({
       >
         <td className="px-4 py-2 font-mono text-(length:--text-app-body) text-slate-800">{item.topic}</td>
         <td className="px-4 py-2">
-          <Badge tone={lagTone(item.messages)}>{formatNumber(item.messages)}</Badge>
+          <Badge tone={orphanTone(item.messages)}>{formatNumber(item.messages)}</Badge>
         </td>
         <td className="px-4 py-2 text-slate-500">{formatNumber(item.partitions)}</td>
         <td className="px-4 py-2 text-right">
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={(event) => {
-              event.stopPropagation();
-              navigate(
-                `/connections/${connectionId}/messages?target=${encodeURIComponent(item.topic)}`,
-              );
-            }}
-          >
-            查看消息
-          </Button>
+          <NavigateButton to={messagesPath(connectionId, item.topic)}>查看消息</NavigateButton>
         </td>
       </tr>
       {expanded ? (
@@ -316,9 +297,3 @@ function OrphanRow({
   );
 }
 
-/** 堆积量越大越红，与消费组页的阈值保持一致。 */
-function lagTone(messages: number): Tone {
-  if (messages >= 10_000) return "danger";
-  if (messages >= 1_000) return "warning";
-  return "neutral";
-}

@@ -6,7 +6,7 @@
  * 必须先在前端判断清楚，而不是把空条件丢给后端跑一遍。
  */
 
-import type { MessageLocate } from "@/types";
+import type { MessageLocate } from "../types/message.ts";
 
 /** 定位表单的原始输入（全部是字符串，直接对应输入框的值）。 */
 export interface LocateForm {

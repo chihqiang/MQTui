@@ -68,3 +68,28 @@ export interface PolicyPreview {
   conflicts: PriorityConflict[];
   caveats: string[];
 }
+
+/** 策略表的列。操作员策略少一列「操作」—— 用户改不了它们。 */
+export const POLICY_COLUMNS = [
+  { key: "name", label: "名称" },
+  { key: "pattern", label: "匹配模式" },
+  { key: "applyTo", label: "范围", width: "w-24" },
+  { key: "priority", label: "优先级", width: "w-20", align: "right" },
+  { key: "definition", label: "定义" },
+  { key: "actions", label: "操作", width: "w-32", align: "right" },
+] as const;
+
+export const OPERATOR_POLICY_COLUMNS = [
+  { key: "name", label: "名称" },
+  { key: "pattern", label: "匹配模式" },
+  { key: "applyTo", label: "范围", width: "w-24" },
+  { key: "priority", label: "优先级", width: "w-20", align: "right" },
+  { key: "definition", label: "定义" },
+] as const;
+
+/** 生效范围的徽标文案：从选项表推一次。选项在 `lib/policy.ts`（它带说明文案）。 */
+export const APPLY_TO_LABEL: Record<PolicyApplyTo, string> = {
+  queues: "队列",
+  exchanges: "交换机",
+  all: "队列 + 交换机",
+};

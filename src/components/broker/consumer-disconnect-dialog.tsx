@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 
-import { Button, Field, Input, Modal } from "@/components/ui";
+import { Button, Field, Input, MetaGrid, Modal } from "@/components/ui";
 import { useDisconnectConsumer } from "@/hooks/use-consumer-disconnect";
 import { confirmMatches, DISCONNECT_VERDICT_NOTE, evaluateDisconnect } from "@/lib/consumer-disconnect";
 import type { QueueConsumption, QueueConsumer } from "@/types";
 
-interface Props {
+/** 断开消费者弹窗的入参。 */
+export interface ConsumerDisconnectProps {
   connectionId: string | undefined;
   /** 待断开的消费者及其所属队列；为 `null` 时关闭弹窗。 */
   target: { queue: QueueConsumption; consumer: QueueConsumer } | null;
@@ -19,7 +20,7 @@ interface Props {
  * 所以这里的确认做得比其它写操作更重：把「谁、在哪、还有多少在途消息」先摆清楚，
  * 再要求用户手打队列名。
  */
-export function ConsumerDisconnectModal({ connectionId, target, onClose }: Props) {
+export function ConsumerDisconnectModal({ connectionId, target, onClose }: ConsumerDisconnectProps) {
   const [confirm, setConfirm] = useState("");
   const disconnect = useDisconnectConsumer(connectionId);
   const queue = target?.queue;
@@ -64,14 +65,16 @@ export function ConsumerDisconnectModal({ connectionId, target, onClose }: Props
     >
       {consumer ? (
         <div className="flex flex-col gap-3 text-(length:--text-app-body)">
-          <dl className="grid grid-cols-2 gap-x-6 gap-y-2">
-            <Item label="队列" value={queue.queue} />
-            <Item label="消费者标签" value={consumer.consumerTag} />
-            <Item label="连接" value={consumer.connectionName ?? "—"} />
-            <Item label="账号" value={consumer.username || "—"} />
-            <Item label="预取" value={consumer.prefetchCount === 0 ? "不限" : String(consumer.prefetchCount)} />
-            <Item label="未确认" value={String(consumer.messagesUnacknowledged)} />
-          </dl>
+          <MetaGrid
+            items={[
+              { label: "队列", value: queue.queue },
+              { label: "消费者标签", value: consumer.consumerTag },
+              { label: "连接", value: consumer.connectionName ?? "—" },
+              { label: "账号", value: consumer.username || "—" },
+              { label: "预取", value: consumer.prefetchCount === 0 ? "不限" : String(consumer.prefetchCount) },
+              { label: "未确认", value: String(consumer.messagesUnacknowledged) },
+            ]}
+          />
 
           <p
             className={
@@ -95,14 +98,5 @@ export function ConsumerDisconnectModal({ connectionId, target, onClose }: Props
         </div>
       ) : null}
     </Modal>
-  );
-}
-
-function Item({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex flex-col gap-0.5">
-      <dt className="text-(length:--text-app-meta) text-meta">{label}</dt>
-      <dd className="break-all font-mono text-slate-800">{value}</dd>
-    </div>
   );
 }

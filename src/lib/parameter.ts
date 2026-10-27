@@ -135,3 +135,41 @@ export function filterParameters(parameters: ParameterInfo[], keyword: string): 
       .includes(needle),
   );
 }
+
+/**
+ * 参数值的一行摘要。
+ *
+ * 只取最要紧的一两个字段：完整 JSON 留在编辑弹窗里看。URI 一律打码 ——
+ * 后端也做了一遍（`domain::parameter::redact_uri`），这里再做一次是因为
+ * 摘要文本会直接进 DOM，漏一次就是把口令印在屏幕上。
+ */
+export function summarizeParameter(parameter: ParameterInfo): string {
+  const value = parameter.value;
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return `${value.length} 项`;
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const parts: string[] = [];
+    for (const key of ["uri", "src-uri", "dest-uri", "prefetch-count", "value"]) {
+      if (record[key] !== undefined) parts.push(`${key}=${renderPart(record[key])}`);
+    }
+    if (parts.length) return parts.join(" · ");
+  }
+  return JSON.stringify(value ?? null);
+}
+
+/** 摘要里的单个值：字符串先打码，数组只报个数。 */
+export function renderPart(value: unknown): string {
+  if (typeof value === "string") return maskCredentials(value);
+  if (Array.isArray(value)) return `${value.length} 项`;
+  return JSON.stringify(value);
+}
+
+/** URI 里的口令打码：`amqp://user:pass@host/vhost` → `amqp://user:***@host/vhost`。 */
+export function maskCredentials(uri: string): string {
+  const match = /^([a-z+]+:\/\/)([^@/]+)@(.+)$/i.exec(uri);
+  if (!match) return uri;
+  const [, scheme, userinfo, rest] = match;
+  const user = userinfo.split(":")[0];
+  return userinfo.includes(":") ? `${scheme}${user}:***@${rest}` : uri;
+}

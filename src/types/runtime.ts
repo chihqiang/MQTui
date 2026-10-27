@@ -53,3 +53,24 @@ export interface RuntimeSnapshot {
   /** 每个节点承载的队列数。 */
   perNode: Record<string, number>;
 }
+
+/** 通道表的列。 */
+export const CHANNEL_COLUMNS = [
+  { key: "channel", label: "通道" },
+  { key: "user", label: "账号", width: "w-24" },
+  { key: "consumers", label: "消费者", width: "w-20", align: "right" },
+  { key: "prefetch", label: "预取", width: "w-20", align: "right" },
+  { key: "unacked", label: "未确认", width: "w-24", align: "right" },
+  { key: "acks", label: "已确认", width: "w-24", align: "right" },
+  { key: "state", label: "状态", width: "w-24" },
+  { key: "actions", label: "操作", width: "w-20", align: "right" },
+] as const;
+
+/**
+ * 运行时页里选中的目标：一条连接，或它上面的一个通道。
+ *
+ * 弹窗关的是哪一个，全凭这个结构 —— 只存名字不够，通道名只在连接内唯一。
+ */
+export type RuntimeTarget =
+  | { kind: "connection"; detail: ConnectionDetail; name: string }
+  | { kind: "channel"; detail: ConnectionDetail; name: string };

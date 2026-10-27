@@ -6,7 +6,7 @@
  * 用法是「先看一眼最近的消息，再从中挑出关心的那条」，本地过滤够用且即时。
  */
 
-import type { MessageSummary } from "@/types";
+import type { MessageSummary } from "../types/message.ts";
 
 /** 过滤条件。空串表示不限制该维度。 */
 export interface MessageFilter {

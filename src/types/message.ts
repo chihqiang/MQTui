@@ -130,3 +130,107 @@ export interface SendOutcome {
   kind: string;
   detail: string;
 }
+
+/**
+ * 列表行高（像素）。
+ *
+ * 虚拟列表必须知道准确行高才能算偏移量，而这个数曾经写死在定位面板里：
+ * 一旦行高改了，越往下滚内容相对滚动位置偏得越多，滚一格视线跳一大截。
+ * 与 `lib/list-view.ts` 的 `DENSITY_ROW_HEIGHT` 同一个道理，只是定位面板
+ * 的行比表格行更高（带一条 payload 预览）。
+ */
+export const MESSAGE_ROW_HEIGHT = 38;
+
+/** 消息页的两种形态：浏览当前 topic / 按条件扫一遍找消息。 */
+export type MessageMode = "browse" | "locate";
+
+/** 浏览与定位是两种不同的读法：一个往下翻，一个按条件扫。 */
+export const MESSAGE_MODES: readonly { value: MessageMode; label: string; hint: string }[] = [
+  { value: "browse", label: "浏览", hint: "读这个 topic 当前的消息" },
+  { value: "locate", label: "按 key / 时间定位", hint: "顺序扫描分区，适合「找那条消息」" },
+];
+
+/** 消息详情弹窗的入参。 */
+export interface MessageDetailProps {
+  connectionId: string;
+  message: MessageSummary;
+  onClose: () => void;
+  /**
+   * 「按这个 key 继续找」：把这条消息的 key 带回定位面板。
+   *
+   * 详情是排查的十字路口 —— 看到一条可疑消息，下一步十有八九是「同一个 key 的
+   * 其它消息」。没有这个入口，用户得自己选中、复制、记住，切回定位面板再粘贴。
+   * 只在 Kafka 侧传：AMQP 没有 key 的顺序扫描语义。
+   */
+  onLocateKey?: (key: string) => void;
+}
+
+/** 定位面板的入参。 */
+export interface MessageLocatePanelProps {
+  connectionId: string;
+  target: string;
+  onSelect: (message: MessageSummary) => void;
+  /**
+   * 从消息详情带进来的 key。变化时把 key 填进表单并**自动开扫**：
+   * 用户点的是「继续找」，不是「帮我把字填好，再点一次定位」。
+   * 现场已经填好的其它条件（比如时间区间）保留 —— 见 `withFallbackKey`。
+   */
+  initialKey?: string | null;
+}
+
+/** `locateMessages` 的返回：一页命中 + 游标 + 这一轮的扫描代价。 */
+export type MessageLocateResult = MessageSearch;
+
+/** 消息列表的入参。 */
+export interface MessageTableProps {
+  connectionId: string;
+  target: string;
+  /** 只看某个分区（仅 Kafka）；不传表示全部分区。 */
+  partition?: number;
+  /** 选中一行。回传整条摘要，RabbitMQ 的 payload 就在里面，详情无需再请求。 */
+  onSelect: (message: MessageSummary) => void;
+  /** 是否显示 RabbitMQ 的消息处置入口（重投 / 移入死信）。 */
+  canDispose?: boolean;
+  /** 是否显示 Kafka 的重发入口。 */
+  canResend?: boolean;
+}
+
+/** 处置弹窗的入参。 */
+export interface MessageDisposalProps {
+  connectionId: string;
+  message: MessageSummary;
+  /** 重投到别的交换机，或交给队列声明的死信交换机。 */
+  action: "redeliver" | "deadLetter";
+  onClose: () => void;
+  /**
+   * 拓扑里确切的交换机名。解析失败时传 `null`，目标交换机退回自由输入 ——
+   * 这时候如果还硬做完备性校验，第一个被弹回去的就是用户真正想填的那个名字。
+   */
+  exchangeNames: string[] | null;
+  /** 同上：全局去重后的 routing key。 */
+  routingKeys: string[] | null;
+}
+
+/** 批量处置弹窗的入参。 */
+export interface MessageBatchDisposalProps {
+  connectionId: string;
+  /** 选中的消息，顺序即回报顺序。 */
+  messages: MessageSummary[];
+  action: "redeliver" | "deadLetter";
+  onClose: () => void;
+  /** 有消息真的被处置成功时回调，让列表把这几行从选中集里摘掉。 */
+  onDisposed: (messageIds: string[]) => void;
+  /** 拓扑里确切的交换机名；`null` 表示没读到，目标交换机退回自由输入。 */
+  exchangeNames: string[] | null;
+  /** 同上：全局去重后的 routing key。 */
+  routingKeys: string[] | null;
+}
+
+/** 消息重发弹窗的入参。 */
+export interface MessageResendProps {
+  connectionId: string;
+  message: MessageSummary;
+  onClose: () => void;
+  /** 当前 topic 列表；`null` 表示还没读到或读失败，此时允许手填。 */
+  topicNames: string[] | null;
+}

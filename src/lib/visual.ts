@@ -1,3 +1,5 @@
+import type { BrokerTone } from "../types/tone.ts";
+
 /**
  * 视觉语言的三根柱子：字号、语义色、窗口尺寸。
  *
@@ -93,13 +95,15 @@ export function statusBarHeight(density: StatusDensity = STATUS_DENSITY): number
  *    —— 徽标旁一条「信息」提示和「这是一台 Kafka」是同一个颜色。
  *
  * 所以身份色必须是**独立**的一对：不借告警色，也不借提示色。
+ *
+ * 类型本身在 `types/tone.ts`（它和 `BadgeTone` 是同一件事），这里只做映射。
  */
 export type BrokerIdentity = "kafka" | "rabbitmq" | "unknown";
 
 export type BrokerKindName = "kafka" | "rabbitMq";
 
 /** 身份色专属名词（对应 `--color-broker-*`），不使用任何语义 tone。 */
-export type BrokerTone = "broker-kafka" | "broker-rabbitmq";
+export type { BrokerTone };
 
 /** 身份色只用于徽标与图标底色，不参与告警 / 提示语义。 */
 export const BROKER_IDENTITY_TONE: Record<BrokerKindName, BrokerTone> = {

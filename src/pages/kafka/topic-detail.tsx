@@ -20,7 +20,6 @@ import {
   StaleNotice,
   TableCell,
   TableRow,
-  type DataTableColumn,
 } from "@/components/ui";
 import { PageBody, PageHeader } from "@/components/layout/page-header";
 import { useDeleteTopic, useExpandTopic, useTopicCapabilities, useTopicDetail } from "@/hooks/use-topics";
@@ -29,8 +28,9 @@ import { failureText, shouldReplaceWithError } from "@/lib/failure";
 import { formatNumber } from "@/lib/format";
 import { IconBack } from "@/lib/icons";
 import { connectionPath } from "@/lib/nav";
-import { MigrationPanel } from "@/pages/kafka/migration-panel";
-import { TopicConfigEditor } from "@/pages/kafka/topic-config-editor";
+import { MigrationPanel } from "@/components/broker/migration-panel";
+import { TopicConfigEditor } from "@/components/broker/topic-config-editor";
+import { PARTITION_COLUMNS } from "@/types/topic";
 import type { TopicDetail, TopicPartitionInfo } from "@/types";
 
 /**
@@ -40,17 +40,6 @@ import type { TopicDetail, TopicPartitionInfo } from "@/types";
  * 第一个要看的是有没有副本掉队，两串数字分开摆，肉眼比长度很容易漏，
  * 所以掉队的整行标红、顶部再给一条横幅。
  */
-const PARTITION_COLUMNS: DataTableColumn[] = [
-  { key: "partition", label: "分区", width: "w-16", align: "right" },
-  { key: "leader", label: "Leader", width: "w-24", align: "right" },
-  { key: "replicas", label: "副本" },
-  { key: "isr", label: "已同步" },
-  { key: "low", label: "起始位点", width: "w-28", align: "right" },
-  { key: "high", label: "末尾位点", width: "w-28", align: "right" },
-  { key: "messages", label: "消息数", width: "w-28", align: "right" },
-  { key: "actions", label: <span className="sr-only">操作</span>, width: "w-24", align: "right" },
-];
-
 /**
  * 主题详情：分区布局 + 副本同步 + 水位。
  *
@@ -355,17 +344,8 @@ function ExpandModal({
     if (open) setTarget(String(current + 1));
   }, [current, open]);
 
-  const onChange = (value: string) => setTarget(value);
   const parsed = Number.parseInt(target, 10);
   const invalid = Number.isNaN(parsed) || parsed <= current;
-
-  const submit = () => {
-    if (invalid) return;
-    expand.mutate(
-      { topic: detail.name, partitions: parsed },
-      { onSuccess: () => onClose() },
-    );
-  };
 
   return (
     <Modal
@@ -381,7 +361,10 @@ function ExpandModal({
             size="sm"
             loading={expand.isPending}
             disabled={invalid}
-            onClick={submit}
+            onClick={() => {
+            if (invalid) return;
+            expand.mutate({ topic: detail.name, partitions: parsed }, { onSuccess: () => onClose() });
+          }}
             title={invalid ? `目标分区数必须大于当前 ${current} 个` : undefined}
           >
             {expand.isPending ? "扩容中…" : "确认扩容"}
@@ -402,7 +385,7 @@ function ExpandModal({
             type="number"
             min={current + 1}
             value={target}
-            onChange={(event) => onChange(event.currentTarget.value)}
+            onChange={(event) => setTarget(event.currentTarget.value)}
           />
         </Field>
         {invalid ? (

@@ -7,7 +7,7 @@
  * 所以表单按中间件分开，判断与组装都放在这里，让页面只画字段。
  */
 
-import type { MessageHeader } from "@/types";
+import type { MessageHeader } from "../types/message.ts";
 
 /** 投递模式：broker 只认这两个值，其余数字会被 lapin 悄悄忽略。 */
 export const DELIVERY_MODES = [

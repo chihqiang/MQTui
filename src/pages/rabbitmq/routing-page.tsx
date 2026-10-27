@@ -1,25 +1,17 @@
 import { useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useParams } from "react-router";
 
-import { Badge, Card, CardBody, CardHeader, Empty, ErrorState, Input, Loading } from "@/components/ui";
+import { Badge, Card, CardBody, CardHeader, Empty, ErrorState, Loading } from "@/components/ui";
+import { FilterBar, NavigateButton } from "@/components/broker";
 import { PageBody, PageHeader, PageToolbar } from "@/components/layout/page-header";
 import { useTopologyInsight } from "@/hooks/use-broker-data";
 import { errorMessage } from "@/lib/errors";
 import { failureText } from "@/lib/failure";
+import { messagesPath } from "@/lib/actions";
 import { formatNumber } from "@/lib/format";
-import { ROUTE_CONFIDENCE_LABEL } from "@/types/topology-insight";
-import type { ExchangeRoute, RouteConfidence } from "@/types/topology-insight";
-import type { Tone } from "@/types/tone";
-
-/** 把握程度的色调：估算结果不该和确定结论长得一样。 */
-const CONFIDENCE_TONE: Record<RouteConfidence, Tone> = {
-  certain: "success",
-  partial: "warning",
-  implicit: "info",
-};
-
-/** 默认交换机在界面上不能显示为空串，否则一行看起来像坏了。 */
-const DEFAULT_EXCHANGE_LABEL = "(默认交换机)";
+import { defaultExchangeLabel } from "@/lib/topology-graph";
+import { ROUTE_CONFIDENCE_LABEL, ROUTE_CONFIDENCE_TONE } from "@/types/topology-insight";
+import type { ExchangeRoute } from "@/types/topology-insight";
 
 /**
  * 路由估算页：从交换机视角看「消息会落到哪些队列」。
@@ -29,7 +21,6 @@ const DEFAULT_EXCHANGE_LABEL = "(默认交换机)";
  */
 export function RoutingPage() {
   const { connectionId } = useParams();
-  const navigate = useNavigate();
   const { data, isLoading, error, refetch } = useTopologyInsight(connectionId, true);
   const [keyword, setKeyword] = useState("");
   const [onlyBroken, setOnlyBroken] = useState(false);
@@ -69,25 +60,22 @@ export function RoutingPage() {
       />
 
       <PageToolbar hint={brokenCount ? `${brokenCount} 个交换机有问题` : undefined}>
-        <div className="w-64">
-          <Input
-            value={keyword}
-            onChange={(event) => setKeyword(event.currentTarget.value)}
-            placeholder="按交换机 / 队列名过滤"
-            aria-label="过滤路由"
-          />
-        </div>
-        <label className="flex items-center gap-2 text-(length:--text-app-body) text-slate-600">
-          <input
-            type="checkbox"
-            checked={onlyBroken}
-            onChange={(event) => setOnlyBroken(event.currentTarget.checked)}
-          />
-          只看有问题的交换机
-        </label>
-        <span className="ml-auto text-(length:--text-app-body) text-slate-500">
-          {formatNumber(data.routes.length)} 个交换机 · {formatNumber(brokenCount)} 个投放异常
-        </span>
+        <FilterBar
+          value={keyword}
+          onValueChange={setKeyword}
+          placeholder="按交换机 / 队列名过滤"
+          ariaLabel="过滤路由"
+          onlyIssue={{
+            checked: onlyBroken,
+            onChange: setOnlyBroken,
+            label: "只看有问题的交换机",
+          }}
+          summary={
+            <>
+              {formatNumber(data.routes.length)} 个交换机 · {formatNumber(brokenCount)} 个投放异常
+            </>
+          }
+        />
       </PageToolbar>
 
       {brokenCount || data.stalled.length ? (
@@ -99,7 +87,7 @@ export function RoutingPage() {
                 <span className="mr-2 text-rose-700">死路</span>
                 没有任何出站绑定，消息进入即被丢弃：
                 <span className="ml-1 font-mono text-slate-800">
-                  {data.deadEnds.map(labelOf).join("、")}
+                  {data.deadEnds.map(defaultExchangeLabel).join("、")}
                 </span>
               </p>
             ) : null}
@@ -128,11 +116,7 @@ export function RoutingPage() {
             route={route}
             deadEnd={data.deadEnds.includes(route.exchange)}
             stalled={data.stalled}
-            onOpenQueue={(queue) =>
-              navigate(
-                `/connections/${connectionId}/messages?target=${encodeURIComponent(queue)}`,
-              )
-            }
+            connectionId={connectionId}
           />
         ))
       ) : (
@@ -150,20 +134,20 @@ function ExchangeRouteCard({
   route,
   deadEnd,
   stalled,
-  onOpenQueue,
+  connectionId,
 }: {
   route: ExchangeRoute;
   deadEnd: boolean;
   stalled: string[];
-  onOpenQueue: (queue: string) => void;
+  connectionId: string | undefined;
 }) {
   return (
     <Card>
       <CardHeader
         title={
           <span className="flex items-center gap-2">
-            <span className="font-mono text-(length:--text-app-body) text-slate-800">{labelOf(route.exchange)}</span>
-            <Badge tone={CONFIDENCE_TONE[route.confidence]}>
+            <span className="font-mono text-(length:--text-app-body) text-slate-800">{defaultExchangeLabel(route.exchange)}</span>
+            <Badge tone={ROUTE_CONFIDENCE_TONE[route.confidence]}>
               {ROUTE_CONFIDENCE_LABEL[route.confidence]}
             </Badge>
             {deadEnd ? <Badge tone="danger">死路</Badge> : null}
@@ -211,13 +195,9 @@ function ExchangeRouteCard({
                     {hop.viaExchange ? "经交换机中转" : "直接绑定"}
                   </td>
                   <td className="px-4 py-2 text-right">
-                    <button
-                      type="button"
-                      className="rounded border border-slate-300 px-2 py-0.5 text-(length:--text-app-body) text-slate-600 hover:bg-slate-100"
-                      onClick={() => onOpenQueue(hop.queue)}
-                    >
+                    <NavigateButton size="xs" variant="ghost" to={messagesPath(connectionId, hop.queue)}>
                       查看消息
-                    </button>
+                    </NavigateButton>
                   </td>
                 </tr>
               ))}
@@ -245,6 +225,3 @@ function ExchangeRouteCard({
   );
 }
 
-function labelOf(exchange: string): string {
-  return exchange || DEFAULT_EXCHANGE_LABEL;
-}

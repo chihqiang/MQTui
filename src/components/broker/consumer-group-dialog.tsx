@@ -11,7 +11,6 @@ import {
   StaleNotice,
   TableCell,
   TableRow,
-  type DataTableColumn,
 } from "@/components/ui";
 import { useConsumerGroup } from "@/hooks/use-consumer-groups";
 import { errorMessage } from "@/lib/errors";
@@ -19,17 +18,11 @@ import { failureText } from "@/lib/failure";
 import { formatLag, groupState, lagTone } from "@/lib/consumer";
 import { formatNumber } from "@/lib/format";
 import { connectionPath } from "@/lib/nav";
+import { OFFSET_COLUMNS } from "@/types/consumer";
 import type { ConsumerGroupInfo } from "@/types";
 
-const OFFSET_COLUMNS: DataTableColumn[] = [
-  { key: "topic", label: "topic" },
-  { key: "partition", label: "分区", width: "w-16", align: "right" },
-  { key: "offset", label: "已提交", width: "w-28", align: "right" },
-  { key: "high", label: "末尾", width: "w-28", align: "right" },
-  { key: "lag", label: "滞后", width: "w-24", align: "right" },
-];
-
-interface Props {
+/** 消费组详情弹窗的入口参数。 */
+export interface ConsumerGroupDialogProps {
   connectionId: string;
   group: ConsumerGroupInfo;
   onClose: () => void;
@@ -41,7 +34,7 @@ interface Props {
  * 列表页只有组级信息，滞后量在这里按需计算 —— 打开时才去查水位，
  * 避免几百个组一次性把集群问一遍。
  */
-export function ConsumerGroupDialog({ connectionId, group, onClose }: Props) {
+export function ConsumerGroupDialog({ connectionId, group, onClose }: ConsumerGroupDialogProps) {
   const navigate = useNavigate();
   const { data, isLoading, error, refetch } = useConsumerGroup(
     connectionId,

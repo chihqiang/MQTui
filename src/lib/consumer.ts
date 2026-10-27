@@ -1,6 +1,6 @@
 /** 消费组的展示层映射：把 Kafka 的服务端字符串收敛成统一的视觉语言。 */
 
-import type { Tone } from "@/types/tone";
+import type { Tone } from "../types/tone.ts";
 
 /** Kafka 组状态 → 展示文案与人眼友好的色调。 */
 const STATE_MAP: Record<string, { label: string; tone: Tone }> = {

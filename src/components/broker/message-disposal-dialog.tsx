@@ -1,25 +1,8 @@
 import { useState } from "react";
 
-import { Button, ComboInput, Field, Modal } from "@/components/ui";
+import { Button, ComboInput, Field, MetaGrid, Modal } from "@/components/ui";
 import { useDeadLetterMessage, useDisposalCapabilities, useRedeliverMessage } from "@/hooks/use-message-disposal";
-import type { MessageSummary } from "@/types";
-
-/** 处置动作：重投到别的交换机，或交给队列声明的死信交换机。 */
-type Action = "redeliver" | "deadLetter";
-
-interface Props {
-  connectionId: string;
-  message: MessageSummary;
-  action: Action;
-  onClose: () => void;
-  /**
-   * 拓扑里确切的交换机名。解析失败时传 `null`，目标交换机退回自由输入 ——
-   * 这时候如果还硬做完备性校验，第一个被弹回去的就是用户真正想填的那个名字。
-   */
-  exchangeNames: string[] | null;
-  /** 同上：全局去重后的 routing key。 */
-  routingKeys: string[] | null;
-}
+import type { MessageDisposalProps } from "@/types/message";
 
 /**
  * 消息处置确认框。
@@ -34,7 +17,7 @@ export function MessageDisposalDialog({
   onClose,
   exchangeNames,
   routingKeys,
-}: Props) {
+}: MessageDisposalProps) {
   const { data: capabilities, isLoading } = useDisposalCapabilities(connectionId, message.id, true);
   /*
     重投的两个空格都指向「已经存在的名字」，所以默认不让自由输入：
@@ -55,20 +38,11 @@ export function MessageDisposalDialog({
   const reason = capabilities?.reasons?.find((item) => item.key === action)?.value;
   const blocked = action === "deadLetter" && capabilities && !capabilities.canDeadLetter;
 
-  const submit = () => {
-    const close = () => {
-      redeliver.reset();
-      deadLetter.reset();
-      onClose();
-    };
-    if (action === "redeliver") {
-      redeliver.mutate(
-        { connectionId, messageId: message.id, exchange: exchange.trim(), routingKey: routingKey.trim() },
-        { onSuccess: close },
-      );
-      return;
-    }
-    deadLetter.mutate({ connectionId, messageId: message.id }, { onSuccess: close });
+  // 关弹窗时把两条 mutation 的状态复位：下一次打开不该继承上一次的错误提示。
+  const close = () => {
+    redeliver.reset();
+    deadLetter.reset();
+    onClose();
   };
 
   return (
@@ -85,7 +59,21 @@ export function MessageDisposalDialog({
             size="sm"
             variant={action === "deadLetter" ? "danger" : "primary"}
             disabled={pending || isLoading || Boolean(blocked)}
-            onClick={submit}
+            onClick={() => {
+              if (action === "redeliver") {
+                redeliver.mutate(
+                  {
+                    connectionId,
+                    messageId: message.id,
+                    exchange: exchange.trim(),
+                    routingKey: routingKey.trim(),
+                  },
+                  { onSuccess: close },
+                );
+                return;
+              }
+              deadLetter.mutate({ connectionId, messageId: message.id }, { onSuccess: close });
+            }}
           >
             {pending ? "处理中…" : "确认执行"}
           </Button>
@@ -99,12 +87,14 @@ export function MessageDisposalDialog({
             : "会把这条消息发布到队列声明的死信交换机，然后从当前队列移除。这一步不可撤销。"}
         </p>
 
-        <dl className="grid grid-cols-2 gap-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-(length:--text-app-body)">
-          <Meta label="队列" value={message.topic ?? "-"} />
-          <Meta label="投递标签" value={String(message.offset ?? "-")} />
-          <Meta label="大小" value={message.size === undefined ? "-" : `${message.size} B`} />
-          <Meta label="Payload" value={message.preview || "(空)"} />
-        </dl>
+        <MetaGrid
+          items={[
+            { label: "队列", value: message.topic ?? "-" },
+            { label: "投递标签", value: String(message.offset ?? "-") },
+            { label: "大小", value: message.size === undefined ? "-" : `${message.size} B` },
+            { label: "Payload", value: message.preview || "(空)" },
+          ]}
+        />
 
         {reason ? <p className="text-(length:--text-app-body) text-amber-700">{reason}</p> : null}
 
@@ -148,16 +138,5 @@ export function MessageDisposalDialog({
         ) : null}
       </div>
     </Modal>
-  );
-}
-
-function Meta({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="min-w-0">
-      <dt className="text-(length:--text-app-meta) text-meta">{label}</dt>
-      <dd className="truncate font-mono text-slate-800" title={value}>
-        {value}
-      </dd>
-    </div>
   );
 }

@@ -5,8 +5,8 @@
  * 队列视角的一行结论、以及页面的总体结论。抽出来是为了能脱离 DOM 单测。
  */
 
-import type { ConsumerHealth, ConsumerLinks, QueueConsumer, QueueConsumption } from "@/types";
-import type { Tone } from "@/types/tone";
+import type { ConsumerHealth, ConsumerLinks, QueueConsumer, QueueConsumption } from "../types/consumer-link.ts";
+import type { Tone } from "../types/tone.ts";
 
 /** 单个消费者的健康状态。必须与后端 `judge` 的分支保持一致。 */
 export function judgeConsumer(consumer: QueueConsumer): ConsumerHealth {

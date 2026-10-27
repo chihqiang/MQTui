@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useParams } from "react-router";
 import { useListFilter } from "@/hooks/use-list-filter";
 
 import {
@@ -17,25 +17,19 @@ import {
   TableActions,
   TableCell,
   TableRow,
-  type DataTableColumn,
 } from "@/components/ui";
+import { NavigateButton } from "@/components/broker";
 import { PageBody, PageHeader, PageToolbar } from "@/components/layout/page-header";
 import { useHealth } from "@/hooks/use-health";
 import { useQueues } from "@/hooks/use-broker-data";
 import { useDeleteQueue, usePurgeQueue } from "@/hooks/use-queue-actions";
 import { errorMessage } from "@/lib/errors";
 import { failureText } from "@/lib/failure";
+import { messagesPath } from "@/lib/actions";
 import { formatNumber } from "@/lib/format";
+import { QUEUE_COLUMNS } from "@/types/topology";
 
-import { QueueDetailModal } from "@/pages/rabbitmq/queue-detail";
-
-const QUEUE_COLUMNS: DataTableColumn[] = [
-  { key: "name", label: "名称" },
-  { key: "vhost", label: "vhost", width: "w-32" },
-  { key: "messages", label: "消息数", width: "w-24", align: "right" },
-  { key: "consumers", label: "消费者", width: "w-20", align: "right" },
-  { key: "actions", label: <span className="sr-only">操作</span>, width: "w-40", align: "right" },
-];
+import { QueueDetailModal } from "@/components/broker/queue-detail-dialog";
 
 /**
  * RabbitMQ 队列列表。数据来自管理插件 HTTP API，未配置时为空。
@@ -45,7 +39,6 @@ const QUEUE_COLUMNS: DataTableColumn[] = [
  */
 export function QueuesPage() {
   const { connectionId } = useParams();
-  const navigate = useNavigate();
   const { data, isLoading, error, refetch } = useQueues(connectionId, true);
   const { canWrite } = useHealth(connectionId);
   const purge = usePurgeQueue(connectionId);
@@ -68,20 +61,6 @@ export function QueuesPage() {
     if (!needle) return data ?? [];
     return (data ?? []).filter((queue) => queue.name.toLowerCase().includes(needle));
   }, [data, keyword]);
-
-  const confirmPending = () => {
-    if (!pending) return;
-    if (pending.action === "delete") {
-      // 删除成功后关掉详情弹窗：留着会立刻报「队列不存在」。
-      remove.mutate(pending.queue, { onSuccess: () => setDetail(null) });
-    } else {
-      purge.mutate(pending.queue);
-    }
-    setPending(null);
-  };
-
-  const handleDelete = (queue: string) => setPending({ action: "delete", queue });
-  const handlePurge = (queue: string) => setPending({ action: "purge", queue });
 
   // 读取失败但手里还有上一批队列时不清空：删除 / 清空的目标就在这张表里，
   // 把它换成错误页，用户连「刚才那条叫什么」都回不去看。
@@ -171,17 +150,7 @@ export function QueuesPage() {
                     <Button size="sm" variant="ghost" onClick={() => setDetail(queue.name)}>
                       详情
                     </Button>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() =>
-                        navigate(
-                          `/connections/${connectionId}/messages?target=${encodeURIComponent(queue.name)}`,
-                        )
-                      }
-                    >
-                      查看消息
-                    </Button>
+                    <NavigateButton to={messagesPath(connectionId, queue.name)}>查看消息</NavigateButton>
                   </TableActions>
                 </TableCell>
               </TableRow>
@@ -217,7 +186,16 @@ export function QueuesPage() {
             </>
           ) : null
         }
-        onConfirm={confirmPending}
+        onConfirm={() => {
+          if (!pending) return;
+          if (pending.action === "delete") {
+            // 删除成功后关掉详情弹窗：留着会立刻报「队列不存在」。
+            remove.mutate(pending.queue, { onSuccess: () => setDetail(null) });
+          } else {
+            purge.mutate(pending.queue);
+          }
+          setPending(null);
+        }}
         onClose={() => setPending(null)}
       />
 
@@ -227,8 +205,8 @@ export function QueuesPage() {
         canWrite={canWrite}
         busy={busy}
         onClose={() => setDetail(null)}
-        onPurge={handlePurge}
-        onDelete={handleDelete}
+        onPurge={(queue) => setPending({ action: "purge", queue })}
+        onDelete={(queue) => setPending({ action: "delete", queue })}
       />
     </PageBody>
   );

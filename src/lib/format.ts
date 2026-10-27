@@ -37,3 +37,13 @@ export function formatBytes(value: number | undefined): string {
   }
   return `${size.toFixed(1)} ${units[unitIndex]}`;
 }
+
+/**
+ * 速率文案：保留两位小数，0 显示为 `—`。
+ *
+ * 0 不代表「没有速率」，只是这一瞬间没有增减；写 `0.00/s` 会被读成「停了」。
+ * 队列详情与交换机列表都要这句话，所以放在这里。
+ */
+export function formatRate(rate: number): string {
+  return rate ? `${rate.toFixed(2)}/s` : "—";
+}

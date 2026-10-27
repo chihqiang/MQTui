@@ -18,7 +18,6 @@ import {
   TableActions,
   TableCell,
   TableRow,
-  type DataTableColumn,
 } from "@/components/ui";
 import { useHealth } from "@/hooks/use-health";
 import { useDeleteParameter, useParameters } from "@/hooks/use-parameters";
@@ -32,17 +31,12 @@ import {
   dialsOut,
   filterParameters,
   groupByComponent,
+  summarizeParameter,
 } from "@/lib/parameter";
+import { PARAMETER_COLUMNS } from "@/types/parameter";
 import type { ParameterComponent, ParameterInfo } from "@/types/parameter";
 
-import { ParameterEditor } from "@/pages/rabbitmq/parameter-editor";
-
-const PARAMETER_COLUMNS: DataTableColumn[] = [
-  { key: "name", label: "名称" },
-  { key: "vhost", label: "vhost", width: "w-32" },
-  { key: "summary", label: "摘要" },
-  { key: "actions", label: <span className="sr-only">操作</span>, width: "w-32", align: "right" },
-];
+import { ParameterEditor } from "@/components/broker/parameter-editor";
 
 /**
  * RabbitMQ 参数页：联邦（federation）、铲子（shovel）、运行时参数。
@@ -243,42 +237,6 @@ function ParameterCard({
   );
 }
 
-/** 摘要只取最要紧的一两个字段，完整 JSON 留在编辑弹窗里看。 */
-function summarize(parameter: ParameterInfo): string {
-  const value = parameter.value;
-  if (typeof value === "string") return value;
-  if (Array.isArray(value)) return `${value.length} 项`;
-  if (value && typeof value === "object") {
-    const record = value as Record<string, unknown>;
-    const parts: string[] = [];
-    for (const key of ["uri", "src-uri", "dest-uri", "prefetch-count", "value"]) {
-      if (record[key] !== undefined) parts.push(`${key}=${renderPart(record[key])}`);
-    }
-    if (parts.length) return parts.join(" · ");
-  }
-  return JSON.stringify(value ?? null);
-}
-
-function renderPart(value: unknown): string {
-  if (typeof value === "string") return maskCredentials(value);
-  if (Array.isArray(value)) return `${value.length} 项`;
-  return JSON.stringify(value);
-}
-
-/**
- * URI 里的口令打码。
- *
- * 后端也做了一遍（`domain::parameter::redact_uri`），这里再做一次是因为
- * 摘要文本会直接进 DOM，多一处兜底不吃亏——漏一次就是把口令印在屏幕上。
- */
-function maskCredentials(uri: string): string {
-  const match = /^([a-z+]+:\/\/)([^@/]+)@(.+)$/i.exec(uri);
-  if (!match) return uri;
-  const [, scheme, userinfo, rest] = match;
-  const user = userinfo.split(":")[0];
-  return userinfo.includes(":") ? `${scheme}${user}:***@${rest}` : uri;
-}
-
 function ParameterRow({
   parameter,
   canWrite,
@@ -296,17 +254,6 @@ function ParameterRow({
     ? "删除后这条联邦 / 铲子会停止工作，源端的消息仍在堆积，界面上不会报错。"
     : "删除后立刻失效，相关节点行为退回默认值。";
 
-  const confirm = () => {
-    remove.mutate(
-      {
-        component: parameter.component as ParameterComponent,
-        vhost: parameter.vhost,
-        name: parameter.name,
-      },
-      { onSettled: () => setConfirming(false) },
-    );
-  };
-
   const writeHint = canWrite ? undefined : "当前账号没有管理 API 写权限";
 
   return (
@@ -317,7 +264,7 @@ function ParameterRow({
       <TableCell mono muted>
         {parameter.vhost || "/"}
       </TableCell>
-      <TableCell className="font-mono text-(length:--text-app-meta) text-slate-500">{summarize(parameter)}</TableCell>
+      <TableCell className="font-mono text-(length:--text-app-meta) text-slate-500">{summarizeParameter(parameter)}</TableCell>
       <TableCell>
         <TableActions>
           <Button
@@ -354,7 +301,16 @@ function ParameterRow({
               {warning}
             </>
           }
-          onConfirm={confirm}
+          onConfirm={() =>
+          remove.mutate(
+            {
+              component: parameter.component as ParameterComponent,
+              vhost: parameter.vhost,
+              name: parameter.name,
+            },
+            { onSettled: () => setConfirming(false) },
+          )
+        }
           onClose={() => setConfirming(false)}
         />
       ) : null}

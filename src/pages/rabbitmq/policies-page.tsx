@@ -13,51 +13,22 @@ import {
   Empty,
   ErrorState,
   RefreshButton,
-  SearchInput,
   StaleNotice,
   TableActions,
   TableCell,
   TableRow,
-  type DataTableColumn,
 } from "@/components/ui";
+import { FilterBar } from "@/components/broker";
 import { PageBody, PageHeader, PageToolbar } from "@/components/layout/page-header";
 import { useHealth } from "@/hooks/use-health";
 import { useDeletePolicy, usePolicies } from "@/hooks/use-policies";
 import { errorMessage } from "@/lib/errors";
 import { failureText } from "@/lib/failure";
-import { APPLY_TO_OPTIONS, describeDefinition } from "@/lib/policy";
+import { APPLY_TO_TONE, describeDefinition } from "@/lib/policy";
+import { APPLY_TO_LABEL, OPERATOR_POLICY_COLUMNS, POLICY_COLUMNS } from "@/types/policy";
 import type { OperatorPolicyInfo, PolicyApplyTo, PolicyInfo } from "@/types/policy";
-import type { Tone } from "@/types/tone";
 
-import { PolicyEditor } from "@/pages/rabbitmq/policy-editor";
-
-/** 生效范围对应的色调：`all` 最容易误伤，用警示色而不是中性色。 */
-const APPLY_TO_TONE: Record<PolicyApplyTo, Tone> = {
-  queues: "info",
-  exchanges: "info",
-  all: "warning",
-};
-
-const APPLY_TO_LABEL: Record<PolicyApplyTo, string> = Object.fromEntries(
-  APPLY_TO_OPTIONS.map((option) => [option.value, option.label]),
-) as Record<PolicyApplyTo, string>;
-
-const POLICY_COLUMNS: DataTableColumn[] = [
-  { key: "name", label: "名称" },
-  { key: "pattern", label: "匹配模式" },
-  { key: "applyTo", label: "范围", width: "w-24" },
-  { key: "priority", label: "优先级", width: "w-20", align: "right" },
-  { key: "definition", label: "定义" },
-  { key: "actions", label: <span className="sr-only">操作</span>, width: "w-32", align: "right" },
-];
-
-const OPERATOR_POLICY_COLUMNS: DataTableColumn[] = [
-  { key: "name", label: "名称" },
-  { key: "pattern", label: "匹配模式" },
-  { key: "applyTo", label: "范围", width: "w-24" },
-  { key: "priority", label: "优先级", width: "w-20", align: "right" },
-  { key: "definition", label: "定义" },
-];
+import { PolicyEditor } from "@/components/broker/policy-editor";
 
 /**
  * RabbitMQ 策略页。
@@ -145,14 +116,11 @@ export function PoliciesPage() {
           </Button>
         }
       >
-        <SearchInput
+        <FilterBar
           value={keyword}
           onValueChange={setKeyword}
           placeholder="按名称 / 模式 / 键过滤"
-          aria-label="过滤策略"
-          icon
-          box="page"
-          className="w-64"
+          ariaLabel="过滤策略"
         />
       </PageToolbar>
 

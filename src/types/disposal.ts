@@ -128,3 +128,6 @@ export interface BatchDisposalOutcome {
 
 /** 一批最多处置多少条，与后端 `MAX_BATCH_SIZE` 保持一致。 */
 export const MAX_BATCH_SIZE = 50;
+
+/** 单条消息的处置动作。与 `DisposalAction` 同义，消息页内部用它区分两种弹窗。 */
+export type MessageDisposalKind = DisposalAction;

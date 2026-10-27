@@ -14,7 +14,6 @@ import {
   TableActions,
   TableCell,
   TableRow,
-  type DataTableColumn,
 } from "@/components/ui";
 import { MonitorCard, MonitorGrid } from "@/components/layout/monitor-grid";
 import { PageFrame, PageHeader, PageToolbar } from "@/components/layout/page-header";
@@ -34,20 +33,7 @@ import {
   matchConnection,
 } from "@/lib/runtime";
 import { useSessionStore } from "@/stores";
-import type { ChannelRow, ConnectionDetail } from "@/types";
-
-const CHANNEL_COLUMNS: DataTableColumn[] = [
-  { key: "channel", label: "通道" },
-  { key: "user", label: "账号", width: "w-24" },
-  { key: "consumers", label: "消费者", width: "w-20", align: "right" },
-  { key: "prefetch", label: "预取", width: "w-20", align: "right" },
-  { key: "unacked", label: "未确认", width: "w-24", align: "right" },
-  { key: "acks", label: "已确认", width: "w-24", align: "right" },
-  { key: "state", label: "状态", width: "w-24" },
-  { key: "actions", label: <span className="sr-only">操作</span>, width: "w-20", align: "right" },
-];
-
-type Target = { kind: "connection" | "channel"; detail: ConnectionDetail; name: string };
+import { CHANNEL_COLUMNS, type ChannelRow, type ConnectionDetail, type RuntimeTarget } from "@/types/runtime";
 
 /**
  * RabbitMQ 运行时页：谁连着我、每条连接上开着哪些通道、队列落在哪个节点。
@@ -65,7 +51,7 @@ export function RuntimePage() {
   // 过滤词存 URL：从这条连接点去看队列、再返回时，刚打的字还在。
   const [keyword, setKeyword] = useListFilter();
   const [onlyProblem, setOnlyProblem] = useState(false);
-  const [target, setTarget] = useState<Target | null>(null);
+  const [target, setTarget] = useState<RuntimeTarget | null>(null);
 
   const connections = useMemo(() => {
     if (!data) return [];
@@ -301,7 +287,7 @@ function CloseConfirmModal({
   onClose,
 }: {
   connectionId: string | undefined;
-  target: Target | null;
+  target: RuntimeTarget | null;
   onClose: () => void;
 }) {
   const { closeConnection, closeChannel } = useRuntimeActions(connectionId);

@@ -11,7 +11,7 @@ import {
   type TlsMode,
 } from "@/types";
 
-import { SubmitRow } from "../connect-page";
+import { SubmitRow } from "@/components/broker/submit-row";
 
 interface Props {
   /**

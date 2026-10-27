@@ -9,7 +9,7 @@
  */
 
 import { STORAGE_KEYS, guards, readJson, writeJson } from "@/lib/storage";
-import type { BrokerCapability } from "@/types";
+import type { BrokerCapability } from "../types/broker.ts";
 
 /** 上次停留的位置。连接 ID 是运行时生成的，重启后必然失效，只用来做优先选中。 */
 export interface WorkspaceSnapshot {

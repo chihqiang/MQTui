@@ -19,7 +19,6 @@ import {
   TableActions,
   TableCell,
   TableRow,
-  type DataTableColumn,
 } from "@/components/ui";
 import { PageBody, PageHeader, PageToolbar } from "@/components/layout/page-header";
 import { useTopics } from "@/hooks/use-broker-data";
@@ -28,7 +27,8 @@ import { errorMessage } from "@/lib/errors";
 import { failureText, shouldReplaceWithError } from "@/lib/failure";
 import { formatNumber } from "@/lib/format";
 import { connectionPath } from "@/lib/nav";
-import { TopicRetentionBatchModal } from "@/pages/kafka/topic-retention-batch";
+import { TopicRetentionBatchModal } from "@/components/broker/topic-retention-batch";
+import { TOPIC_COLUMNS } from "@/types/topic";
 import type { HotspotReport } from "@/types";
 
 /**
@@ -40,15 +40,6 @@ import type { HotspotReport } from "@/types";
  * 「分区热点」是另一件事：列表上「12 个分区」这个数字看不出 11 个分区是空的、
  * 1 个分区扛了全部流量。分析要逐分区问水位，代价高，所以由用户勾选主题后触发。
  */
-/** 列定义：宽度与对齐只写一次，骨架屏与真实行共用。 */
-const TOPIC_COLUMNS: DataTableColumn[] = [
-  { key: "select", width: "w-8" },
-  { key: "name", label: "名称" },
-  { key: "partitions", label: "分区", width: "w-16", align: "right" },
-  { key: "replication", label: "副本", width: "w-16", align: "right" },
-  { key: "actions", label: <span className="sr-only">操作</span>, width: "w-28", align: "right" },
-];
-
 export function TopicsPage() {
   const { connectionId } = useParams();
   const navigate = useNavigate();
@@ -60,17 +51,6 @@ export function TopicsPage() {
   const [report, setReport] = useState<HotspotReport | null>(null);
   const [retention, setRetention] = useState(false);
   const analyze = useAnalyzeHotspots(connectionId);
-
-  const toggle = (name: string) =>
-    setSelected((prev) =>
-      prev.includes(name) ? prev.filter((item) => item !== name) : [...prev, name],
-    );
-
-  const runAnalyze = (topics: string[]) => {
-    // 换了一批主题，旧结果就不该留在屏幕上——它对应的是上一次的勾选。
-    setReport(null);
-    analyze.mutate(topics, { onSuccess: setReport });
-  };
 
   const filtered = useMemo(() => {
     if (!data) return [];
@@ -130,7 +110,11 @@ export function TopicsPage() {
               variant="secondary"
               loading={analyze.isPending}
               disabled={!selected.length || skeleton}
-              onClick={() => runAnalyze(selected)}
+              onClick={() => {
+                // 换了一批主题，旧结果就不该留在屏幕上 —— 它对应的是上一次的勾选。
+                setReport(null);
+                analyze.mutate(selected, { onSuccess: setReport });
+              }}
               title="逐分区查询水位，代价随「主题数 × 分区数」增长，因此需要先选主题"
             >
               分析分区热点（{selected.length}）
@@ -251,7 +235,13 @@ export function TopicsPage() {
                         type="checkbox"
                         aria-label={`选择 ${topic.name}`}
                         checked={selected.includes(topic.name)}
-                        onChange={() => toggle(topic.name)}
+                        onChange={() =>
+                          setSelected((prev) =>
+                            prev.includes(topic.name)
+                              ? prev.filter((item) => item !== topic.name)
+                              : [...prev, topic.name],
+                          )
+                        }
                       />
                     </TableCell>
                     <TableCell mono>
@@ -333,18 +323,6 @@ function CreateTopicModal({ open, onClose }: { open: boolean; onClose: () => voi
   const replicationInvalid = Number.isNaN(parsedReplication) || parsedReplication < 0;
   const invalid = nameInvalid || partitionsInvalid || replicationInvalid;
 
-  const submit = () => {
-    if (invalid) return;
-    create.mutate(
-      {
-        name: name.trim(),
-        partitions: parsedPartitions,
-        replicationFactor: parsedReplication,
-      },
-      { onSuccess: () => onClose() },
-    );
-  };
-
   return (
     <Modal
       open={open}
@@ -355,7 +333,17 @@ function CreateTopicModal({ open, onClose }: { open: boolean; onClose: () => voi
           <Button size="sm" variant="ghost" onClick={onClose}>
             取消
           </Button>
-          <Button size="sm" loading={create.isPending} disabled={invalid} onClick={submit}>
+          <Button size="sm" loading={create.isPending} disabled={invalid} onClick={() => {
+            if (invalid) return;
+            create.mutate(
+              {
+                name: name.trim(),
+                partitions: parsedPartitions,
+                replicationFactor: parsedReplication,
+              },
+              { onSuccess: () => onClose() },
+            );
+          }}>
             {create.isPending ? "创建中…" : "创建"}
           </Button>
         </>

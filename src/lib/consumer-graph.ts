@@ -16,23 +16,15 @@ import {
   NODE_HEIGHT,
   NODE_WIDTH,
 } from "./topology-graph.ts";
+import { LINK_KIND_LABEL, LINK_NODE_TONE, NODE_PREFIX } from "../types/consumer-graph.ts";
 import type {
   ConsumerGraph,
   LinkEdge,
   LinkHealth,
+  LinkNodeKind,
   LinkNode,
 } from "../types/consumer-graph.ts";
-
-/**
- * 节点类型。这里就地判断而不从 `types/consumer-graph.ts` 引入 `kindOf`：
- * 那个模块是运行时导出，`node:test` 直接跑 `.ts` 时解析不了路径别名。
- * `id` 的前缀约定由后端固定（`e:` / `q:` / `c:`），一个 startsWith 足够。
- */
-function kindOf(nodeId: string): LinkNode["kind"] {
-  if (nodeId.startsWith("e:")) return "exchange";
-  if (nodeId.startsWith("c:")) return "connection";
-  return "queue";
-}
+import type { NeighbourRow } from "../components/broker/neighbour-table.tsx";
 
 /** 消费者连接节点的宽度。 */
 export const CONNECTION_WIDTH = NODE_WIDTH + 56;
@@ -244,3 +236,62 @@ export const HEALTH_LABEL: Record<LinkHealth, string | null> = {
   warn: "有消费者卡在预取上限",
   idle: "有消费者但一条消息都没领到",
 };
+
+/** 节点配色：类型决定色系，连接的健康状态决定边框警示。 */
+export function nodeTone(node: LinkNode): string {
+  if (node.kind !== "connection") return LINK_NODE_TONE[node.kind];
+  if (node.health === "warn" || node.health === "idle") {
+    return LINK_NODE_TONE[`connection:${node.health}`];
+  }
+  return LINK_NODE_TONE.connection;
+}
+
+/** 节点标识里取类型前缀，用来决定颜色与图标。 */
+export function kindOf(nodeId: string): LinkNodeKind {
+  if (nodeId.startsWith(NODE_PREFIX.exchange)) return "exchange";
+  if (nodeId.startsWith(NODE_PREFIX.connection)) return "connection";
+  return "queue";
+}
+
+/** 节点类型的中文名。 */
+export function kindLabelOf(nodeId: string): string {
+  return LINK_KIND_LABEL[kindOf(nodeId)];
+}
+
+/** 选中节点的上下游明细行。消费边没有 routing key，标签空着不写。 */
+export function neighbourRows(
+  graph: ConsumerGraph,
+  id: string,
+  defaultLabel: string,
+): NeighbourRow[] {
+  if (!graph.nodes.some((node) => node.id === id)) return [];
+  const nameOf = (nodeId: string) => {
+    const found = graph.nodes.find((item) => item.id === nodeId);
+    return found ? nodeTitle(found, defaultLabel) : nodeId;
+  };
+  const rows: NeighbourRow[] = [];
+  for (const edge of graph.edges) {
+    if (edge.to === id) {
+      rows.push({
+        direction: "in",
+        key: `in-${edge.from}:${edge.kind}`,
+        name: nameOf(edge.from),
+        label: edge.kind === "binding" ? edge.label : "",
+      });
+    }
+    if (edge.from === id) {
+      rows.push({
+        direction: "out",
+        key: `out-${edge.to}:${edge.kind}`,
+        name: nameOf(edge.to),
+        label: edge.kind === "binding" ? edge.label : "",
+      });
+    }
+  }
+  return rows;
+}
+
+/** 「没有连线」时该说的话。消费链路图上，一个孤立连接就是「连着但什么都没拿」。 */
+export function emptyEdgeHint(): string {
+  return "这个节点没有任何连线。";
+}

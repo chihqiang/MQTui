@@ -82,3 +82,29 @@ export interface TopicOutcome {
   topic: string;
   detail: string;
 }
+
+/** 主题表的列：宽度与对齐只写一次，骨架屏与真实行共用。 */
+export const TOPIC_COLUMNS = [
+  { key: "select", label: "", width: "w-8" },
+  { key: "name", label: "名称" },
+  { key: "partitions", label: "分区", width: "w-16", align: "right" },
+  { key: "replication", label: "副本", width: "w-16", align: "right" },
+  { key: "actions", label: "操作", width: "w-28", align: "right" },
+] as const;
+
+/**
+ * 分区表的列。
+ *
+ * 「副本」与「已同步副本」并排两列是刻意的：排查「写不进去」时第一眼看的是
+ * 有没有副本掉队，两串数字分开摆，靠肉眼比长度很容易漏。
+ */
+export const PARTITION_COLUMNS = [
+  { key: "partition", label: "分区", width: "w-16", align: "right" },
+  { key: "leader", label: "Leader", width: "w-24", align: "right" },
+  { key: "replicas", label: "副本" },
+  { key: "isr", label: "已同步" },
+  { key: "low", label: "起始位点", width: "w-28", align: "right" },
+  { key: "high", label: "末尾位点", width: "w-28", align: "right" },
+  { key: "messages", label: "消息数", width: "w-28", align: "right" },
+  { key: "actions", label: "操作", width: "w-24", align: "right" },
+] as const;

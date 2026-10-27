@@ -3,17 +3,27 @@ import { Button, Field, Input, Modal } from "@/components/ui";
 import { useOpenConnection } from "@/hooks/use-connections";
 import { usePluginKinds } from "@/hooks/use-plugin-kinds";
 import { cn } from "@/lib/cn";
-import { defaultConnection, endpointOf, withEndpoint } from "@/lib/connection-defaults";
 import { IconBack, IconForward, IconRepeat, IconServer } from "@/lib/icons";
 import { isTypingTarget } from "@/lib/keyboard";
 import { connectFailure, focusField, type ConnectFailure } from "@/lib/connect-failure";
 import { toAppError } from "@/lib/errors";
 import { BROKER_LABEL } from "@/lib/nav";
-import { clearDraft, readDraft, type SavedConnection } from "@/lib/session-storage";
+import { clearDraft, type SavedConnection } from "@/lib/session-storage";
+import {
+  baseWithEndpoint,
+  containsWizard,
+  defaultName,
+  endpointLabel,
+  focusKindList,
+  initialDraft,
+  kindList,
+} from "@/lib/connect-wizard";
 import { BROKER_META, type BrokerKind, type ConnectionConfig } from "@/types";
+import { CONNECT_FORM_ID } from "@/types/connection";
+import type { ConnectBuilder } from "@/types/connection";
 
-import { ConnectionFormKafka } from "./forms/kafka-form";
-import { ConnectionFormRabbitMq } from "./forms/rabbitmq-form";
+import { ConnectionFormKafka } from "./connection-forms/kafka-form";
+import { ConnectionFormRabbitMq } from "./connection-forms/rabbitmq-form";
 
 /**
  * 新建连接向导：先定中间件，再填参数。
@@ -28,19 +38,6 @@ import { ConnectionFormRabbitMq } from "./forms/rabbitmq-form";
  * 无论走哪条路，第一步都还在：表单上方挂一个「换一种中间件」，走错了就能退回去。
  * 步骤不是由入口决定的常量，而是「当前有没有类型」这个状态 —— 少一份需要同步的布尔量。
  */
-
-type Builder = {
-  kind: BrokerKind | null;
-  /** 非空表示从连接记录里「编辑」，此时带原名、原配置。 */
-  saved?: SavedConnection;
-  name: string;
-  /**
-   * 只有地址的历史（`recent-connections` 存不下口令）预填用。
-   *
-   * 它不是「配置」—— 配置缺失的字段仍走表单默认值与草稿，这里只覆盖地址那一格。
-   */
-  endpoint?: string | null;
-};
 
 export function ConnectWizard({
   open,
@@ -73,7 +70,7 @@ export function ConnectWizard({
   const openConnection = useOpenConnection();
   const [save, setSave] = useState(false);
   /** 打开时的初始形态：编辑记录优先，其次入口指定的类型，都没有就停在第一步。 */
-  const [draft, setDraft] = useState<Builder>(() => ({
+  const [draft, setDraft] = useState<ConnectBuilder>(() => ({
     ...initialDraft(initialSaved, initialKind),
     endpoint: initialEndpoint ?? null,
   }));
@@ -106,20 +103,29 @@ export function ConnectWizard({
     onClose();
   }, [busy, onClose]);
 
-  const submit = (config: ConnectionConfig) => {
-    const name = draft.name.trim() || defaultName(config);
-    openConnection.mutate(
-      { name, config, save },
-      {
-        onSuccess: () => {
-          // 连上了就说明配置有效，草稿没用了，免得下次残留半成品。
-          clearDraft(config.kind);
-          setSave(false);
-          onClose();
+  /**
+   * 提交一份配置。
+   *
+   * 记为「失败时不动草稿」：只有连上了才清 —— 草稿是用户填过的东西，
+   * 连接失败还把它清掉，下一次得从零开始填。
+   */
+  const submit = useCallback(
+    (config: ConnectionConfig) => {
+      const name = draft.name.trim() || defaultName(config);
+      openConnection.mutate(
+        { name, config, save },
+        {
+          onSuccess: () => {
+            // 连上了就说明配置有效，草稿没用了，免得下次残留半成品。
+            clearDraft(config.kind);
+            setSave(false);
+            onClose();
+          },
         },
-      },
-    );
-  };
+      );
+    },
+    [draft.name, openConnection, save, onClose],
+  );
 
   /**
    * 回到「连哪种」。
@@ -160,7 +166,8 @@ export function ConnectWizard({
 
   useEffect(() => {
     if (!open) return;
-    const onKeyDown = (event: KeyboardEvent) => {
+    // 键盘路径与向导的步骤绑定：只在「向导开着」时挂监听，随 `step` 重挂。
+    function onKeyDown(event: KeyboardEvent) {
       const inWizard = containsWizard(event.target);
 
       if (step === "kind") {
@@ -190,14 +197,14 @@ export function ConnectWizard({
         return;
       }
 
-      const inForm = event.target instanceof Element && event.target.closest(`#${FORM_ID}`) !== null;
+      const inForm = event.target instanceof Element && event.target.closest(`#${CONNECT_FORM_ID}`) !== null;
       if (!inForm) return;
       if (!(event.metaKey || event.ctrlKey)) return;
       if (event.key === "Enter") {
         if (step !== "form") return;
         event.preventDefault();
         // 走表单自己的提交：`requestSubmit` 会带上浏览器校验，空地址不会发到网络上。
-        shellRef.current?.querySelector<HTMLFormElement>(`#${FORM_ID}`)?.requestSubmit();
+        shellRef.current?.querySelector<HTMLFormElement>(`#${CONNECT_FORM_ID}`)?.requestSubmit();
         return;
       }
       if (event.key === "ArrowLeft") {
@@ -205,7 +212,7 @@ export function ConnectWizard({
         event.preventDefault();
         backToKind();
       }
-    };
+    }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [open, step, canGoBack, busy]);
@@ -234,7 +241,7 @@ export function ConnectWizard({
             <Button variant="ghost" onClick={close} disabled={busy}>
               取消
             </Button>
-            <Button type="submit" form={FORM_ID} loading={busy} title="连接（⌘/Ctrl + Enter）">
+            <Button type="submit" form={CONNECT_FORM_ID} loading={busy} title="连接（⌘/Ctrl + Enter）">
               连接
             </Button>
           </>
@@ -363,7 +370,7 @@ function FormStep({
   onChangeKind,
   failure,
 }: {
-  draft: Builder;
+  draft: ConnectBuilder;
   kind: BrokerKind;
   save: boolean;
   onSaveChange: (next: boolean) => void;
@@ -432,7 +439,7 @@ function FormStep({
 
       {kind === "kafka" ? (
         <ConnectionFormKafka
-          formId={FORM_ID}
+          formId={CONNECT_FORM_ID}
           onSubmit={onSubmit}
           save={save}
           onSaveChange={onSaveChange}
@@ -440,7 +447,7 @@ function FormStep({
         />
       ) : (
         <ConnectionFormRabbitMq
-          formId={FORM_ID}
+          formId={CONNECT_FORM_ID}
           onSubmit={onSubmit}
           save={save}
           onSaveChange={onSaveChange}
@@ -475,62 +482,4 @@ function FailureNotice({ failure }: { failure: ConnectFailure }) {
       </details>
     </div>
   );
-}
-
-/** 报错摘要里指认「刚才连的是哪儿」的那一段地址（`lib` 的 `endpointOf` 只认配置）。 */
-function endpointLabel(draft: Builder, saved: SavedConnection | null): string | undefined {
-  const source = draft.saved ?? saved;
-  return source ? endpointOf(source.config) : (draft.endpoint ?? undefined);
-}
-
-/**
- * 「只记得地址」→ 一份可提交的配置初值。
- *
- * 拿草稿（没有就用默认值）当底，只替换地址那一格：历史里没存口令，
- * 别的字段也都没存过 —— 编造出来的值会让用户以为那是他上次填的。
- */
-function baseWithEndpoint(kind: BrokerKind, endpoint: string): ConnectionConfig {
-  const draft = readDraft(kind);
-  return withEndpoint(draft?.kind === kind ? draft : defaultConnection(kind), endpoint);
-}
-
-function savedToBuilder(saved: SavedConnection): Builder {
-  return { kind: saved.config.kind, saved, name: saved.name };
-}
-
-/**
- * 弹窗打开时的形态。
- *
- * 编辑记录优先（要带原名原配置）；其次看入口给没给类型 —— 首页卡片、新建行的
- * 按钮都给了，那是对「连哪种」已经作出的回答，直接进表单；顶栏「＋」什么都不给，
- * 才从第一步问起。
- */
-function initialDraft(saved: SavedConnection | null | undefined, kind: BrokerKind | null | undefined): Builder {
-  if (saved) return savedToBuilder(saved);
-  return { kind: kind ?? null, name: "" };
-}
-
-/** 焦点是否落在向导自己的元素里；`null` 的 target（比如 window）算不在。 */
-function containsWizard(target: EventTarget | null): boolean {
-  return target instanceof Element && target.closest("[data-wizard-keys]") !== null;
-}
-
-/** 第一步可选的那几张卡片，按视觉顺序。 */
-function kindList(root: ParentNode | null): HTMLButtonElement[] {
-  if (!root) return [];
-  return Array.from(root.querySelectorAll<HTMLButtonElement>("[data-wizard-keys] [role=option]"));
-}
-
-/** 把焦点交给卡片容器本身（不是某张卡）：`↓` 才能从第一张开始。 */
-function focusKindList(root: ParentNode | null): void {
-  const scroller = root?.querySelector<HTMLElement>("[data-wizard-keys]");
-  scroller?.focus();
-}
-
-/** 弹窗页脚的提交按钮靠 `form` 属性接回滚动区里的表单。 */
-const FORM_ID = "connect-form";
-
-/** 没填名字时的默认名：端点已经单列在记录行第二行，名字里不再重复地址。 */
-function defaultName(config: ConnectionConfig): string {
-  return config.kind === "kafka" ? "Kafka" : "RabbitMQ";
 }

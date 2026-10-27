@@ -2,15 +2,8 @@ import { useState } from "react";
 
 import { Button, ComboInput, Field, Input, Modal } from "@/components/ui";
 import { useResendMessage } from "@/hooks/use-message-disposal";
-import type { MessageSummary } from "@/types";
+import type { MessageResendProps } from "@/types/message";
 
-interface Props {
-  connectionId: string;
-  message: MessageSummary;
-  onClose: () => void;
-  /** 当前 topic 列表；`null` 表示还没读到或读失败，此时允许手填。 */
-  topicNames: string[] | null;
-}
 
 /**
  * Kafka 消息重发确认框。
@@ -19,7 +12,7 @@ interface Props {
  * 存在分区日志里，所谓重发只是往日志里再写一条，原消息一动不动。
  * 三处「留空即沿用」也都在提示里写明，避免用户以为清空输入就是「发一条空的」。
  */
-export function MessageResendDialog({ connectionId, message, onClose, topicNames }: Props) {
+export function MessageResendDialog({ connectionId, message, onClose, topicNames }: MessageResendProps) {
   const resend = useResendMessage(connectionId);
   const [topic, setTopic] = useState("");
   const [key, setKey] = useState("");

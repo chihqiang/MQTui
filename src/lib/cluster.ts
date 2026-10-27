@@ -9,8 +9,16 @@
  * - 队列位置怎么读：空节点列表不是「没有数据」，是「当前不可用」。
  */
 
-import type { AlertSeverity, ClusterNode, NodeRole, NodeStat, NodeVerdict, QueuePlacement } from "@/types";
-import type { Tone } from "@/types/tone";
+import { formatNumber } from "./format.ts";
+import type {
+  AlertSeverity,
+  ClusterNode,
+  NodeRole,
+  NodeStat,
+  NodeVerdict,
+} from "../types/cluster.ts";
+import type { QueuePlacement } from "../types/runtime.ts";
+import type { Tone } from "../types/tone.ts";
 
 const ROLE_TONE: Record<NodeRole, Tone> = {
   member: "neutral",
@@ -99,4 +107,34 @@ export function describeCluster(nodes: ClusterNode[], alerts: number): string {
 /** 结论的展示色调。 */
 export function verdictTone(verdict: NodeVerdict): Tone {
   return verdict.attention ? "warning" : "success";
+}
+
+/**
+ * 节点是否该留在「只看需处理」里：不运行、或有后端标了 attention 的结论。
+ */
+export function needsAttention(node: ClusterNode, verdict: NodeVerdict | undefined): boolean {
+  return !node.running || Boolean(verdict?.attention);
+}
+
+/**
+ * 占比条该用的颜色。
+ *
+ * `statTone` 正常时给 `neutral`，但进度条只有成功 / 警告 / 危险三档 ——
+ * 正常态按绿色处理，别在卡片里出现一根没有颜色的条。
+ */
+export function barTone(stat: NodeStat): "success" | "warning" | "danger" {
+  const tone = statTone(stat);
+  return tone === "danger" || tone === "warning" ? tone : "success";
+}
+
+/**
+ * 「承载」这一列。
+ *
+ * 两种中间件下含义不同：RabbitMQ 是队列数，Kafka 是 leader 分区数。
+ * 共用同一个位置是为了让两张表长得一样，文案上必须说清是哪一种。
+ */
+export function loadText(node: ClusterNode): string {
+  if (node.queues !== undefined) return `${formatNumber(node.queues)} 个队列`;
+  if (node.leaders !== undefined) return `${formatNumber(node.leaders)} 个`;
+  return "—";
 }

@@ -1,5 +1,5 @@
 export { Badge } from "./badge";
-export { Button } from "./button";
+export { Button, type ButtonProps } from "./button";
 export { Card, CardBody, CardHeader } from "./card";
 export { GraphCanvas, type CanvasNode } from "./graph-canvas";
 export { GraphSkeleton } from "./graph-skeleton";
@@ -8,6 +8,7 @@ export { Field, Input, SearchInput, Select, Textarea } from "./input";
 export { ConfirmDialog } from "./confirm-dialog";
 export { Callout, DescriptionGrid, SectionTitle, type DescriptionItem } from "./description";
 export { Modal } from "./modal";
+export { MetaGrid, MetaItem } from "./meta-grid";
 export { RefreshBar, RefreshButton, StaleNotice } from "./refresh";
 export { Segmented, type SegmentedOption } from "./segmented";
 export { Empty, ErrorState, Loading, PageLoading, SkeletonTable } from "./states";

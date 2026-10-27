@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Button, Input, VirtualList } from "@/components/ui";
 import {
@@ -9,36 +9,20 @@ import {
   useMessageLocate,
   type LocatePage,
 } from "@/hooks/use-message-locate";
+import { useLocateControls } from "@/hooks/use-locate-controls";
 import { errorMessage } from "@/lib/errors";
 import { formatBytes, formatNumber, formatTimestamp } from "@/lib/format";
 import {
   buildLocateRequest,
-  completeContentRange,
   EMPTY_LOCATE_FORM,
   isLocateFormEmpty,
   locateFormIssue,
   parseLocalDateTime,
-  shiftContentRange,
   withFallbackKey,
-  type ContentStep,
   type LocateForm,
 } from "@/lib/message-locate";
-import type { MessageLocate, MessageSummary } from "@/types";
-
-interface Props {
-  connectionId: string;
-  target: string;
-  onSelect: (message: MessageSummary) => void;
-  /**
-   * 从消息详情带进来的 key。变化时把 key 填进表单并**自动开扫**：
-   * 用户点的是「继续找」，不是「帮我把字填好，再点一次定位」。
-   * 现场已经填好的其它条件（比如时间区间）保留 —— 见 `withFallbackKey`。
-   */
-  initialKey?: string | null;
-}
-
-/** 行高固定，与消息列表保持一致（正文 14px 之后紧凑档是 36，这里留 2px 余量）。 */
-const ROW_HEIGHT = 38;
+import { MESSAGE_ROW_HEIGHT } from "@/types/message";
+import type { MessageLocatePanelProps, MessageSummary } from "@/types";
 
 /**
  * Kafka 消息定位：按 key 或时间区间在日志里找消息。
@@ -50,7 +34,7 @@ const ROW_HEIGHT = 38;
  * 「继续扫描」不是重跑一次同样的条件（那会把已看过的部分重读一遍），
  * 而是把后端给的游标原样回传，从每个分区上次停下的位置接着读。
  */
-export function MessageLocatePanel({ connectionId, target, onSelect, initialKey }: Props) {
+export function MessageLocatePanel({ connectionId, target, onSelect, initialKey }: MessageLocatePanelProps) {
   const [form, setForm] = useState<LocateForm>(EMPTY_LOCATE_FORM);
   // 只有点过「定位」才真正提交条件：边输入边扫会把集群当成自己的打字机。
   const [submitted, setSubmitted] = useState<LocateForm>(EMPTY_LOCATE_FORM);
@@ -70,7 +54,9 @@ export function MessageLocatePanel({ connectionId, target, onSelect, initialKey 
    * 要的是「在这个区间里按这个 key 找」。
    */
   const consumedKey = useRef<string | null>(null);
-  if (initialKey && initialKey !== consumedKey.current) {
+  const { mutate: runLocate } = locate;
+  useEffect(() => {
+    if (!initialKey || initialKey === consumedKey.current) return;
     consumedKey.current = initialKey;
     const next = withFallbackKey(form, initialKey);
     setForm(next);
@@ -79,10 +65,10 @@ export function MessageLocatePanel({ connectionId, target, onSelect, initialKey 
     setPage(undefined);
     setNotice(null);
     const request = buildLocateRequest(connectionId, target, next, LOCATE_LIMIT);
-    if (request) {
-      locate.mutate(request, { onSuccess: (result) => setPage(appendPage(undefined, result)) });
-    }
-  }
+    if (request) runLocate(request, { onSuccess: (result) => setPage(appendPage(undefined, result)) });
+    // 只认 initialKey 的变化：form 是现场输入，进了依赖数组就会每敲一个字重扫一次。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialKey]);
 
   const issue = locateFormIssue(form);
   const update = (patch: Partial<LocateForm>) => setForm((prev) => ({ ...prev, ...patch }));
@@ -102,50 +88,19 @@ export function MessageLocatePanel({ connectionId, target, onSelect, initialKey 
       : undefined;
   })();
 
-  const requestFor = (cursor?: string): MessageLocate | null => {
-    const request = buildLocateRequest(connectionId, target, submitted, LOCATE_LIMIT);
-    return request ? { ...request, cursor } : null;
-  };
-
-  const start = (override?: LocateForm) => {
-    const source = override ?? submitted;
-    const request = buildLocateRequest(connectionId, target, source, LOCATE_LIMIT);
-    if (!request) return;
-    const effective = completeContentRange(source);
-    setNotice(null);
-    setPage(undefined);
-    setApplied(effective);
-    if (override) setForm(effective);
-    locate.mutate(request, { onSuccess: (result) => setPage(appendPage(undefined, result)) });
-  };
-
-  /** 把当前区间整体挪一步并立刻重扫：挪完区间，旧结果就不再对应新条件了。 */
-  const shift = (step: ContentStep) => {
-    const base = applied.after || applied.before ? applied : submitted;
-    const next = shiftContentRange(base, step);
-    if (next.after === applied.after && next.before === applied.before) return;
-    setForm(next);
-    setSubmitted(next);
-    start(next);
-  };
-
-  const resume = () => {
-    const request = requestFor(page?.cursor);
-    if (!request) return;
-    const scannedBefore = page?.totalScanned ?? 0;
-    setNotice(null);
-    locate.mutate(request, {
-      onSuccess: (result) => {
-        const next = appendPage(page, result);
-        setPage(next);
-        // 续扫没带来任何新命中时要说出来：否则按了「继续」页面毫无变化，
-        // 用户无法判断是没读到、还是按钮坏了。
-        if (result.items.length === 0) {
-          setNotice(`续扫了 ${formatNumber(next.totalScanned - scannedBefore)} 条，没有新的命中`);
-        }
-      },
-    });
-  };
+  const { start, shift, resume } = useLocateControls({
+    connectionId,
+    target,
+    locate,
+    page,
+    applied,
+    submitted,
+    setForm,
+    setSubmitted,
+    setApplied,
+    setPage,
+    setNotice,
+  });
 
   const canResume = Boolean(page?.cursor) && !locate.isPending;
 
@@ -296,7 +251,7 @@ export function MessageLocatePanel({ connectionId, target, onSelect, initialKey 
           {page.items.length ? (
             <VirtualList
               items={page.items}
-              itemHeight={ROW_HEIGHT}
+              itemHeight={MESSAGE_ROW_HEIGHT}
               className="min-h-0 flex-1 overflow-auto"
               renderItem={(message) => (
                 <LocateRow key={message.id} message={message} onClick={() => onSelect(message)} />
@@ -337,7 +292,7 @@ function LocateRow({ message, onClick }: { message: MessageSummary; onClick: () 
     <button
       type="button"
       onClick={onClick}
-      style={{ height: ROW_HEIGHT }}
+      style={{ height: MESSAGE_ROW_HEIGHT }}
       className="flex w-full items-center gap-3 border-b border-slate-200 px-3 text-left text-(length:--text-app-body) hover:bg-slate-100"
     >
       <span className="w-40 shrink-0 truncate text-slate-500">

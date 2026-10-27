@@ -6,8 +6,8 @@
  * 页面里最容易出错的地方恰恰是「哪些行该被标红」。
  */
 
-import type { ChannelRow, ConnectionDetail, ConnectionRow, RuntimeSnapshot } from "@/types";
-import type { Tone } from "@/types/tone";
+import type { ChannelRow, ConnectionDetail, ConnectionRow, RuntimeSnapshot } from "../types/runtime.ts";
+import type { Tone } from "../types/tone.ts";
 
 /** 连接的展示色调。阻塞中的连接必须显眼：发布方看起来「发出去了但没反应」。 */
 export function connectionTone(row: ConnectionRow): Tone {

@@ -3,8 +3,8 @@ import { useSearchParams } from "react-router";
 import { Card, CardBody } from "@/components/ui";
 import { PageBody, PageHeader } from "@/components/layout/page-header";
 import { useActiveConnection } from "@/hooks/use-active-connection";
-import { KafkaProduceForm } from "./produce/kafka-produce-form";
-import { RabbitProduceForm } from "./produce/rabbit-produce-form";
+import { KafkaProduceForm } from "@/components/broker/kafka-produce-form";
+import { RabbitProduceForm } from "@/components/broker/rabbit-produce-form";
 
 /**
  * 发送消息：按连接类型分成两张表单。

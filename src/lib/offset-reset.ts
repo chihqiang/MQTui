@@ -9,8 +9,9 @@
  *    只写「确定要重置吗」等于什么都没说。
  */
 
-import type { ResetPlan, ResetStep } from "@/types";
-import type { Tone } from "@/types/tone";
+import { dedupeChoices } from "./choice.ts";
+import type { ResetPlan, ResetStep } from "../types/offset-reset.ts";
+import type { Tone } from "../types/tone.ts";
 
 /** 单个分区的改动描述。 */
 export function describeStep(step: ResetStep): string {
@@ -70,4 +71,36 @@ export function changedCount(plan: ResetPlan): number {
  */
 export function canSubmit(plan: ResetPlan, input: string, group: string): boolean {
   return plan.blockers.length === 0 && changedCount(plan) > 0 && confirmSatisfied(input, group);
+}
+
+/**
+ * 组名候选 = 「最近用过的」+「服务端第一页」。
+ *
+ * 只给第一页是不够的：几百个组的集群里，真正要重置的那个组通常在后面；
+ * 而最近用过的往往正是「刚才在那个页面看过的那个组」，所以排前面。
+ */
+export function groupChoicesOf(
+  remote: readonly { name: string; members: number }[],
+  recent: readonly string[],
+): { value: string; hint?: string }[] {
+  return dedupeChoices([
+    ...recent.map((name) => ({ value: name, hint: "最近用过" })),
+    ...remote.map((item) => ({
+      value: item.name,
+      hint: item.members > 0 ? `${item.members} 成员` : "无成员",
+    })),
+  ]);
+}
+
+/**
+ * 把组名写回查询串（不写历史）。
+ *
+ * 组名从 URL 派生而不是留在 `useState`：同一个页面里再点一次「重置位点」时，
+ * 本地 state 不会变，而用户期待的正是「换成我刚点的那个组」。
+ */
+export function paramsWithGroup(params: URLSearchParams, group: string): URLSearchParams {
+  const next = new URLSearchParams(params);
+  if (group.trim()) next.set("group", group);
+  else next.delete("group");
+  return next;
 }

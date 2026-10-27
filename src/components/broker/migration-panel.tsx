@@ -7,16 +7,9 @@ import {
   useMigrationProgress,
 } from "@/hooks/use-topics";
 import { formatNumber } from "@/lib/format";
-import { MigrationRunbookView } from "@/pages/kafka/migration-runbook";
+import { MigrationRunbookView } from "./migration-runbook";
 import { MIGRATION_LABEL, type MigrationReport, type PlanCheck } from "@/types";
-import type { Tone } from "@/types/tone";
-
-const STATE_TONE: Record<keyof typeof MIGRATION_LABEL, Tone> = {
-  done: "success",
-  syncing: "warning",
-  pending: "warning",
-  unknown: "danger",
-};
+import { MIGRATION_TONE } from "@/types/reassignment";
 
 /**
  * 分区迁移：计划校验 + 进度跟踪。
@@ -180,7 +173,7 @@ function ProgressTable({ report }: { report: MigrationReport }) {
               <tr key={item.partition} className="border-b border-slate-200 last:border-0">
                 <td className="px-3 py-1.5 font-mono text-slate-600">{item.partition}</td>
                 <td className="px-3 py-1.5">
-                  <Badge tone={STATE_TONE[item.state]}>{MIGRATION_LABEL[item.state]}</Badge>
+                  <Badge tone={MIGRATION_TONE[item.state]}>{MIGRATION_LABEL[item.state]}</Badge>
                 </td>
                 <td className="px-3 py-1.5 font-mono text-slate-500">
                   {item.target.join(", ") || "-"}

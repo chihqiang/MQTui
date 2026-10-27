@@ -44,3 +44,15 @@ export const ROUTE_CONFIDENCE_LABEL: Record<RouteConfidence, string> = {
   partial: "估算",
   implicit: "隐式",
 };
+
+/**
+ * 把握程度的色调：估算结果不该和确定结论长得一样。
+ *
+ * `certain` 之外都带不确定：`partial` 是「只看已存在的绑定」，
+ * `implicit` 是「默认交换机按队列名直投」，两者都不是铁证。
+ */
+export const ROUTE_CONFIDENCE_TONE: Record<RouteConfidence, "success" | "warning" | "info"> = {
+  certain: "success",
+  partial: "warning",
+  implicit: "info",
+};

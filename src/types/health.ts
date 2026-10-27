@@ -19,10 +19,3 @@ export interface HealthReport {
 
 /** 写操作权限项的 key，与后端 `WRITE_ACCESS_KEY` 保持一致。 */
 export const WRITE_ACCESS_KEY = "writeAccess";
-
-/** 是否允许写操作：只有明确 `ok` 才算通过。 */
-export function writeAllowed(report: HealthReport | undefined): boolean {
-  return Boolean(
-    report?.items.some((item) => item.key === WRITE_ACCESS_KEY && item.status === "ok"),
-  );
-}

@@ -17,28 +17,28 @@ import { cn } from "@/lib/cn";
 import {
   canReconnect,
   displayName,
-  mergeHistory,
   previewOf,
   secretLabelOf,
   secretStateOf,
-  type ConnectionHistoryItem,
 } from "@/lib/connection-history";
-import { brokerMetaOf, defaultConnection, endpointOf, withEndpoint } from "@/lib/connection-defaults";
+import { brokerMetaOf } from "@/lib/connection-defaults";
+import { configForHistory, historyOf, toneClass } from "@/lib/connect-form";
 import { BROKER_LABEL, brokerIcon } from "@/lib/nav";
 import { reconnectLabel } from "@/lib/reconnect";
-import { BROKER_TONE_CLASS, brokerTone } from "@/lib/visual";
+import { brokerTone } from "@/lib/visual";
 import {
   deleteSavedConnection,
   forgetConnection,
   getSavedConnection,
-  listRecentConnections,
   listSavedConnections,
   readDraft,
-  type SavedConnection,
 } from "@/lib/session-storage";
-import type { BrokerKind, ConnectionConfig } from "@/types";
+import type { BrokerKind } from "@/types";
+import type { ConnectionHistoryItem } from "@/lib/connection-history";
+import type { SavedConnection } from "@/lib/session-storage";
+import { UNSAVED_FORM_ID, type ConnectTarget } from "@/types/connection";
 
-import { ConnectWizard } from "./connect-wizard";
+import { ConnectWizard } from "@/components/broker/connect-wizard";
 
 /**
  * 首页：一条记录都没有时问「连哪种」，有记录时先摆记录。
@@ -62,89 +62,12 @@ import { ConnectWizard } from "./connect-wizard";
  * 这里每张卡都带着类型，那里什么都没带。
  */
 
-/** 徽标底色。未知类型退回中性灰，不拿品牌色冒充。 */
-function toneClass(tone: ReturnType<typeof brokerTone>): string {
-  return tone === "neutral" ? "bg-slate-100 text-secondary" : BROKER_TONE_CLASS[tone].tint;
-}
-
-/** 弹窗里那个表单的 id：页脚的提交按钮在 form 之外，用 `form` 属性指过来。 */
-const UNSAVED_FORM_ID = "unsaved-connection-form";
-
-/**
- * 一条历史 + 现场补的账号口令 → 一份能提交的配置。
- *
- * 底子是表单草稿（上次填过的 TLS、SASL 机制、vhost 都还在里面）；没有草稿就从默认值起。
- * 只覆盖三处：地址（历史说了算，那是真连过的那台）、用户名与口令。草稿只是「这台机器上
- * 同一份表单的记忆」，就地重试不写回它 —— 不留记录这件事得是真的。
- */
-function configForHistory(
-  item: ConnectionHistoryItem,
-  credential: { username: string; password: string },
-): ConnectionConfig {
-  const kind = item.kind as BrokerKind;
-  const base = withEndpoint(readDraft(kind) ?? defaultConnection(kind), item.endpoint);
-  if (base.kind === "kafka") {
-    return {
-      ...base,
-      auth: { ...base.auth, username: credential.username, password: credential.password },
-    };
-  }
-  return {
-    ...base,
-    auth: {
-      ...base.auth,
-      username: credential.username || base.auth.username,
-      password: credential.password,
-    },
-  };
-}
-
-/**
- * 这份配置要不要口令。
- *
- * Kafka 看 SASL 机制（`none` 就是明文直连）；RabbitMQ 看有没有填账号 ——
- * 默认的 `guest` 也算「要」，它是真的会被校验的。
- */
-function needsAuth(config: ConnectionConfig): boolean {
-  if (config.kind === "kafka") return config.auth.mechanism !== "none";
-  return config.auth.username.trim() !== "" || config.auth.password !== "";
-}
-
-/** 首页的历史 = 保存过的记录 + 连成功过的地址（只有名字与地址，没有口令）。 */
-function historyOf(savedList: readonly SavedConnection[]) {
-  return mergeHistory(
-    savedList.map((entry) => ({
-      id: entry.id,
-      name: entry.name,
-      kind: entry.config.kind,
-      endpoint: endpointOf(entry.config),
-      savedAt: entry.savedAt,
-      hasSecret: Boolean(entry.config.auth.password),
-      noAuth: !needsAuth(entry.config),
-    })),
-    listRecentConnections(),
-  );
-}
-
-/**
- * 向导当前要连的目标。
- *
- * `kind` 非空 = 用户已经点过某一种中间件（首页卡片、新建行的按钮、记录行的编辑），
- * 弹窗直接进表单；为空只有一种情况 —— 顶栏「＋」，那里没有任何前置选择。
- */
-type Target = {
-  kind: BrokerKind | null;
-  saved?: SavedConnection;
-  /** 从「连过 · 未保存」的历史进来时带上地址：参数不在本机，能填的先填上。 */
-  endpoint?: string;
-};
-
 export function ConnectPage() {
   const { data: plugins } = usePluginKinds();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const [target, setTarget] = useState<Target | null>(null);
+  const [target, setConnectTarget] = useState<ConnectTarget | null>(null);
   /**
    * 「连过 · 未保存」那一行点下去先问一句要去哪：去填参数（带上地址），
    * 还是就地再试一次（主机/端口/账号都还记得，缺的只有口令）。
@@ -181,7 +104,7 @@ export function ConnectPage() {
     if (!openConnection.isPending) setPendingId(null);
   }, [openConnection.isPending]);
 
-  const closeWizard = useCallback(() => setTarget(null), []);
+  const closeWizard = useCallback(() => setConnectTarget(null), []);
 
   /** 记录行上的「重连」：直接连，不弹窗、不用重填。 */
   const reconnect = useCallback(
@@ -202,7 +125,7 @@ export function ConnectPage() {
    */
   const editSaved = useCallback((entry: SavedConnection) => {
     setJustArrived(false);
-    setTarget({ kind: entry.config.kind, saved: entry });
+    setConnectTarget({ kind: entry.config.kind, saved: entry });
   }, []);
 
   const removeSaved = useCallback((entry: SavedConnection) => {
@@ -252,7 +175,7 @@ export function ConnectPage() {
   useEffect(() => {
     if (!wantsNew) return;
     setSearchParams({}, { replace: true });
-    setTarget({ kind: null });
+    setConnectTarget({ kind: null });
     setJustArrived(true);
   }, [wantsNew, setSearchParams]);
 
@@ -362,7 +285,7 @@ export function ConnectPage() {
               kinds={pluginList}
               onPick={(kind) => {
                 setJustArrived(false);
-                setTarget({ kind });
+                setConnectTarget({ kind });
               }}
             />
           </>
@@ -388,7 +311,7 @@ export function ConnectPage() {
                   displayName={plugin.displayName}
                   onPick={() => {
                     setJustArrived(false);
-                    setTarget({ kind: plugin.kind });
+                    setConnectTarget({ kind: plugin.kind });
                   }}
                 />
               ))}
@@ -429,7 +352,7 @@ export function ConnectPage() {
           busy={openConnection.isPending}
           onFill={() => {
             setAsk(null);
-            setTarget({ kind: ask.kind as BrokerKind, endpoint: ask.endpoint });
+            setConnectTarget({ kind: ask.kind as BrokerKind, endpoint: ask.endpoint });
           }}
           onDirect={() => reconnectUnsaved(ask)}
           onConnect={(credential) => connectOnce(ask, credential)}
@@ -806,38 +729,5 @@ function HistoryRow({
         <IconTrash className="size-3.5" />
       </button>
     </Card>
-  );
-}
-
-/** 表单公共的提交区：保存开关。提交按钮在弹窗页脚上。 */
-export function SubmitRow({
-  save,
-  onSaveChange,
-}: {
-  save: boolean;
-  onSaveChange: (next: boolean) => void;
-}) {
-  return (
-    <label className="flex items-start gap-2 border-t border-slate-100 pt-3 text-(length:--text-app-meta) text-slate-500">
-      <input
-        type="checkbox"
-        className="mt-0.5"
-        checked={save}
-        onChange={(event) => onSaveChange(event.currentTarget.checked)}
-      />
-      <span>
-        保存此连接（连同密码写入本机 localStorage）
-        <br />
-        {/*
-          这里原来写的是「不勾选则仅在本次运行期间有效」—— 那句话还带着旧语义：
-          早期确实只有保存过的连接才会出现在首页，没勾的人连成功也什么都不剩。
-          现在连成功会留下一条「连过」的历史（只有名字与地址），文案必须跟着改，
-          否则用户会以为不勾就等于白连一次。
-        */}
-        <span className="text-meta">
-          不勾选也能连，只是不留口令：下次在首页那一行点「补口令」重填即可
-        </span>
-      </span>
-    </label>
   );
 }

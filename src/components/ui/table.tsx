@@ -48,7 +48,7 @@ export function DataTable({
   /** 记忆表由调用方持有，跨挂载存活。 */
   scrollMemory,
 }: {
-  columns: DataTableColumn[];
+  columns: readonly DataTableColumn[];
   /** 数据行；首屏骨架时可以不传。 */
   children?: ReactNode;
   className?: string;
@@ -170,7 +170,7 @@ function SkeletonRows({
   columns,
   rows,
 }: {
-  columns: DataTableColumn[];
+  columns: readonly DataTableColumn[];
   rows: number;
 }) {
   return Array.from({ length: rows }, (_, rowIndex) => (

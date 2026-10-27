@@ -42,3 +42,21 @@ export interface ConsumerGroupPage {
   /** 下一页游标，前端原样回传。 */
   cursor?: string;
 }
+
+/** 消费组列表的列：只放组级信息，滞后量留给详情页按需算。 */
+export const GROUP_COLUMNS = [
+  { key: "name", label: "组名" },
+  { key: "state", label: "状态", width: "w-28" },
+  { key: "members", label: "成员", width: "w-20", align: "right" },
+  { key: "lag", label: "滞后", width: "w-28", align: "right" },
+  { key: "actions", label: "操作", width: "w-20", align: "right" },
+] as const;
+
+/** 组内分区进度的列。 */
+export const OFFSET_COLUMNS = [
+  { key: "topic", label: "topic" },
+  { key: "partition", label: "分区", width: "w-16", align: "right" },
+  { key: "offset", label: "已提交", width: "w-28", align: "right" },
+  { key: "high", label: "末尾", width: "w-28", align: "right" },
+  { key: "lag", label: "滞后", width: "w-24", align: "right" },
+] as const;

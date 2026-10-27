@@ -5,7 +5,7 @@ import { defaultConnection } from "@/lib/connection-defaults";
 import { readDraft, writeDraft } from "@/lib/session-storage";
 import { TLS_OPTIONS, type ConnectionConfig, type TlsMode } from "@/types";
 
-import { SubmitRow } from "../connect-page";
+import { SubmitRow } from "@/components/broker/submit-row";
 
 interface Props {
   /** 表单的 DOM id，见 Kafka 表单里的同类说明。 */

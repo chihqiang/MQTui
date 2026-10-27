@@ -10,7 +10,7 @@ import {
   type ConfigRow,
 } from "@/lib/topic-config";
 import type { ConfigPreview, TopicDetail } from "@/types";
-import { ConfigConfirmModal } from "@/pages/kafka/topic-config-confirm";
+import { ConfigConfirmModal } from "./topic-config-confirm";
 
 /**
  * 主题配置项编辑器。

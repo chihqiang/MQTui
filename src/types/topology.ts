@@ -80,3 +80,12 @@ export interface QueueDetail {
   /** 指向该队列的绑定，回答「消息从哪来」。 */
   bindings?: BindingInfo[];
 }
+
+/** 队列表的列。 */
+export const QUEUE_COLUMNS = [
+  { key: "name", label: "名称" },
+  { key: "vhost", label: "vhost", width: "w-32" },
+  { key: "messages", label: "消息数", width: "w-24", align: "right" },
+  { key: "consumers", label: "消费者", width: "w-20", align: "right" },
+  { key: "actions", label: "操作", width: "w-40", align: "right" },
+] as const;

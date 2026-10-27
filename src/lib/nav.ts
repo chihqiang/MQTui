@@ -19,7 +19,7 @@ import {
   IconRabbitMq,
 } from "@/lib/icons";
 import { brokerMark } from "@/lib/visual";
-import type { BrokerCapability, BrokerKind } from "@/types";
+import type { BrokerCapability, BrokerKind } from "../types/broker.ts";
 
 /**
  * 新建连接向导的地址。

@@ -6,7 +6,7 @@
  * 游标必须换成新的（否则点「继续」原地打转）。
  */
 
-import type { MessageSearch } from "@/types";
+import type { MessageSearch } from "../types/message.ts";
 
 /** 累积后的结果。 */
 export interface LocatePage extends MessageSearch {

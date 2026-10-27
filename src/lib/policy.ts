@@ -167,3 +167,15 @@ export function describeImpact(impact: { queues: number; exchanges: number }): s
   if (impact.exchanges > 0) parts.push(`约 ${impact.exchanges} 个交换机`);
   return parts.length ? `将影响 ${parts.join("、")}` : "当前没有资源命中这个模式";
 }
+
+/**
+ * 生效范围的徽标色调。
+ *
+ * `all` 用警示色而不是中性色：它同时作用于队列与交换机，最容易误伤，
+ * 而「中性灰」会被读成「和别的没区别」。
+ */
+export const APPLY_TO_TONE: Record<PolicyApplyTo, "info" | "warning"> = {
+  queues: "info",
+  exchanges: "info",
+  all: "warning",
+};

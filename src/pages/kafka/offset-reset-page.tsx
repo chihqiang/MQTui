@@ -20,12 +20,13 @@ import { useActiveConnection } from "@/hooks/use-active-connection";
 import { useConsumerGroups } from "@/hooks/use-consumer-groups";
 import { useCommitReset, useResetPhases, useResetPreview } from "@/hooks/use-offset-reset";
 import { useTopics } from "@/hooks/use-broker-data";
-import { dedupeChoices } from "@/lib/choice";
 import { errorMessage } from "@/lib/errors";
 import { failureText } from "@/lib/failure";
 import { formatNumber } from "@/lib/format";
 import {
   canSubmit,
+  groupChoicesOf,
+  paramsWithGroup,
   changedCount,
   confirmToken,
   describeImpact,
@@ -35,12 +36,9 @@ import {
 } from "@/lib/offset-reset";
 import { connectionMemoryKey, listRecentGroups, rememberGroup } from "@/lib/workspace-storage";
 import { useSessionStore } from "@/stores";
-import type { ResetPlan, ResetTarget } from "@/types";
-
-const TARGETS: { value: ResetTarget; label: string; hint: string }[] = [
-  { value: "earliest", label: "最早位点", hint: "重放主题保留的全部分区数据" },
-  { value: "latest", label: "末尾位点", hint: "跳过当前全部积压" },
-];
+import { RESET_TARGETS } from "@/types/offset-reset";
+import type { CommitResetModalProps, ResetPlanCardProps } from "@/types/offset-reset";
+import type { ResetTarget } from "@/types";
 
 /**
  * 消费组位点重置页。
@@ -75,16 +73,10 @@ export function OffsetResetPage() {
     ? connectionMemoryKey(connection.kind, connection.endpoint)
     : "";
   const recentGroups = memoryKey ? listRecentGroups(memoryKey) : [];
-  const groupChoices = useMemo(() => {
-    const remote = (groupPage?.pages[0]?.items ?? []).map((item) => ({
-      value: item.name,
-      hint: item.members > 0 ? `${item.members} 成员` : "无成员",
-    }));
-    return dedupeChoices([
-      ...recentGroups.map((name) => ({ value: name, hint: "最近用过" })),
-      ...remote,
-    ]);
-  }, [groupPage, memoryKey]);
+  const groupChoices = useMemo(
+    () => groupChoicesOf(groupPage?.pages[0]?.items ?? [], recentGroups),
+    [groupPage, memoryKey],
+  );
   /**
    * 组名可以由别的页面带过来（消费组详情里的「重置位点」）：
    * 那个组名是人刚刚在上一页看见的东西，不该让他记住再敲一遍。
@@ -96,17 +88,6 @@ export function OffsetResetPage() {
    * 「换成我刚点的那个组」。URL 是这一页唯一的输入来源，state 只能在它之上做草稿。
    */
   const group = searchParams.get("group") ?? "";
-  const setGroup = (next: string) => {
-    setSearchParams(
-      (prev) => {
-        const params = new URLSearchParams(prev);
-        if (next.trim()) params.set("group", next);
-        else params.delete("group");
-        return params;
-      },
-      { replace: true },
-    );
-  };
   const [topic, setTopic] = useState("");
   const [target, setTarget] = useState<ResetTarget>("earliest");
   const [previewing, setPreviewing] = useState(false);
@@ -156,7 +137,9 @@ export function OffsetResetPage() {
               value={group}
               choices={groupChoices}
               placeholder="例如 orders-worker"
-              onValueChange={setGroup}
+              onValueChange={(next) =>
+                setSearchParams((prev) => paramsWithGroup(prev, next), { replace: true })
+              }
             />
           </Field>
           <Field label="主题">
@@ -178,7 +161,7 @@ export function OffsetResetPage() {
               value={target}
               onChange={(event) => setTarget(event.currentTarget.value as ResetTarget)}
             >
-              {TARGETS.map((item) => (
+              {RESET_TARGETS.map((item) => (
                 <option key={item.value} value={item.value}>
                   {item.label} — {item.hint}
                 </option>
@@ -225,19 +208,7 @@ export function OffsetResetPage() {
   );
 }
 
-function PlanCard({
-  connectionId,
-  group,
-  topic,
-  plan,
-  phases,
-}: {
-  connectionId: string | undefined;
-  group: string;
-  topic: string;
-  plan: ResetPlan;
-  phases: { order: number; title: string; detail: string }[];
-}) {
+function PlanCard({ connectionId, group, topic, plan, phases }: ResetPlanCardProps) {
   const [confirming, setConfirming] = useState(false);
 
   return (
@@ -343,21 +314,7 @@ function PlanCard({
  * 要求手打 `reset <消费组名>`：这一步不是为了防误点，而是为了让用户在
  * 提交前再念一遍消费组的名字 —— 打错组名是这类操作最常见的真实事故。
  */
-function CommitModal({
-  connectionId,
-  group,
-  topic,
-  plan,
-  open,
-  onClose,
-}: {
-  connectionId: string | undefined;
-  group: string;
-  topic: string;
-  plan: ResetPlan;
-  open: boolean;
-  onClose: () => void;
-}) {
+function CommitModal({ connectionId, group, topic, plan, open, onClose }: CommitResetModalProps) {
   const [input, setInput] = useState("");
   const commit = useCommitReset(connectionId);
   const pushToast = useSessionStore((state) => state.pushToast);
@@ -365,22 +322,6 @@ function CommitModal({
   useEffect(() => {
     if (open) setInput("");
   }, [open]);
-
-  const submit = () => {
-    commit.mutate(
-      { group, topic, plan },
-      {
-        onSuccess: (outcome) => {
-          pushToast(
-            "success",
-            `已提交 ${outcome.committed} 个分区；重放 ${outcome.replay} 条，跳过 ${outcome.skip} 条`,
-          );
-          onClose();
-        },
-        onError: (error) => pushToast("error", errorMessage(error)),
-      },
-    );
-  };
 
   return (
     <Modal
@@ -395,7 +336,21 @@ function CommitModal({
           <Button
             variant="danger"
             disabled={!canSubmit(plan, input, group) || commit.isPending}
-            onClick={submit}
+            onClick={() =>
+            commit.mutate(
+              { group, topic, plan },
+              {
+                onSuccess: (outcome) => {
+                  pushToast(
+                    "success",
+                    `已提交 ${outcome.committed} 个分区；重放 ${outcome.replay} 条，跳过 ${outcome.skip} 条`,
+                  );
+                  onClose();
+                },
+                onError: (error) => pushToast("error", errorMessage(error)),
+              },
+            )
+          }
           >
             {commit.isPending ? "提交中…" : "确认提交"}
           </Button>

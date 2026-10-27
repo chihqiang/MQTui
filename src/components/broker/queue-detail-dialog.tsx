@@ -15,22 +15,14 @@ import { useQueueDetail } from "@/hooks/use-queue-actions";
 import { useQueueConsumers } from "@/hooks/use-queue-consumers";
 import { errorMessage } from "@/lib/errors";
 import { failureText } from "@/lib/failure";
-import { formatNumber } from "@/lib/format";
+import { formatNumber, formatRate } from "@/lib/format";
 import type { ConsumerLinks, QueueConsumer, QueueDetail } from "@/types";
 
-import { ConsumerDisconnectModal } from "@/pages/rabbitmq/consumer-disconnect";
-import { ConsumerBlock } from "@/pages/rabbitmq/consumers-page";
+import { ConsumerDisconnectModal } from "./consumer-disconnect-dialog";
+import { ConsumerBlock } from "./consumer-queue-card";
 
 /** 队列详情弹窗。`queue` 为 null 时关闭。 */
-export function QueueDetailModal({
-  connectionId,
-  queue,
-  onClose,
-  onPurge,
-  onDelete,
-  canWrite,
-  busy,
-}: {
+export interface QueueDetailProps {
   connectionId: string | undefined;
   queue: string | null;
   onClose: () => void;
@@ -39,7 +31,17 @@ export function QueueDetailModal({
   /** 写权限未通过时，删除按钮置灰并给出原因。 */
   canWrite: boolean;
   busy: boolean;
-}) {
+}
+
+export function QueueDetailModal({
+  connectionId,
+  queue,
+  onClose,
+  onPurge,
+  onDelete,
+  canWrite,
+  busy,
+}: QueueDetailProps) {
   const { data, isLoading, error, refetch } = useQueueDetail(connectionId, queue ?? undefined);
   // 消费者列表是整连接一次拉全的，详情里直接复用，不再单独请求一个队列。
   const consumers = useQueueConsumers(connectionId);
@@ -211,7 +213,3 @@ function describeFacts(detail: QueueDetail): DescriptionItem[] {
   ];
 }
 
-function formatRate(rate: number): string {
-  // 0 不代表「没有速率」，只是这一瞬间没有增减；写 0/s 会被读成「停了」。
-  return rate ? `${rate.toFixed(2)}/s` : "—";
-}

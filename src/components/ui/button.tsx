@@ -33,7 +33,7 @@ const SIZE_CLASS: Record<Size, string> = {
   md: "h-8.5 gap-1.5 rounded-lg px-3.5 text-(length:--text-app-body)",
 };
 
-interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: Variant;
   size?: Size;
   icon?: ReactNode;

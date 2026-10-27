@@ -2,9 +2,10 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 
 import { Button, Empty, Input, Segmented } from "@/components/ui";
+import { MessageDetailDialog, MessageLocatePanel, MessageTable } from "@/components/broker";
 import { PageBody, PageHeader, PageToolbar } from "@/components/layout/page-header";
 import { IconClose, IconSearch } from "@/lib/icons";
-import { chipOverflow } from "@/lib/list-view";
+import { VISIBLE_CHIPS, chipOverflow } from "@/lib/list-view";
 import { useQueues, useTopics } from "@/hooks/use-broker-data";
 import { useActiveConnection } from "@/hooks/use-active-connection";
 import {
@@ -13,22 +14,8 @@ import {
   rememberTarget,
 } from "@/lib/workspace-storage";
 import { useSessionStore } from "@/stores";
-import type { MessageSummary } from "@/types";
-
-import { MessageDetailDialog } from "@/pages/messages/message-detail";
-import { MessageLocatePanel } from "@/pages/messages/message-locate-panel";
-import { MessageTable } from "@/pages/messages/message-table";
-
-/** 候选 chip 的平铺上限（「更多」另外占一格）。 */
-const VISIBLE_CHIPS = 6;
-
-/** 浏览与定位是两种不同的读法：一个往下翻，一个按条件扫。 */
-type Mode = "browse" | "locate";
-
-const MODES = [
-  { value: "browse", label: "浏览" },
-  { value: "locate", label: "按 key / 时间定位", title: "顺序扫描分区，适合「找那条消息」" },
-] as const;
+import { MESSAGE_MODES } from "@/types/message";
+import type { MessageMode, MessageSummary } from "@/types";
 
 /** 消息：输入 topic / queue，拉取最近消息并支持查看详情。 */
 export function MessagesPage() {
@@ -58,7 +45,7 @@ export function MessagesPage() {
   const [draft, setDraft] = useState(target);
   // RabbitMQ 的 payload 随列表下发，点开详情时直接带过去，不再回源。
   const [selected, setSelected] = useState<MessageSummary | null>(null);
-  const [mode, setMode] = useState<Mode>("browse");
+  const [mode, setMode] = useState<MessageMode>("browse");
   /**
    * 从消息详情带进定位面板的 key。
    *
@@ -119,7 +106,7 @@ export function MessagesPage() {
           actions={
             <>
               {target && isKafka ? (
-                <Segmented options={[...MODES]} value={mode} onChange={setMode} />
+                <Segmented options={[...MESSAGE_MODES]} value={mode} onChange={setMode} />
               ) : null}
               <Button type="submit">读取消息</Button>
             </>
@@ -205,7 +192,7 @@ export function MessagesPage() {
           onClose={() => setSelected(null)}
           // 详情里「按这个 key 继续找」：切到定位模式并把 key 填进去。
           // 时间区间不继承消息时间戳 —— 一条消息的时间不是一个区间，拿它当区间只会空手而归。
-          onLocateKey={(key) => {
+          onLocateKey={(key: string) => {
             setLocateKey(key);
             setMode("locate");
             // 详情是从哪条消息打开的已经不重要了：接下来要看的是这一串。

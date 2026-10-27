@@ -12,18 +12,7 @@
  * 路由表照旧从 `@/pages` 取，引用方一行都不用改。
  */
 
-import { lazy, type ComponentType } from "react";
-
-/** 页面文件用命名导出，`lazy` 只认 `default` —— 这里转一层，页面本身不用改写法。 */
-function lazyNamed<T extends Record<string, unknown>>(
-  load: () => Promise<T>,
-  name: keyof T & string,
-): ComponentType {
-  return lazy(async () => {
-    const module = await load();
-    return { default: module[name] as ComponentType };
-  });
-}
+import { lazyNamed } from "@/components/layout/lazy-page";
 
 /** 按功能域拆包；键是域的说明，值是这一域里所有页面的加载器。 */
 const connection = {

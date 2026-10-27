@@ -15,3 +15,13 @@ export type Tone = "neutral" | "info" | "accent" | "success" | "warning" | "dang
  * 而身份色本身又不该落在任何告警语义上。
  */
 export type BadgeTone = Tone | "broker-kafka" | "broker-rabbitmq";
+
+/**
+ * 「中间件身份」的色调。
+ *
+ * 身份色必须是独立的一对：既不借告警色（amber 会被读成「这台有问题」），
+ * 也不借提示色（sky 正是全站的 `info`）。所以它既是 `Tone` 之外的一组，
+ * 也是 `BadgeTone` 的一部分。放在这里而不是 `lib/visual.ts`：
+ * 判断色调是数据，算出类名（`BROKER_TONE_CLASS`）才是方法。
+ */
+export type BrokerTone = "broker-kafka" | "broker-rabbitmq";

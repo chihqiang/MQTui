@@ -15,7 +15,10 @@
  *    曲线在长边上只会让人找到不端点。
  */
 
-import type { GraphEdge, GraphNode, TopologyGraph } from "@/types";
+import { formatNumber } from "./format.ts";
+import { DEFAULT_EXCHANGE_LABEL } from "../types/topology-graph.ts";
+import type { GraphEdge, GraphNode, TopologyGraph } from "../types/topology-graph.ts";
+import type { NeighbourRow } from "../components/broker/neighbour-table.tsx";
 
 /** 节点外框尺寸（像素）。与画布共用，避免两处写死。 */
 export const NODE_WIDTH = 168;
@@ -163,4 +166,72 @@ export function matchNodes(graph: TopologyGraph, keyword: string): Set<string> |
 /** 节点显示的标题：默认交换机是空串，不能显示成一片空白。 */
 export function nodeTitle(node: GraphNode, defaultLabel: string): string {
   return node.name === "" ? defaultLabel : node.name;
+}
+
+/**
+ * 节点副标题：队列给堆积与消费者，交换机给类型。
+ *
+ * 两种节点的「重要信息」不在同一个位置，副标题必须跟着变 —— 给交换机写
+ * 「0 条消息」是没有意义的：交换机不存消息。
+ */
+export function subtitleOf(node: GraphNode): string | undefined {
+  if (node.kind === "queue") {
+    const messages = node.messages ?? 0;
+    const consumers = node.consumers ?? 0;
+    return `${formatNumber(messages)} 条 · ${consumers} 消费者`;
+  }
+  return node.name === "" ? "隐式按队列名投递" : "交换机";
+}
+
+/** 节点配色：类型决定色系。拓扑图不表达健康度，所以只有两色。 */
+export function nodeTone(node: GraphNode): string {
+  return node.kind === "queue"
+    ? "border-emerald-300 bg-emerald-50 hover:border-emerald-500"
+    : "border-sky-300 bg-sky-50 hover:border-sky-500";
+}
+
+/** 「没有连线」时该说的话。交换机与队列的处境完全不同，不能共用一句。 */
+export function emptyEdgeHint(node: GraphNode): string {
+  return node.kind === "exchange"
+    ? "这个交换机没有任何绑定：消息进入后会被静默丢弃。"
+    : "这个队列没有被任何交换机绑定：只能按队列名直投。";
+}
+
+/** 选中节点的上下游明细行。名字找不到时退回 id —— 总比空一行好。 */
+export function neighbourRows(
+  graph: TopologyGraph,
+  id: string,
+  defaultLabel: string,
+): NeighbourRow[] {
+  const graphNode = graph.nodes.find((item) => item.id === id);
+  if (!graphNode) return [];
+  const nameOf = (nodeId: string) => {
+    const found = graph.nodes.find((item) => item.id === nodeId);
+    return found ? nodeTitle(found, defaultLabel) : nodeId;
+  };
+  const rows: NeighbourRow[] = [];
+  for (const edge of graph.edges) {
+    if (edge.to === id) {
+      rows.push({
+        direction: "in",
+        key: `in-${edge.from}|${edge.routingKey}`,
+        name: nameOf(edge.from),
+        label: edge.routingKey,
+      });
+    }
+    if (edge.from === id) {
+      rows.push({
+        direction: "out",
+        key: `out-${edge.to}|${edge.routingKey}`,
+        name: nameOf(edge.to),
+        label: edge.routingKey,
+      });
+    }
+  }
+  return rows;
+}
+
+/** 默认交换机在界面上不能显示为空串，否则一行看起来像坏了。 */
+export function defaultExchangeLabel(name: string): string {
+  return name || DEFAULT_EXCHANGE_LABEL;
 }
