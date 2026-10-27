@@ -5,25 +5,17 @@
  * 「第几条正在连」的簿记 —— 于是同一条记录在首页转圈、在命令面板里却是灰的，
  * 点了还会重复发起请求。
  *
- * 这里只做纯的事：判断哪一条正在连、什么条件下禁止再点、按钮写什么字。
- * 状态本身仍然放在调用方，因为这个模块不碰 React。
+ * 这里只做纯的事：判断哪一条正在连、按钮写什么字。状态本身仍然放在调用方，
+ * 因为这个模块不碰 React。
+ *
+ * 「能不能重连」的判据不在这里 —— 它长在历史条目上（`canReconnect`，
+ * 见 `lib/connection-history.ts`），因为同一条判据要同时服务首页那张表和命令面板。
+ * 这个模块只负责措辞。
  */
 
 /** 表单一侧的忙碌状态与记录一侧的忙碌状态经常同时存在，合并成一个判据。 */
 export function isEntryBusy(entryId: string, busyId: string | null): boolean {
   return entryId === busyId;
-}
-
-/**
- * 重连是否还能点。
- *
- * 存下来的凭据缺口令时，「重连」一定失败 —— 与其让人点了收一句报错，
- * 不如把动作换成「补口令」。这条规则首页和命令面板都得一致，
- * 否则同一个记录在两个入口给出相反的承诺。
- */
-export function canReconnect(entry: { config: { auth: { username?: string; password?: string } } }): boolean {
-  const user = entry.config.auth.username?.trim();
-  return !(user && !entry.config.auth.password);
 }
 
 /**

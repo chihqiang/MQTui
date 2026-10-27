@@ -5,9 +5,9 @@
  * 才会落盘。于是最常见的路径（连接向导里直接点「连接」，不勾保存）连成功之后
  * 什么都没留下：下次打开还是「开始使用」，用户会以为刚才那一下没记住。
  *
- * 这里把两份本地数据并成一条时间线：保存过的记录排前面（它能一键重连，
- * 含口令），没保存的只留「连过」这件事（`recent-connections` 只有名字与地址，
- * 没有口令）。界面据此在同一块地方把历史摆出来，而不是假装没有。
+ * 这里把两份本地数据并成一条时间线。两份数据只差一件事：口令在不在本机。
+ * 所以界面不在上面分两段（「已保存」/「未保存」），而是合成一张列表，
+ * 只在行上标出口令在不在 —— 一条记录是不是「我的」，不该由它存过没存过来定义。
  */
 
 /** 首页要展示的一条历史。`savedId` 非空表示还能直接重连。 */
@@ -19,6 +19,13 @@ export interface ConnectionHistoryItem {
   endpoint: string;
   /** 保存过的记录 ID；为空表示只是连过，参数已经不在本机。 */
   savedId: string | null;
+  /**
+   * 口令在不在本机。
+   *
+   * 「连过」一律为 false；「保存过」要看那份配置里有没有口令 —— 用户可能只存了
+   * 地址与账号。行上据此标一句「口令不在本机」，主操作也跟着换成「补口令」。
+   */
+  hasSecret: boolean;
   /** 排序用：保存时间或最近连接时间。 */
   at: number;
 }
@@ -30,6 +37,8 @@ export interface SavedLike {
   kind: string;
   endpoint: string;
   savedAt: number;
+  /** 这份配置里有没有口令；缺省按「有」算，调用方不知道时不该被判成不能重连。 */
+  hasSecret?: boolean;
 }
 
 export interface RecentLike {
@@ -37,11 +46,6 @@ export interface RecentLike {
   kind: string;
   endpoint: string;
   usedAt: number;
-}
-
-/** 保存过但没口令的那类记录：口令缺口令时重连一定失败，要单独挑出来。 */
-interface SavedShape {
-  config: { kind: string; auth: { username?: string; password?: string } };
 }
 
 /**
@@ -82,16 +86,12 @@ export function displayName(
   return isAutomaticName(item.name, item.endpoint, labels) ? "" : item.name.trim();
 }
 
-export function needsSecret(entry: SavedShape): boolean {
-  const user = entry.config.auth.username?.trim();
-  return Boolean(user) && !entry.config.auth.password;
-}
-
 /**
  * 合并两份历史。
  *
  * 判重按 `kind + endpoint`：反过来（按名字）会把「同一个地址改过名字」算两条。
- * 保存过的记录优先占位 —— 它才是能点得动的那一条，最近使用只补时间。
+ * 保存过的记录优先占位 —— 它带着参数，最近使用只补时间。
+ * 时间取两者较大的那个：保存很久之后再连一次，它仍该排在前面。
  */
 export function mergeHistory(
   saved: readonly SavedLike[],
@@ -107,6 +107,7 @@ export function mergeHistory(
       kind: entry.kind,
       endpoint: entry.endpoint,
       savedId: entry.id,
+      hasSecret: entry.hasSecret ?? true,
       at: entry.savedAt,
     });
   }
@@ -119,24 +120,43 @@ export function mergeHistory(
       if (entry.usedAt > existing.at) existing.at = entry.usedAt;
       continue;
     }
-    // 密码只在用户勾选保存时落盘，所以「连过但没保存」的地址不展示路径里的
-    // 账号片段之外的东西 —— 这里只是把「连过哪儿」说出来。
+    // `recent-connections` 只有名字与地址，口令从来没落过盘，
+    // 所以这里如实记下「口令不在本机」—— 行上要标的就是这件事。
     items.set(key, {
       key,
       name: entry.name,
       kind: entry.kind,
       endpoint: entry.endpoint,
       savedId: null,
+      hasSecret: false,
       at: entry.usedAt,
     });
   }
 
-  // 能重连的排前面：同一条时间线上，「点一下就回得去」比「更近但回不去」有用。
+  // 能直接回去的排前面：时间线上「点一下就回得去」比「更近但回不去」有用。
   return [...items.values()].sort((a, b) => {
-    if (a.savedId && !b.savedId) return -1;
-    if (!a.savedId && b.savedId) return 1;
+    if (canReconnect(a) && !canReconnect(b)) return -1;
+    if (!canReconnect(a) && canReconnect(b)) return 1;
     return b.at - a.at;
   });
+}
+
+/**
+ * 一条历史能不能直接重连。
+ *
+ * 有两份数据的人容易写出两份判据（首页一份、命令面板一份），于是同一条记录
+ * 在一个入口说「重连」、在另一个入口说「补口令」，点了必然失败一个。
+ * 这里只认一件事：口令在不在本机。
+ */
+export function canReconnect(item: { savedId: string | null; hasSecret: boolean }): boolean {
+  return item.savedId !== null && item.hasSecret;
+}
+
+/** 行上的身份标记：口令在不在本机。故意只分两种，多一档就变成需要解释的分类。 */
+export type SecretState = "saved" | "missing";
+
+export function secretStateOf(item: { hasSecret: boolean }): SecretState {
+  return item.hasSecret ? "saved" : "missing";
 }
 
 /**
@@ -148,13 +168,13 @@ export function mergeHistory(
 export const HISTORY_PREVIEW = 3;
 
 /**
- * 空态里只预览三条**能重连**的。
+ * 一条记录都没有时，预览头三条**能重连**的。
  *
- * 「连过 · 未保存」那几条点进去先要补口令，属于「还有一台机器」，
- * 不该把真正一点就回去的记录挤出屏幕。三条都没有时预览就是空的。
+ * 一条都点不动的清单摆出来只是列个名。这里给三条真能回去的，
+ * 剩下的留一句「还有 N 条」，够了。
  */
 export function previewOf(items: readonly ConnectionHistoryItem[]): ConnectionHistoryItem[] {
-  return items.filter((item) => item.savedId !== null).slice(0, HISTORY_PREVIEW);
+  return items.filter(canReconnect).slice(0, HISTORY_PREVIEW);
 }
 
 /**

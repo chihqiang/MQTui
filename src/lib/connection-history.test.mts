@@ -13,11 +13,12 @@ import test from "node:test";
 import {
   HISTORY_PREVIEW,
   brokerPortFor,
+  canReconnect,
   displayName,
   isAutomaticName,
   mergeHistory,
-  needsSecret,
   previewOf,
+  secretStateOf,
 } from "./connection-history.ts";
 
 const saved = (id: string, name: string, endpoint: string, savedAt: number) => ({
@@ -26,6 +27,7 @@ const saved = (id: string, name: string, endpoint: string, savedAt: number) => (
   kind: "kafka",
   endpoint,
   savedAt,
+  hasSecret: true,
 });
 
 const recent = (name: string, endpoint: string, usedAt: number) => ({
@@ -75,7 +77,7 @@ test("判重按 kind + endpoint，不按名字", () => {
 });
 
 test("预览只挑能重连的那几条", () => {
-  // 「连过 · 未保存」点进去先要补口令，不该把一点就回去的记录挤出屏幕。
+  // 缺口令的点进去先要补口令，不该把一点就回去的记录挤出屏幕。
   const items = mergeHistory(
     [saved("kafka:a", "a", "10.0.0.1:9092", 1)],
     [recent("b", "10.0.0.2:9092", 5), recent("c", "10.0.0.3:9092", 4), recent("d", "10.0.0.4:9092", 3)],
@@ -85,6 +87,44 @@ test("预览只挑能重连的那几条", () => {
     ["a"],
   );
   assert.equal(previewOf(mergeHistory([], [recent("x", "1", 1)])).length, 0);
+});
+
+test("一张表：保存过的和只连过的混排，只差口令在不在", () => {
+  // 界面不再分「已保存 / 未保存」两段，所以这条不能再靠 savedId 分组，
+  // 排序与标记都得能在一张表里读出来。
+  const items = mergeHistory(
+    [saved("kafka:a", "a", "10.0.0.1:9092", 100)],
+    [recent("b", "10.0.0.2:9092", 300), recent("c", "10.0.0.3:9092", 200)],
+  );
+  assert.deepEqual(
+    items.map((item) => [item.name, item.hasSecret, canReconnect(item)]),
+    [
+      ["a", true, true],
+      ["b", false, false],
+      ["c", false, false],
+    ],
+  );
+  assert.deepEqual(
+    items.map(secretStateOf),
+    ["saved", "missing", "missing"],
+  );
+});
+
+test("保存过但没存口令的记录：能重连这件事不由「存过」决定", () => {
+  // 只在向导里存了地址和账号、没存口令 —— 这条记录 savedId 有值，
+  // 但点「重连」必定失败，所以它得和「只连过」一样标缺口令。
+  const items = mergeHistory(
+    [{ ...saved("kafka:a", "a", "10.0.0.1:9092", 1), hasSecret: false }],
+    [],
+  );
+  assert.equal(items[0].savedId, "kafka:a");
+  assert.equal(canReconnect(items[0]), false);
+  assert.equal(previewOf(items).length, 0);
+});
+
+test("没传 hasSecret 的调用方按「有口令」算", () => {
+  const items = mergeHistory([saved("kafka:a", "a", "10.0.0.1:9092", 1)], []);
+  assert.equal(items[0].hasSecret, true);
 });
 
 test("预览上限仍是三条", () => {
@@ -130,12 +170,9 @@ test("历史里没存端口时按中间件的默认口兜", () => {
   assert.equal(brokerPortFor("kafka", "broker 没有端口"), 9092);
 });
 
-test("有账号没口令的记录算「缺口令」", () => {
-  const entry = (username?: string, password?: string) => ({
-    config: { kind: "kafka", auth: { username, password } },
-  });
-  assert.equal(needsSecret(entry("admin", undefined)), true);
-  assert.equal(needsSecret(entry("admin", "")), true);
-  assert.equal(needsSecret(entry("admin", "secret")), false);
-  assert.equal(needsSecret(entry(undefined, undefined)), false);
+test("口令标记只看口令，不看有没有账号", () => {
+  // 没有账号也不等于「能重连」：Kafka 不开 SASL 时不需要账号，
+  // 但只要历史里没存口令，这份配置就不该被说成「已存口令」。
+  assert.equal(secretStateOf({ hasSecret: true }), "saved");
+  assert.equal(secretStateOf({ hasSecret: false }), "missing");
 });
