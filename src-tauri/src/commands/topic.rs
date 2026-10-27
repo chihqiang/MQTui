@@ -8,7 +8,8 @@ use tauri::State;
 
 use crate::domain::{
     ConfigChange, ConfigOutcome, ConnectionId, MigrationReport, MigrationRunbook,
-    PartitionExpansion, TopicCapabilities, TopicDetail, TopicOutcome, TopicSpec,
+    PartitionExpansion, PurgeOutcome, PurgePlan, PurgeRequest, TopicCapabilities, TopicDetail,
+    TopicOutcome, TopicSpec,
 };
 use crate::domain::{TopicThroughput, VerifySummary};
 use crate::error::{AppError, AppResult};
@@ -206,6 +207,31 @@ pub async fn sample_topic_throughput(
 ) -> AppResult<TopicThroughput> {
     let connection = state.connections.get(&id).await?;
     throughput::sample(connection.as_kafka()?, &topic, window_ms).await
+}
+
+/// 预览一次主题写操作：清空分区 / 按时间删记录。
+///
+/// 预览与提交共用后端同一个纯函数 `plan_topic_purge`，因此不可能出现
+/// 「预览说能删、提交被拒」。界面拿这份计划去渲染确认框。
+#[tauri::command]
+pub async fn preview_topic_purge(
+    state: State<'_, AppState>,
+    id: ConnectionId,
+    request: PurgeRequest,
+) -> AppResult<PurgePlan> {
+    let connection = state.connections.get(&id).await?;
+    topics::preview_purge(connection.as_kafka()?, request).await
+}
+
+/// 提交主题写操作。提交前重新算一遍计划，不复用预览的结果。
+#[tauri::command]
+pub async fn purge_topic(
+    state: State<'_, AppState>,
+    id: ConnectionId,
+    request: PurgeRequest,
+) -> AppResult<PurgeOutcome> {
+    let connection = state.connections.get(&id).await?;
+    topics::commit_purge(connection.as_kafka()?, request).await
 }
 
 /// 提交配置项修改。走增量接口，未列出的配置项保持原样。

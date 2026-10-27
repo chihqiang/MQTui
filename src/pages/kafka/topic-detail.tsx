@@ -30,6 +30,7 @@ import { IconBack } from "@/lib/icons";
 import { connectionPath } from "@/lib/nav";
 import { MigrationPanel } from "@/components/broker/migration-panel";
 import { TopicConfigEditor } from "@/components/broker/topic-config-editor";
+import { TopicPurgePanel } from "@/components/broker/topic-purge-panel";
 import { TopicThroughputCard } from "@/components/broker/topic-throughput-card";
 import { PARTITION_COLUMNS } from "@/types/topic";
 import type { TopicDetail, TopicPartitionInfo } from "@/types";
@@ -162,6 +163,10 @@ export function TopicDetailPage() {
 
       {data ? (
         <TopicThroughputCard connectionId={connectionId} topic={data.name} />
+      ) : null}
+
+      {data ? (
+        <TopicPurgePanel connectionId={connectionId} detail={data} />
       ) : null}
 
       {data ? (

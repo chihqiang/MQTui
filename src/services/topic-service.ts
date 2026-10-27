@@ -12,6 +12,7 @@ import type {
 import type { MigrationReport, MigrationRunbook, PlanCheck, VerifyResult } from "@/types/reassignment";
 import type { ConfigChange, ConfigOutcome, ConfigPreview } from "@/types/topic-config";
 import type { TopicThroughput } from "@/types/topic-throughput";
+import type { PurgeOutcome, PurgePlan, PurgeRequest } from "@/types/topic-purge";
 
 export const topicService = {
   /** 主题详情：分区布局、副本同步、非默认配置项。 */
@@ -50,6 +51,23 @@ export const topicService = {
    */
   sampleThroughput: (id: string, topic: string, windowMs: number) =>
     call<TopicThroughput>("sample_topic_throughput", { id, topic, windowMs }),
+
+  /**
+   * 预览主题写操作（清空 / 按时间删记录）。
+   *
+   * 与提交共用后端同一个纯函数：预览和实际提交不可能不一致。
+   */
+  previewPurge: (id: string, request: PurgeRequest) =>
+    call<PurgePlan>("preview_topic_purge", { id, request }),
+
+  /**
+   * 提交主题写操作。
+   *
+   * 后端会在提交前重新取一次详情重算计划：确认框可能开了几十秒，
+   * 期间分区还在收新消息，「按预览那一刻的条数去删」会多删。
+   */
+  purgeTopic: (id: string, request: PurgeRequest) =>
+    call<PurgeOutcome>("purge_topic", { id, request }),
 
   /**
    * 导出当前分区布局为一份重分配计划文本。

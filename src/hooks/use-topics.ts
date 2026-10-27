@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { errorMessage } from "@/lib/errors";
 import { queryKeys, topicService } from "@/services";
 import { useSessionStore } from "@/stores";
-import type { ConfigChange, PartitionExpansion, TopicSpec } from "@/types";
+import type { ConfigChange, PartitionExpansion, PurgeRequest, TopicSpec } from "@/types";
 
 /** 主题详情。点开详情才请求，列表阶段不背这部分体积。 */
 export function useTopicDetail(connectionId: string | undefined, topic: string | undefined) {
@@ -217,6 +217,44 @@ export function useMigrationProgress(connectionId: string | undefined) {
   return useMutation({
     mutationFn: (input: { topic: string; plan: string }) =>
       topicService.getMigrationProgress(connectionId as string, input.topic, input.plan),
+    onError: (error) => pushToast("error", errorMessage(error)),
+  });
+}
+
+/**
+ * 预览主题写操作（清空 / 按时间删记录）。
+ *
+ * 与提交共用后端同一个纯函数，所以「预览说能删、提交被拒」不可能发生。
+ * 只在用户点开写操作面板时触发，不做边填边算。
+ */
+export function usePreviewPurge(connectionId: string | undefined) {
+  const pushToast = useSessionStore((state) => state.pushToast);
+
+  return useMutation({
+    mutationFn: (request: PurgeRequest) =>
+      topicService.previewPurge(connectionId as string, request),
+    onError: (error) => pushToast("error", errorMessage(error)),
+  });
+}
+
+/**
+ * 提交主题写操作。
+ *
+ * 刷新范围只到「这个连接」：清空消息不改变主题的增删，
+ * 但会改变分区水位、热点分布与无消费组扫描的结果，所以整体失效最省心。
+ */
+export function usePurgeTopic(connectionId: string | undefined) {
+  const queryClient = useQueryClient();
+  const pushToast = useSessionStore((state) => state.pushToast);
+
+  return useMutation({
+    mutationFn: (request: PurgeRequest) =>
+      topicService.purgeTopic(connectionId as string, request),
+    onSuccess: (outcome) => {
+      // 部分成功是常态：只要有分区没删掉就必须说清楚，不能报「已完成」。
+      pushToast(outcome.failed?.length ? "info" : "success", outcome.detail);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.connection(connectionId ?? "") });
+    },
     onError: (error) => pushToast("error", errorMessage(error)),
   });
 }

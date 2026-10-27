@@ -30,11 +30,14 @@ export { ConsumerBlock, ConsumerQueueCard, DisconnectButton } from "./consumer-q
 export { QueueDetailModal } from "./queue-detail-dialog";
 export { ConnectWizard } from "./connect-wizard";
 export { ConsumerGroupDialog } from "./consumer-group-dialog";
+export { GroupBlockSection } from "./group-block-section";
+export { GroupDeleteButton } from "./group-delete-button";
 export { MigrationPanel } from "./migration-panel";
 export { MigrationRunbookView } from "./migration-runbook";
 export { CompatBlock, ConfigConfirmModal } from "./topic-config-confirm";
 export { TopicConfigEditor } from "./topic-config-editor";
 export { TopicRetentionBatchModal } from "./topic-retention-batch";
+export { TopicPurgePanel } from "./topic-purge-panel";
 export { HeaderEditor } from "./header-editor";
 export { SendRoutePreview } from "./send-route-preview";
 export { KafkaProduceForm } from "./kafka-produce-form";

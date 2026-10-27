@@ -9,6 +9,7 @@ pub mod consumer;
 pub mod consumer_disconnect;
 pub mod consumer_graph;
 pub mod consumer_link;
+pub mod group_block;
 pub mod health;
 pub mod lag_trend;
 pub mod message;
@@ -26,6 +27,7 @@ pub mod resend;
 pub mod runtime;
 pub mod topic;
 pub mod topic_config;
+pub mod topic_purge;
 pub mod topic_throughput;
 pub mod topology;
 pub mod topology_graph;
@@ -60,6 +62,7 @@ pub use consumer_link::{
     ConsumerHealth, ConsumerLinks, QueueConsumer, QueueConsumption,
     summarize as summarize_consumers,
 };
+pub use group_block::{BlockReport, PartitionShift, StuckPartition, detect as detect_group_block};
 pub use health::{CheckStatus, HealthCheck, HealthReport, WRITE_ACCESS_KEY};
 pub use lag_trend::{
     LagSample, LagTrend, LagTrendVerdict, LagVerdict, PartitionLagProgress,
@@ -118,6 +121,9 @@ pub use topic::{
 pub use topic_config::{
     ConfigBlock, ConfigChange, ConfigLock, ConfigOutcome, ConfigPlan, ConfigPlanItem, ConfigType,
     KNOWN_CONFIGS, lock_of as config_lock_of, plan as plan_config_changes,
+};
+pub use topic_purge::{
+    PurgeKind, PurgeOutcome, PurgePartitionPlan, PurgePlan, PurgeRequest, plan as plan_topic_purge,
 };
 pub use topic_throughput::{
     MAX_WINDOW_MS, MIN_WINDOW_MS, PartitionRate, PartitionWatermark, SampleWindow, TopicSample,

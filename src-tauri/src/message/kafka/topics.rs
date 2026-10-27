@@ -10,9 +10,10 @@ use rdkafka::consumer::BaseConsumer;
 
 use crate::broker::kafka::{KafkaClient, topics as admin};
 use crate::domain::{
-    BrokerKind, ConfigChange, ConfigCompatReport, ConfigOutcome, ConfigPlan, PartitionExpansion,
-    TopicCapabilities, TopicDetail, TopicOutcome, TopicRemoval, TopicSpec, config_compat_report,
-    parse_cluster_version, plan_config_changes,
+    BrokerKind, ConfigChange, ConfigCompatReport, ConfigOutcome, ConfigPlan, KeyValue,
+    PartitionExpansion, PurgeKind, PurgeOutcome, PurgePlan, PurgeRequest, TopicCapabilities,
+    TopicDetail, TopicOutcome, TopicRemoval, TopicSpec, config_compat_report,
+    parse_cluster_version, plan_config_changes, plan_topic_purge,
 };
 use crate::error::{AppError, AppResult};
 
@@ -239,4 +240,108 @@ mod tests {
         let error = unsupported();
         assert!(error.to_string().contains("RabbitMQ"));
     }
+}
+
+/// 预览一次主题写操作：动哪些分区、会失去多少条消息、能不能提交。
+///
+/// 预览单独成命令，与提交共用领域层的 `plan_topic_purge`：两处各写一份
+/// 校验，早晚会漂移成「预览说能删，提交被拒」或者更糟的反过来。
+pub async fn preview_purge(client: &KafkaClient, request: PurgeRequest) -> AppResult<PurgePlan> {
+    let detail = detail(client, &request.topic).await?;
+    let worker = build(client)?;
+    let now = now_millis();
+    // 按时间删记录要逐分区反查边界；清空只用末尾位点，不必问。
+    let boundaries = |partition: i32, before: i64| -> Option<i64> {
+        if request.kind != PurgeKind::DeleteBefore {
+            return None;
+        }
+        crate::broker::kafka::purge::seek_low_by_timestamp(
+            &worker,
+            &request.topic,
+            partition,
+            before,
+        )
+    };
+    Ok(plan_topic_purge(&detail, &request, now, &boundaries))
+}
+
+/// 提交一次主题写操作。
+///
+/// 提交前重新取一次详情并重新算计划，而不是复用预览的结果：
+/// 预览与提交之间可能隔着几十秒的确认框，期间分区正在接收新消息。
+/// 「按预览那一刻算出来的条数去删」会多删掉这期间进来的消息。
+pub async fn commit_purge(client: &KafkaClient, request: PurgeRequest) -> AppResult<PurgeOutcome> {
+    let plan = preview_purge(client, request).await?;
+    if let Some(reason) = &plan.blocked {
+        return Err(AppError::Invalid(reason.clone()));
+    }
+
+    let targets: Vec<(i32, i64)> = plan
+        .partitions
+        .iter()
+        .map(|item| (item.partition, item.target_low))
+        .collect();
+    let admin_client = client.admin()?;
+    let results =
+        crate::broker::kafka::purge::delete_records(&admin_client, &plan.topic, &targets).await?;
+    Ok(crate::broker::kafka::purge::summarize(&plan, &results))
+}
+
+/// 删除消费组的返回。
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupRemovalOutcome {
+    /// 真正被删掉的组。
+    pub deleted: Vec<String>,
+    /// 删不掉的组及原因。**不是**整体失败：一批里删掉一部分是常态。
+    pub failed: Vec<KeyValue>,
+    /// 一句话结论。
+    pub detail: String,
+}
+
+/// 删除一个或多个消费组。
+///
+/// 组名先去空白、去重、排序：用户从列表里勾选时前端给的顺序不稳定，
+/// 而结果回执要能一一对上。
+pub async fn delete_consumer_groups(
+    client: &KafkaClient,
+    groups: Vec<String>,
+) -> AppResult<GroupRemovalOutcome> {
+    let mut names: Vec<String> = groups
+        .into_iter()
+        .map(|name| name.trim().to_owned())
+        .filter(|name| !name.is_empty())
+        .collect();
+    names.sort();
+    names.dedup();
+    if names.is_empty() {
+        return Err(AppError::Invalid("请先选择要删除的消费组".to_owned()));
+    }
+
+    let admin_client = client.admin()?;
+    let (deleted, failed) =
+        crate::broker::kafka::purge::delete_groups(&admin_client, &names).await?;
+    let detail = if failed.is_empty() {
+        format!("已删除 {} 个消费组", deleted.len())
+    } else if deleted.is_empty() {
+        format!("{} 个消费组都没能删除；原因见列表", failed.len())
+    } else {
+        format!(
+            "已删除 {} 个，{} 个没删掉；没删掉的组里可能还有在线成员",
+            deleted.len(),
+            failed.len()
+        )
+    };
+
+    Ok(GroupRemovalOutcome {
+        deleted,
+        failed,
+        detail,
+    })
+}
+
+fn now_millis() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_millis() as i64)
 }

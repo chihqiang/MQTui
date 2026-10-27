@@ -80,6 +80,9 @@ export const queryKeys = {
   /** 滞后趋势：换采样间隔就是另一份结果，必须进键。 */
   lagTrend: (id: string, group: string, windowMs: number) =>
     ["connections", "detail", id, "lag-trend", group, windowMs] as const,
+  /** 队头阻塞采样：换采样间隔就是另一份结果，必须进键。 */
+  groupBlock: (id: string, group: string, windowMs: number) =>
+    ["connections", "detail", id, "group-block", group, windowMs] as const,
   /** 主题详情：分区布局决定「能不能扩容」，因此与列表分开缓存。 */
   topic: (id: string, topic: string) => ["connections", "detail", id, "topic", topic] as const,
   disposalCapabilities: (id: string, messageId: string) =>

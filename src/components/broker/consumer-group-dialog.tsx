@@ -21,6 +21,8 @@ import { connectionPath } from "@/lib/nav";
 import { OFFSET_COLUMNS } from "@/types/consumer";
 import type { ConsumerGroupInfo } from "@/types";
 
+import { GroupBlockSection } from "./group-block-section";
+import { GroupDeleteButton } from "./group-delete-button";
 import { LagTrendSection } from "./lag-trend-section";
 
 /** 消费组详情弹窗的入口参数。 */
@@ -45,7 +47,14 @@ export function ConsumerGroupDialog({ connectionId, group, onClose }: ConsumerGr
   const state = groupState(data?.group.state ?? group.state);
 
   return (
-    <Modal open title={`消费组 · ${group.name}`} onClose={onClose}>
+    <Modal
+      open
+      title={`消费组 · ${group.name}`}
+      onClose={onClose}
+      // 删除放在页脚而不是标题旁：它是一次性的收尾动作，
+      // 与上面那些「看」的内容不该抢视线。
+      footer={<GroupDeleteButton connectionId={connectionId} group={group.name} onDeleted={onClose} />}
+    >
       {/* 滞后量是这一页的全部价值，刷新失败时留着上一次算出来的数字，
           比换成一个红叉有用：至少还知道三分钟前落后多少。 */}
       {error && data ? (
@@ -109,6 +118,8 @@ export function ConsumerGroupDialog({ connectionId, group, onClose }: ConsumerGr
           {/* 趋势放在分区进度之后：先看「现在卡在哪」，再问「是在追还是越欠越多」。
               顺序反了的话，用户会先读一分钟的趋势图再回头看明细。 */}
           <LagTrendSection connectionId={connectionId} group={group.name} />
+
+          <GroupBlockSection connectionId={connectionId} group={group.name} />
 
           <section>
             <SectionTitle
