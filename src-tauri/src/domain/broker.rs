@@ -213,10 +213,57 @@ pub struct RabbitMqConfig {
     pub auth: RabbitMqAuth,
     /// 管理插件地址（如 `http://localhost:15672`）。
     ///
-    /// AMQP 协议无法枚举队列，队列列表只能靠管理 HTTP API；
-    /// 留空则该能力不可用，退化为手动输入队列名。
+    /// AMQP 协议无法枚举队列，队列列表只能靠管理 HTTP API。它**不是可选项**：
+    /// 队列、交换机、绑定、策略、参数、消费者、运行时、拓扑图全都压在它上面。
+    /// 所以留空不等于「这个能力关了」，而是「按 host + TLS 推出的那一个」
+    /// （见 `resolved_management_url`）；只有显式写了个空串才真的关掉。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub management_url: Option<String>,
+}
+
+/// 管理 API 的两个默认端口。15672 是管理插件明文端口，15671 是它配 TLS 时的端口。
+pub const DEFAULT_MANAGEMENT_HTTP_PORT: u16 = 15672;
+pub const DEFAULT_MANAGEMENT_HTTPS_PORT: u16 = 15671;
+
+impl RabbitMqConfig {
+    /// 管理 API 的实际地址。
+    ///
+    /// 三句话说完规则：
+    /// - 写了就按写的用（去掉尾部斜杠），用户能从面板里改，就别再猜第二次；
+    /// - 空串是显式的「不用管理插件」，老前端发 `""` 的语义不变；
+    /// - `None` 才是最省事的那个分支：按 AMQP 用的 host 推出来。TLS 连接对应
+    ///   `https` + 15671，否则 `http` + 15672 —— 与本机的默认配置一致。
+    ///
+    /// 注意 `port` 不参与推导：AMQP 的 5672 管理插件不认，15672 也不是它。
+    pub fn resolved_management_url(&self) -> Option<String> {
+        match self.management_url.as_deref() {
+            None => Some(self.inferred_management_url()),
+            Some(url) => {
+                let trimmed = url.trim().trim_end_matches('/');
+                (!trimmed.is_empty()).then(|| trimmed.to_owned())
+            }
+        }
+    }
+
+    /// 按 host 与 TLS 模式推出管理 API 地址（不看已填的值）。
+    pub fn inferred_management_url(&self) -> String {
+        let (scheme, port) = match self.tls {
+            TlsMode::Disabled => ("http", DEFAULT_MANAGEMENT_HTTP_PORT),
+            TlsMode::Optional | TlsMode::Required => ("https", DEFAULT_MANAGEMENT_HTTPS_PORT),
+        };
+        format!("{scheme}://{}:{port}", self.host.trim())
+    }
+
+    /// 把空着的那一格补上。**不动**已填的和显式关掉的。
+    ///
+    /// 存盘与重连走的是这一版：界面上一眼能看到的地址，就是实际会用的地址，
+    /// 不必等第一次请求 15672 失败才发现它根本没配。
+    pub fn with_inferred_management_url(mut self) -> Self {
+        if self.management_url.is_none() {
+            self.management_url = Some(self.inferred_management_url());
+        }
+        self
+    }
 }
 
 /// 创建连接的入参。
@@ -327,6 +374,61 @@ mod tests {
     fn kinds_serialize_as_camel_case() {
         let json = serde_json::to_string(&BrokerKind::RabbitMq).expect("序列化失败");
         assert_eq!(json, "\"rabbitMq\"");
+    }
+
+    fn rabbit(host: &str, tls: TlsMode, management_url: Option<&str>) -> RabbitMqConfig {
+        RabbitMqConfig {
+            host: host.to_owned(),
+            port: 5672,
+            tls,
+            auth: RabbitMqAuth::default(),
+            management_url: management_url.map(str::to_owned),
+        }
+    }
+
+    #[test]
+    fn missing_management_url_is_derived_from_host() {
+        // 没填 = 按 host 推一个，不是「这个能力关了」。
+        assert_eq!(
+            rabbit("mq.example.com", TlsMode::Disabled, None).resolved_management_url(),
+            Some("http://mq.example.com:15672".to_owned())
+        );
+        assert_eq!(
+            rabbit("mq.example.com", TlsMode::Required, None).resolved_management_url(),
+            Some("https://mq.example.com:15671".to_owned())
+        );
+    }
+
+    #[test]
+    fn typed_management_url_wins_over_derivation() {
+        // 反代、跳板、别的端口都在这一种里：写了的为准，尾部斜杠顺手去掉。
+        assert_eq!(
+            rabbit("mq", TlsMode::Disabled, Some(" https://gw.internal/mq/ "))
+                .resolved_management_url(),
+            Some("https://gw.internal/mq".to_owned())
+        );
+    }
+
+    #[test]
+    fn empty_management_url_turns_the_capability_off() {
+        // 空串是显式的「不用管理插件」，与没填区分开。
+        assert_eq!(
+            rabbit("mq", TlsMode::Disabled, Some("  ")).resolved_management_url(),
+            None
+        );
+    }
+
+    #[test]
+    fn inferred_url_is_filled_in_only_when_absent() {
+        let filled = rabbit("mq", TlsMode::Disabled, None).with_inferred_management_url();
+        assert_eq!(filled.management_url.as_deref(), Some("http://mq:15672"));
+
+        let kept = rabbit("mq", TlsMode::Disabled, Some("https://gw.internal"))
+            .with_inferred_management_url();
+        assert_eq!(kept.management_url.as_deref(), Some("https://gw.internal"));
+
+        let off = rabbit("mq", TlsMode::Disabled, Some("")).with_inferred_management_url();
+        assert_eq!(off.management_url.as_deref(), Some(""));
     }
 
     #[test]

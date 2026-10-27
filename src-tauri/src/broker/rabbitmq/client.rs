@@ -40,11 +40,15 @@ pub struct RabbitMqClient {
 
 impl RabbitMqClient {
     /// 建立 AMQP 连接。`lapin` 自身带自动重连，面板侧只需验证首次握手成功。
+    ///
+    /// 空着的管理地址在这一步补上：连上之后的第一步就是猜它能不能用，
+    /// 界面上也该照着实际用的那个地址显示，而不是留一片空白让人以为没配。
     pub async fn connect(config: RabbitMqConfig) -> AppResult<Self> {
         let endpoint = format!("{}:{}", config.host, config.port);
         let connection = Connection::connect(&amqp_uri(&config), ConnectionProperties::default())
             .await
             .map_err(|error| AppError::Connect(format!("{endpoint}: {error}")))?;
+        let config = config.with_inferred_management_url();
         let management = ManagementClient::from_config(&config)?;
 
         Ok(Self {

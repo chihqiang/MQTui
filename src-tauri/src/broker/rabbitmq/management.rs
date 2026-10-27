@@ -17,7 +17,7 @@ use crate::domain::topology_insight::QueueMetrics;
 use crate::domain::{
     CheckStatus, ConsumerLinks, DefinitionEntry, HealthCheck, KeyValue, OperatorPolicyInfo,
     ParameterComponent, ParameterError, ParameterInfo, ParameterSnapshot, PolicyApplyTo,
-    PolicyInfo, PolicySnapshot, PolicySpec, QueueConsumer, QueueInfo, RabbitMqConfig, TlsMode,
+    PolicyInfo, PolicySnapshot, PolicySpec, QueueConsumer, QueueInfo, RabbitMqConfig,
     WRITE_ACCESS_KEY, summarize_consumers,
 };
 use crate::error::{AppError, AppResult};
@@ -257,14 +257,15 @@ pub struct ManagementClient {
 }
 
 impl ManagementClient {
-    /// 按连接配置构造客户端。未配置管理地址时返回 `None`，由调用方降级处理。
+    /// 按连接配置构造客户端。
+    ///
+    /// 地址取自 `RabbitMqConfig::resolved_management_url`：填了用填的，空着按
+    /// host + TLS 推一个。所以这里只有「显式关掉」（配置里写空串）才返回 `None`
+    /// —— 管理 API 是队列、交换机、绑定、策略的共同底座，不该因为少填一格就整片灰掉。
     pub fn from_config(config: &RabbitMqConfig) -> AppResult<Option<Self>> {
-        let Some(url) = config.management_url.as_deref().map(str::trim) else {
+        let Some(url) = config.resolved_management_url() else {
             return Ok(None);
         };
-        if url.is_empty() {
-            return Ok(None);
-        }
 
         let http = reqwest::Client::builder()
             .timeout(REQUEST_TIMEOUT)
@@ -272,20 +273,15 @@ impl ManagementClient {
             .map_err(|error| AppError::Internal(format!("初始化 HTTP 客户端失败: {error}")))?;
 
         Ok(Some(Self {
-            base_url: url.trim_end_matches('/').to_owned(),
+            base_url: url,
             http,
         }))
     }
 
-    /// 拼接配置里的管理地址，未填写时按 AMQP 主机 + 默认端口推导。
-    ///
-    /// 推导只是给用户省事：TLS 连接对应 `https` + 15671，否则 `http` + 15672。
+    /// 按 AMQP 主机 + 默认端口推导的管理地址。规则在领域层，这里只转发一次，
+    /// 免得调用处各自记一遍 15672 / 15671。
     pub fn infer_url(config: &RabbitMqConfig) -> String {
-        let (scheme, port) = match config.tls {
-            TlsMode::Disabled => ("http", DEFAULT_HTTP_PORT),
-            TlsMode::Optional | TlsMode::Required => ("https", DEFAULT_HTTPS_PORT),
-        };
-        format!("{scheme}://{}:{port}", config.host)
+        config.inferred_management_url()
     }
 
     /// 管理 API 根地址，用于概览页展示。
@@ -1200,10 +1196,6 @@ fn typed_value(key: &str, raw: &str) -> serde_json::Value {
     serde_json::Value::String(value.to_owned())
 }
 
-/// 管理插件默认的 HTTP / HTTPS 端口。
-const DEFAULT_HTTP_PORT: u16 = 15672;
-const DEFAULT_HTTPS_PORT: u16 = 15671;
-
 /// 仅保留 RFC 3986 unreserved 字符的百分号编码，用于 vhost 等路径片段。
 pub(super) fn percent_encode(raw: &str) -> String {
     let mut out = String::with_capacity(raw.len());
@@ -1221,7 +1213,7 @@ pub(super) fn percent_encode(raw: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::RabbitMqAuth;
+    use crate::domain::{RabbitMqAuth, TlsMode};
 
     fn config(tls: TlsMode, management_url: Option<&str>) -> RabbitMqConfig {
         RabbitMqConfig {
@@ -1246,25 +1238,34 @@ mod tests {
     }
 
     #[test]
-    fn empty_management_url_disables_client() {
-        assert!(
-            ManagementClient::from_config(&config(TlsMode::Disabled, None))
-                .expect("构造失败")
-                .is_none()
-        );
+    fn missing_management_url_falls_back_to_inferred_one() {
+        // 空着 = 按 host 推一个。管理 API 是队列 / 交换机 / 策略的共同底座，
+        // 少填一格不该让整片能力消失。
+        let client = ManagementClient::from_config(&config(TlsMode::Disabled, None))
+            .expect("构造失败")
+            .expect("客户端缺失");
+        assert_eq!(client.base_url(), "http://mq.example.com:15672");
+    }
+
+    #[test]
+    fn explicit_empty_management_url_disables_client() {
+        // 空串是「我就是不想用管理插件」，与没填区分开。
         assert!(
             ManagementClient::from_config(&config(TlsMode::Disabled, Some("  ")))
                 .expect("构造失败")
                 .is_none()
         );
-        assert!(
-            ManagementClient::from_config(&config(
-                TlsMode::Disabled,
-                Some("http://localhost:15672/")
-            ))
-            .expect("构造失败")
-            .is_some()
-        );
+    }
+
+    #[test]
+    fn trailing_slash_is_trimmed() {
+        let client = ManagementClient::from_config(&config(
+            TlsMode::Disabled,
+            Some("http://localhost:15672/"),
+        ))
+        .expect("构造失败")
+        .expect("客户端缺失");
+        assert_eq!(client.base_url(), "http://localhost:15672");
     }
 
     #[test]
