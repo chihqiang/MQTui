@@ -6,10 +6,10 @@ use crate::domain::consumer_disconnect as disconnect;
 use crate::domain::{
     BatchDisposalOutcome, BatchDisposalRequest, BindingKey, BindingSpec, BrokerKind, ConnectionId,
     ConsumerGraph, ConsumerLinks, DeadLetterRequest, DisconnectRequest, DisposalCapabilities,
-    DisposalOutcome, ExchangeSpec, MessageDetail, MessageLocate, MessagePage, MessageQuery,
-    MessageSearch, OrphanScanScope, OrphanTopicPage, QueueDetail, QueueInfo, RabbitMqTopology,
-    RedeliverRequest, ResendOutcome, ResendRequest, SendOutcome, SendRequest, TopicInfo,
-    TopologyGraph, TopologyInsight,
+    DisposalOutcome, ExchangeSpec, MessageDetail, MessageHeader, MessageLocate, MessagePage,
+    MessageQuery, MessageSearch, OrphanScanScope, OrphanTopicPage, QueueDetail, QueueInfo,
+    RabbitMqTopology, RedeliverRequest, ResendOutcome, ResendRequest, SendOutcome, SendRequest,
+    SendRoute, TopicInfo, TopologyGraph, TopologyInsight,
 };
 use crate::error::{AppError, AppResult};
 use crate::message;
@@ -317,6 +317,7 @@ pub async fn send_message(
             connection_id,
             topic,
             key,
+            headers,
             payload,
         } => {
             ensure_payload(payload)?;
@@ -329,6 +330,7 @@ pub async fn send_message(
                 topic,
                 key.as_deref(),
                 payload.as_bytes(),
+                headers,
             )
             .await?;
             Ok(SendOutcome {
@@ -373,6 +375,28 @@ pub async fn send_message(
             })
         }
     }
+}
+
+/// 发送预览：这条消息会投到哪些队列（仅 RabbitMQ）。
+///
+/// 发出去没人收是发送页唯一「静默失败」的形态：publish 成功、界面无异常、
+/// 消息消失。路由不靠用户自己拼，直接算给他看。
+///
+/// 管理 API 不可用时返回明确错误，而不是给一个空列表 ——
+/// 空列表会被读成「这条消息到不了任何队列」。
+#[tauri::command(rename_all = "camelCase")]
+pub async fn preview_send(
+    state: State<'_, AppState>,
+    id: ConnectionId,
+    exchange: String,
+    routing_key: String,
+    headers: Vec<MessageHeader>,
+) -> AppResult<SendRoute> {
+    let connection = state.connections.get(&id).await?;
+    connection
+        .as_rabbitmq()?
+        .predict_send(&exchange, &routing_key, &headers)
+        .await
 }
 
 /// 单条消息的处置能力：能不能重投、能不能进死信，以及不能的原因。

@@ -92,6 +92,7 @@ pub fn run() {
             commands::message::retry_stranded_messages,
             commands::message::resend_message,
             commands::message::send_message,
+            commands::message::preview_send,
         ])
         .run(tauri::generate_context!())
         .expect("启动 Tauri 应用失败");

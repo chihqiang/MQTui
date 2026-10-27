@@ -105,6 +105,11 @@ export interface KafkaSendRequest {
   topic: string;
   /** 消息 key；空着则由 partitioner 轮询选分区。 */
   key?: string;
+  /**
+   * 消息头。Kafka 的 record headers 原来在命令层被丢掉，
+   * 于是「填了 trace-id、消费端看不到」——现在这一项真的会发出去。
+   */
+  headers: MessageHeader[];
   payload: string;
 }
 
@@ -129,6 +134,30 @@ export interface RabbitMqSendRequest {
 export interface SendOutcome {
   kind: string;
   detail: string;
+}
+
+/** 一条消息最终能到达的队列。 */
+export interface ReachableQueue {
+  queue: string;
+  /** 命中的绑定上的 routing key；fanout 交换机上为空串。 */
+  routingKey: string;
+  /** 经过交换机间转发才到达。 */
+  viaExchange: boolean;
+}
+
+/**
+ * 发送预览：这条消息会被投到哪些队列。
+ *
+ * 发送页唯一「静默失败」的形态是发到没人收的地方 —— publish 成功、
+ * 界面无异常、消息消失。`warning` 为空才表示照常发即可。
+ */
+export interface SendRoute {
+  /** 交换机名称；空串表示默认交换机。 */
+  exchange: string;
+  queues: ReachableQueue[];
+  /** 交换机类型；交换机不存在时缺省。 */
+  exchangeType?: string;
+  warning?: string;
 }
 
 /**

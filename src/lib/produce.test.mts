@@ -4,9 +4,12 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  CONTENT_ENCODINGS,
   CONTENT_TYPES,
   DEFAULT_CONTENT_TYPE,
   DEFAULT_DELIVERY_MODE,
+  HEADER_NAMES,
+  guessContentType,
   contentField,
   contentFieldProblem,
   exchangeName,
@@ -105,4 +108,20 @@ test("默认内容类型仍是 text/plain，且候选里包含它", () => {
   // 换默认值等于让所有没填这一格的消息在下游换一条路走，不能顺手改。
   assert.equal(DEFAULT_CONTENT_TYPE, "text/plain");
   assert.ok(CONTENT_TYPES.some((item) => item.value === DEFAULT_CONTENT_TYPE));
+});
+
+test("payload 像 JSON 时才提示，猜不出来就闭嘴", () => {
+  assert.equal(guessContentType('{"a":1}'), "application/json");
+  assert.equal(guessContentType("  [1,2]  "), "application/json");
+  assert.equal(guessContentType("<order></order>"), "application/xml");
+  // 看着像 JSON 但解析不了：不能提示，否则等于教人标错类型。
+  assert.equal(guessContentType('{"a":}'), null);
+  assert.equal(guessContentType("123"), null);
+  assert.equal(guessContentType(""), null);
+});
+
+test("header 名候选可敲可点，去重后仍是纯值列表", () => {
+  assert.ok(HEADER_NAMES.some((item) => item.value === "trace-id"));
+  assert.ok(HEADER_NAMES.every((item) => item.hint.length > 0));
+  assert.ok(CONTENT_ENCODINGS.some((item) => item.value === "gzip"));
 });

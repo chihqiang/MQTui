@@ -27,11 +27,13 @@ import type {
 import type {
   MessageDetail,
   MessageLocate,
+  MessageHeader,
   MessagePage,
   MessageQuery,
   MessageSearch,
   SendOutcome,
   SendRequest,
+  SendRoute,
 } from "@/types/message";
 
 export const messageService = {
@@ -105,6 +107,15 @@ export const messageService = {
     call<MessageDetail>("get_message", { id, messageId }),
 
   sendMessage: (request: SendRequest) => call<SendOutcome>("send_message", { request }),
+
+  /**
+   * 发送预览：这条消息会投到哪些队列。
+   *
+   * 只对 RabbitMQ 有意义 —— Kafka 的分区由 key 的哈希决定，没有「路由到谁」这回事。
+   * 管理 API 不可用时会报错，而不是返回空列表：空列表会被读成「没人收得到」。
+   */
+  previewSend: (id: string, exchange: string, routingKey: string, headers: MessageHeader[]) =>
+    call<SendRoute>("preview_send", { id, exchange, routingKey, headers }),
 
   /** 一条 RabbitMQ 消息的处置能力：能不能重投 / 进死信，以及不能的原因。 */
   getDisposalCapabilities: (id: string, messageId: string) =>

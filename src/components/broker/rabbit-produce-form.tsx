@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 import {
   Button,
@@ -7,21 +8,24 @@ import {
   CardHeader,
   ComboInput,
   Field,
-  Input,
   Select,
   Textarea,
 } from "@/components/ui";
+import { HeaderEditor } from "@/components/broker/header-editor";
+import { SendRoutePreview } from "@/components/broker/send-route-preview";
 import { useTopology } from "@/hooks/use-broker-data";
 import { messageService } from "@/services";
 import { useSessionStore } from "@/stores";
 import { errorMessage } from "@/lib/errors";
 import {
+  CONTENT_ENCODINGS,
   CONTENT_TYPES,
   DEFAULT_CONTENT_TYPE,
   DEFAULT_DELIVERY_MODE,
   DELIVERY_MODES,
   contentField,
   exchangeName,
+  guessContentType,
   sendBlockers,
   toHeaders,
   type DeliveryMode,
@@ -87,6 +91,29 @@ export function RabbitProduceForm({
     contentEncoding,
     payload,
   });
+
+  /**
+   * 发送预览：这条消息会投到哪些队列。
+   *
+   * 只在「交换机 + routing key 都填完」时才算 —— 空 key 的预览结论是
+   * 「没匹配上」，而用户只是还没填完，那不是提示，那是噪音。
+   *
+   * 与拓扑共用同一份缓存 key（`loadTopology` 已经拉过交换机与绑定），
+   * 这里拉的是后端算好的匹配结果：routing key 与交换机类型决定的一切
+   * 都留在 Rust 里，前端不重写一遍 AMQP 的匹配规则。
+   */
+  const trimmedKey = routingKey.trim();
+  const previewEnabled = exchange.trim() !== "" || trimmedKey !== "";
+  const preview = useQuery({
+    queryKey: ["sendRoute", connectionId, exchange, trimmedKey, toHeaders(rows)],
+    queryFn: () =>
+      messageService.previewSend(connectionId, exchangeName(exchange), trimmedKey, toHeaders(rows)),
+    enabled: previewEnabled,
+    // 打一个字就查一次会把管理 API 打满；改完再算是够的。
+    staleTime: 10_000,
+  });
+
+  const guessed = useMemo(() => guessContentType(payload), [payload]);
 
   const send = async () => {
     setSubmitting(true);
@@ -179,69 +206,57 @@ export function RabbitProduceForm({
 
           <Field
             label="内容编码（可选）"
-            hint="压缩过的内容才需要填，例如 gzip；留空表示未编码"
+            hint="只有内容真的被压缩过才填：填了 gzip 却给明文，消费端会拿到乱码"
           >
-            <Input
+            <ComboInput
               value={contentEncoding}
-              onChange={(event) => setContentEncoding(event.currentTarget.value)}
+              choices={CONTENT_ENCODINGS.map((item) => ({ value: item.value, hint: item.hint }))}
+              onValueChange={setContentEncoding}
               placeholder="(未编码)"
-              className="font-mono"
             />
           </Field>
 
-          <Field label="Headers（可选）" hint="trace-id 这类链路信息放这里；key 空着的行不会发送">
-            <div className="flex flex-col gap-2">
-              {rows.map((row, index) => (
-                <div key={index} className="flex items-center gap-2">
-                  <Input
-                    value={row.key}
-                    onChange={(event) => {
-                      const next = [...rows];
-                      next[index] = { ...row, key: event.currentTarget.value };
-                      setRows(next);
-                    }}
-                    placeholder="key"
-                    className="min-w-0 flex-1 font-mono"
-                  />
-                  <Input
-                    value={row.value}
-                    onChange={(event) => {
-                      const next = [...rows];
-                      next[index] = { ...row, value: event.currentTarget.value };
-                      setRows(next);
-                    }}
-                    placeholder="value"
-                    className="min-w-0 flex-1 font-mono"
-                  />
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => setRows(rows.filter((_, position) => position !== index))}
-                  >
-                    删除
-                  </Button>
-                </div>
-              ))}
-              <div>
+          <HeaderEditor
+            rows={rows}
+            onChange={setRows}
+            hint="trace-id 这类链路信息放这里；header 名给了常见候选，也能自己写"
+          />
+
+          <Field
+            label="Payload"
+            hint={
+              guessed && guessed !== contentType
+                ? `这段看起来是 ${guessed}，点右边改成它 —— 内容类型决定下游怎么解析`
+                : undefined
+            }
+          >
+            <div className="relative">
+              <Textarea
+                rows={10}
+                value={payload}
+                onChange={(event) => setPayload(event.currentTarget.value)}
+                required
+              />
+              {guessed && guessed !== contentType ? (
                 <Button
                   type="button"
                   size="sm"
                   variant="ghost"
-                  onClick={() => setRows([...rows, { key: "", value: "" }])}
+                  className="absolute top-1 right-1"
+                  onClick={() => setContentType(guessed)}
                 >
-                  加一行 header
+                  用 {guessed}
                 </Button>
-              </div>
+              ) : null}
             </div>
           </Field>
 
-          <Field label="Payload">
-            <Textarea
-              rows={10}
-              value={payload}
-              onChange={(event) => setPayload(event.currentTarget.value)}
-              required
+          <Field label="发送预览" hint="按当前拓扑与绑定算出来的到达队列；publish 成功但没人收到是最难查的一种">
+            <SendRoutePreview
+              route={preview.data ?? null}
+              error={preview.error ? errorMessage(preview.error) : null}
+              pending={preview.isFetching}
+              onRefresh={() => void preview.refetch()}
             />
           </Field>
 

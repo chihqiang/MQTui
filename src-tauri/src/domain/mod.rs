@@ -10,6 +10,7 @@ pub mod consumer_graph;
 pub mod consumer_link;
 pub mod health;
 pub mod message;
+pub mod message_route;
 pub mod migration_runbook;
 pub mod node_stats;
 pub mod offset_reset;
@@ -56,6 +57,7 @@ pub use message::{
     MessageDetail, MessageHeader, MessageLocate, MessagePage, MessageQuery, MessageSearch,
     MessageSummary, SendOutcome, SendRequest, content_type_problem, delivery_mode,
 };
+pub use message_route::{ReachableQueue, SendRoute, predict as predict_send_route};
 pub use migration_runbook::{
     MigrationRunbook, Precondition, PreconditionState, RunbookRequest, VerifyLine, VerifyState,
     VerifySummary, build as build_runbook, parse_verify, reconcile as reconcile_migration,

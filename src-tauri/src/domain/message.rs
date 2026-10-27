@@ -183,6 +183,10 @@ pub enum SendRequest {
         topic: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         key: Option<String>,
+        /// 消息头。以前这一项在 Kafka 路径上被丢掉：表单传了、驱动也支持，
+        /// 中间那层没接。链路追踪靠的 trace-id 正放这里。
+        #[serde(default)]
+        headers: Vec<MessageHeader>,
         payload: String,
     },
     /// 投到 exchange + routing key；是否需要 headers / 持久化只有 AMQP 有。
@@ -281,15 +285,57 @@ mod tests {
             connection_id: "id".to_owned(),
             topic: "orders".to_owned(),
             key: Some("k".to_owned()),
+            headers: vec![MessageHeader {
+                key: "trace-id".to_owned(),
+                value: "abc".to_owned(),
+            }],
             payload: "{}".to_owned(),
         };
         let json = serde_json::to_value(&request).expect("序列化失败");
         assert_eq!(json["kind"], "kafka");
         assert_eq!(json["topic"], "orders");
         assert_eq!(json["connectionId"], "id");
+        assert_eq!(json["headers"][0]["key"], "trace-id");
         assert!(json.get("exchange").is_none());
         assert!(json.get("routingKey").is_none());
-        assert!(json.get("headers").is_none());
+        assert!(json.get("deliveryMode").is_none());
+    }
+
+    /// Kafka 的 headers 以前在命令层被丢掉。前端补上这一格之后，
+    /// 线格式必须先认它，否则「填了 trace-id，消费端看不到」会重现一遍。
+    #[test]
+    fn kafka_request_accepts_headers() {
+        let request: SendRequest = serde_json::from_value(serde_json::json!({
+            "kind": "kafka",
+            "connectionId": "id",
+            "topic": "orders",
+            "headers": [{ "key": "trace-id", "value": "abc" }],
+            "payload": "{}"
+        }))
+        .expect("反序列化失败");
+        match request {
+            SendRequest::Kafka { headers, .. } => {
+                assert_eq!(headers.len(), 1);
+                assert_eq!(headers[0].value, "abc");
+            }
+            other => panic!("变体不对：{other:?}"),
+        }
+    }
+
+    /// 老前端不带 headers 也得能发：字段有 `default`，不是必填。
+    #[test]
+    fn kafka_request_without_headers_still_parses() {
+        let request: SendRequest = serde_json::from_value(serde_json::json!({
+            "kind": "kafka",
+            "connectionId": "id",
+            "topic": "orders",
+            "payload": "{}"
+        }))
+        .expect("反序列化失败");
+        match request {
+            SendRequest::Kafka { headers, .. } => assert!(headers.is_empty()),
+            other => panic!("变体不对：{other:?}"),
+        }
     }
 
     #[test]

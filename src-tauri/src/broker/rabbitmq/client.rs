@@ -8,10 +8,10 @@ use lapin::{BasicProperties, Connection, ConnectionProperties};
 
 use crate::domain::{
     BindingKey, BindingSpec, CheckStatus, ConsumerGraph, ConsumerLinks, ExchangeRemoval,
-    ExchangeSpec, HealthCheck, HealthReport, KeyValue, Overview, ParameterComponent,
+    ExchangeSpec, HealthCheck, HealthReport, KeyValue, MessageHeader, Overview, ParameterComponent,
     ParameterSnapshot, PolicySnapshot, PolicySpec, QueueDetail, QueueInfo, RabbitMqConfig,
-    RabbitMqTopology, TopologyGraph, TopologyInsight, WRITE_ACCESS_KEY, analyze_topology,
-    build_consumer_graph, build_topology_graph,
+    RabbitMqTopology, SendRoute, TopologyGraph, TopologyInsight, WRITE_ACCESS_KEY,
+    analyze_topology, build_consumer_graph, build_topology_graph, predict_send_route,
 };
 use crate::error::{AppError, AppResult};
 
@@ -178,6 +178,40 @@ impl RabbitMqClient {
             .unwrap_or_default();
 
         Ok(analyze_topology(&exchanges, &bindings, &queues))
+    }
+
+    /// 发送预览：这条消息会被投到哪些队列。
+    ///
+    /// 与 `topology_insight` 共用同一份拓扑快照，但回答的是另一件事 ——
+    /// 那边是「这个交换机大致通向哪」，这边是「我这一条，带这个 key，会落到谁手里」。
+    /// 发送页需要的正是后者：routing key 打错一个字母时，两者会给出完全不同的结论。
+    pub async fn predict_send(
+        &self,
+        exchange: &str,
+        routing_key: &str,
+        headers: &[MessageHeader],
+    ) -> AppResult<SendRoute> {
+        let Some(management) = &self.management else {
+            return Err(AppError::Unsupported(
+                "发送预览需要 RabbitMQ 管理 API（15672 端口），请在连接配置里填写管理地址"
+                    .to_owned(),
+            ));
+        };
+
+        let exchanges = management.exchanges(&self.config).await?;
+        let bindings = management.bindings(&self.config).await?;
+        // 队列只用来判断默认交换机的「同名直投」；拉不到也不该把预览整页打掉。
+        let queues = management.queues(&self.config).await.unwrap_or_default();
+        let names: Vec<String> = queues.into_iter().map(|queue| queue.name).collect();
+
+        Ok(predict_send_route(
+            &exchanges,
+            &bindings,
+            &names,
+            exchange,
+            routing_key,
+            headers,
+        ))
     }
 
     /// 拉取队列中的消息。

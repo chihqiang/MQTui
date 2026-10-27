@@ -88,6 +88,57 @@ export function contentField(value: string): string | undefined {
   return trimmed === "" ? undefined : trimmed;
 }
 
+/**
+ * 常见 header 名。
+ *
+ * header 名不是资源名，但它也不是随手编的：这几个是各框架约定俗成的，
+ * 拼错了不会报错，只会让下游那条判断永远不成立（「trace 断在这一跳」）。
+ * 所以给候选，同时允许自己写 —— 自定义 header 本来就是常态。
+ */
+export const HEADER_NAMES = [
+  { value: "trace-id", hint: "链路追踪，跨服务串一条调用" },
+  { value: "x-request-id", hint: "单次请求标识，网关常写" },
+  { value: "content-type", hint: "有些框架在 header 里再带一份" },
+  { value: "message-type", hint: "业务侧用来分派 handler" },
+  { value: "x-retry-count", hint: "重试次数，消费端据此决定要不要继续" },
+  { value: "x-delay", hint: "延迟插件的延时时长（毫秒）" },
+] as const;
+
+/**
+ * 内容编码候选。
+ *
+ * 只有「内容真的被压缩过」才该填这一格 —— 它不是格式说明，是**告知**：
+ * 下游会照着它去解压，标了 gzip 却给明文，消费端拿到的是一堆乱码。
+ */
+export const CONTENT_ENCODINGS = [
+  { value: "gzip", hint: "gzip 压缩过的字节" },
+  { value: "deflate", hint: "zlib / deflate" },
+  { value: "identity", hint: "显式声明未压缩" },
+] as const;
+
+/**
+ * payload 看着像什么类型。
+ *
+ * 只做「提示」，绝不自动改内容类型：猜错比不猜更坏 ——
+ * 一段恰好合法的 JSON 数字 `123` 会被猜成 JSON，而它原本可能就是个字符串。
+ * 返回 `null` 表示看不出，不要打扰用户。
+ */
+export function guessContentType(payload: string): string | null {
+  const text = payload.trim();
+  if (text === "") return null;
+  if (text.startsWith("{") || text.startsWith("[")) {
+    try {
+      JSON.parse(text);
+      return "application/json";
+    } catch {
+      // 看着像但其实不是：这时候提示「要不要改成 json」等于教人犯错。
+      return null;
+    }
+  }
+  if (/^<[^>]+>/.test(text)) return "application/xml";
+  return null;
+}
+
 /** exchange 空串就是默认交换机，不要 trim 成需要额外处理的形态。 */
 export function exchangeName(value: string): string {
   return value.trim();

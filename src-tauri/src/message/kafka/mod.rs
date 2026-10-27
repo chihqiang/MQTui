@@ -23,7 +23,7 @@ use rdkafka::error::KafkaError;
 use rdkafka::util::Timeout;
 
 use crate::broker::kafka::KafkaClient;
-use crate::domain::{MessageDetail, MessagePage, MessageQuery, MessageSummary};
+use crate::domain::{MessageDetail, MessageHeader, MessagePage, MessageQuery, MessageSummary};
 use crate::error::{AppError, AppResult};
 
 use self::dto::summary_from_message;
@@ -304,8 +304,13 @@ pub async fn send(
     topic: &str,
     key: Option<&str>,
     payload: &[u8],
+    headers: &[MessageHeader],
 ) -> AppResult<String> {
-    client.send(topic, key, payload, &[]).await
+    let headers: Vec<(String, String)> = headers
+        .iter()
+        .map(|header| (header.key.clone(), header.value.clone()))
+        .collect();
+    client.send(topic, key, payload, &headers).await
 }
 
 #[cfg(test)]

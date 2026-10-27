@@ -35,5 +35,7 @@ export { MigrationRunbookView } from "./migration-runbook";
 export { CompatBlock, ConfigConfirmModal } from "./topic-config-confirm";
 export { TopicConfigEditor } from "./topic-config-editor";
 export { TopicRetentionBatchModal } from "./topic-retention-batch";
+export { HeaderEditor } from "./header-editor";
+export { SendRoutePreview } from "./send-route-preview";
 export { KafkaProduceForm } from "./kafka-produce-form";
 export { RabbitProduceForm } from "./rabbit-produce-form";
