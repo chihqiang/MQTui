@@ -2,7 +2,7 @@
 
 面向 Kafka / RabbitMQ 的跨平台桌面管理面板。把常见开源面板的高频功能收进一个轻量客户端，装好就能连上去看。
 
-Windows / macOS / Linux 都能跑。除你填的 broker 之外不连任何服务，消息内容与口令只在本机流转。
+Windows / macOS 都能跑。除你填的 broker 之外不连任何服务，消息内容与口令只在本机流转。
 
 ## 可以做什么
 
@@ -45,7 +45,7 @@ Windows / macOS / Linux 都能跑。除你填的 broker 之外不连任何服务
 
 ## 安装
 
-**预编译安装包**：到 Releases 页下载对应平台的包 —— macOS `.dmg`、Windows `.msi` / `.exe`、Linux `.AppImage` / `.deb`。
+**预编译安装包**：到 Releases 页下载对应平台的包 —— macOS `.dmg`、Windows `.exe`（NSIS 安装包）。
 
 **从源码运行**：需要 Node.js、Rust 工具链与几个系统库（Tauri 2 + librdkafka 的编译依赖，构建时会用到 `cmake` / `pkg-config` / C 编译器）。逐个平台的安装命令见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
 
