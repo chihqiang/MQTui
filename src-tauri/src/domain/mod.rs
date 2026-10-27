@@ -10,6 +10,7 @@ pub mod consumer_disconnect;
 pub mod consumer_graph;
 pub mod consumer_link;
 pub mod group_block;
+pub mod group_removal;
 pub mod health;
 pub mod lag_trend;
 pub mod message;
@@ -64,6 +65,10 @@ pub use consumer_link::{
     summarize as summarize_consumers,
 };
 pub use group_block::{BlockReport, PartitionShift, StuckPartition, detect as detect_group_block};
+pub use group_removal::{
+    GroupRemovalCheck, GroupRemovalPreflight, assemble as assemble_group_removal,
+    check as check_group_removal, normalize_names as normalize_group_names,
+};
 pub use health::{CheckStatus, HealthCheck, HealthReport, WRITE_ACCESS_KEY};
 pub use lag_trend::{
     LagSample, LagTrend, LagTrendVerdict, LagVerdict, PartitionLagProgress,

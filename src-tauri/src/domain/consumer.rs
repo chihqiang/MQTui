@@ -29,7 +29,7 @@ pub struct ConsumerGroupDetail {
 }
 
 /// 消费组内的一个成员。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConsumerGroupMember {
     /// 服务端分配的成员 ID。

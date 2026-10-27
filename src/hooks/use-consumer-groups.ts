@@ -3,6 +3,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 import { errorMessage } from "@/lib/errors";
 import { consumerService, queryKeys } from "@/services";
 import { useSessionStore } from "@/stores";
+import { groupRemovalKey } from "@/lib/group-removal";
 import type { ConsumerGroupPage } from "@/types";
 
 /** 单页条数，与后端默认值一致。 */
@@ -91,6 +92,31 @@ export function useGroupBlock(
     enabled: Boolean(connectionId && group && windowMs),
     gcTime: 0,
     retry: false,
+  });
+}
+
+/**
+ * 删除前的预检。
+ *
+ * `groups` 为空表示弹窗没开或没选东西，此时不发请求 —— 预检的意义是
+ * 在确认框里提前说清后果，没人看着的时候问它只是白读一次组列表。
+ *
+ * `gcTime: 0`：勾选一变就是另一份名单，旧结论留着只会被误读成新结论。
+ */
+export function useGroupRemovalPreflight(
+  connectionId: string | undefined,
+  groups: string[],
+) {
+  const key = groupRemovalKey(groups);
+  return useQuery({
+    queryKey: queryKeys.groupRemovalPreflight(connectionId ?? "", key),
+    queryFn: () =>
+      consumerService.preflightRemoval(connectionId as string, groups),
+    enabled: Boolean(connectionId) && groups.length > 0,
+    gcTime: 0,
+    // 预检读不到成员是常态（组名过期、权限受限），重试三次只是多等三倍时间
+    // 看到同一句话；真删的时候服务端还会再拦一次。
+    retry: 1,
   });
 }
 

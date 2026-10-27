@@ -6,6 +6,7 @@
 pub mod consumer_groups;
 pub mod dto;
 pub mod group_block;
+pub mod group_removal;
 pub mod hotspots;
 pub mod lag_trend;
 pub mod locate;

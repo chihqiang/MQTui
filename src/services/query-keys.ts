@@ -84,6 +84,14 @@ export const queryKeys = {
   /** 滞后趋势：换采样间隔就是另一份结果，必须进键。 */
   lagTrend: (id: string, group: string, windowMs: number) =>
     ["connections", "detail", id, "lag-trend", group, windowMs] as const,
+  /**
+   * 删除组预检：结果取决于这一批组名，所以整批排序后的名单进键。
+   *
+   * 不进键的话，勾选从 2 个变成 3 个还会读到上一次的预检结论 ——
+   * 那正好是「确认框里说的话和要做的事不是一回事」。
+   */
+  groupRemovalPreflight: (id: string, groupsKey: string) =>
+    ["connections", "detail", id, "group-removal-preflight", groupsKey] as const,
   /** 队头阻塞采样：换采样间隔就是另一份结果，必须进键。 */
   groupBlock: (id: string, group: string, windowMs: number) =>
     ["connections", "detail", id, "group-block", group, windowMs] as const,

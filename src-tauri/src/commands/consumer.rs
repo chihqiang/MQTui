@@ -5,7 +5,9 @@
 use tauri::State;
 
 use crate::domain::lag_trend::LagTrend;
-use crate::domain::{BlockReport, BrokerKind, ConnectionId, ConsumerGroupDetail};
+use crate::domain::{
+    BlockReport, BrokerKind, ConnectionId, ConsumerGroupDetail, GroupRemovalPreflight,
+};
 use crate::error::AppResult;
 use crate::message::consumer::{self as groups, ConsumerGroupPage};
 use crate::message::kafka::topics::GroupRemovalOutcome;
@@ -88,6 +90,27 @@ pub async fn sample_consumer_block(
     }
 
     crate::message::kafka::group_block::sample(connection.as_kafka()?, &group, window_ms).await
+}
+
+/// 删除前的预检：哪些组会被服务端拒绝（还有在线成员）、删掉会丢多少位点。
+///
+/// 放在删除**之前**单独一个命令，而不是让 `delete_consumer_groups` 自己先探一遍：
+/// 预检是给确认框看的，用户点开弹窗时才需要；真删的时候再探一次只是多等一轮。
+///
+/// 读不到成员时不报错、也不拦人 —— 预检是辅助信息，让它挡住一次正常的删除，
+/// 比不预检更糟。
+#[tauri::command]
+pub async fn preflight_group_removal(
+    state: State<'_, AppState>,
+    id: ConnectionId,
+    groups_to_delete: Vec<String>,
+) -> AppResult<GroupRemovalPreflight> {
+    let connection = state.connections.get(&id).await?;
+    if connection.kind() != BrokerKind::Kafka {
+        return Err(groups::unsupported());
+    }
+
+    crate::message::kafka::group_removal::preflight(connection.as_kafka()?, groups_to_delete).await
 }
 
 /// 删除消费组。

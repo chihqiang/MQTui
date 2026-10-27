@@ -45,6 +45,7 @@ pub fn run() {
             commands::consumer::get_consumer_group,
             commands::consumer::sample_consumer_lag_trend,
             commands::consumer::sample_consumer_block,
+            commands::consumer::preflight_group_removal,
             commands::consumer::delete_consumer_groups,
             commands::message::list_topics,
             commands::topic::get_topic,
