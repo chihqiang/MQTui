@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import { ArrowRight, Plug, Server, Trash2 } from "lucide-react";
 
-import { Button, Card, CardBody, CardHeader, Field, Input } from "@/components/ui";
+import { Button, Card, Field, Input, Modal } from "@/components/ui";
 import { useOpenConnection } from "@/hooks/use-connections";
 import { usePluginKinds } from "@/hooks/use-plugin-kinds";
 import { cn } from "@/lib/cn";
@@ -20,91 +20,97 @@ import { ConnectionFormKafka } from "./forms/kafka-form";
 import { ConnectionFormRabbitMq } from "./forms/rabbitmq-form";
 
 /**
- * 首页：连接记录 + 新建连接。
+ * 首页：选一种中间件，弹窗里填连接信息。
  *
- * 形态参考主流桌面管理面板，而不是「一张空表单摆在页面正中」：
+ * 形态上刻意**不**做「连接记录 / 新建连接」两个页签：
  *
- * - **连过的环境**一行一台，地址与用户名都写在行上，点「重连」直接接回去，
- *   不经过表单、不用重填任何字段；
- * - **新建连接**先选中间件类型（点卡片），再填该类型的参数。
+ * - 页签把「选类型」和「填参数」摊在同一屏，选 Kafka 之后表单就等在旁边，
+ *   用户得先看懂这一页有几块内容，才知道从哪开始；
+ * - 而选中间件本质上只有两三个选项，是一次选择、不是一段状态。
  *
- * 这样第一次打开的人和每天都打开的人看到的是同一个入口，只是默认落在不同的页签上。
+ * 现在版面只回答一个问题：连哪种？点卡片 → 弹窗 → 填完就连。
+ * 连过的环境仍然留在同一页下方，但它是「历史」，不再和新建抢视觉重量。
  */
 
-/** 每种中间件一句人话 + 管理端口提示。文案属于界面，不进后端清单。 */
+/** 每种中间件一句人话 + 默认端口。文案属于界面，不进后端清单。 */
 const KIND_HINT: Record<BrokerKind, { summary: string; port: string }> = {
   kafka: { summary: "主题、分区、消费组与位点", port: "9092" },
   rabbitMq: { summary: "队列、交换机、绑定与消息处置", port: "15672（管理 API）" },
 };
 
-type TabKey = "saved" | "new";
+/** 弹窗当前要连的目标；`saved` 非空表示从连接记录里打开的（带原名与预填配置）。 */
+type Target = {
+  kind: BrokerKind;
+  saved?: SavedConnection;
+  /** 从「重连/补口令」进来时直接开弹窗，里面已填好那一条。 */
+  name: string;
+};
 
 export function ConnectPage() {
   const { data: plugins } = usePluginKinds();
-  const [kind, setKind] = useState<BrokerKind>("kafka");
-  const [name, setName] = useState("");
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const [target, setTarget] = useState<Target | null>(null);
   const [save, setSave] = useState(false);
   // 已保存列表是 localStorage 而非服务端数据，用一次读取 + 手动刷新保持简单。
   const [saved, setSaved] = useState<SavedConnection[]>(() => listSavedConnections());
-  // 「填入表单」要预填的那一条。null 表示当前表单是从草稿起来的。
-  const [prefill, setPrefill] = useState<SavedConnection | null>(null);
   const openConnection = useOpenConnection();
-  const [searchParams, setSearchParams] = useSearchParams();
-
-  /*
-   * 有记录时默认落在「连接记录」：那才是回来这里想干的事。
-   * 惰性初始化而不是 effect 里切 —— 先渲染成表单再切过去会闪一下。
-   */
-  const [tab, setTab] = useState<TabKey>(() =>
-    listSavedConnections().length > 0 ? "saved" : "new",
-  );
-
-  const submit = (config: ConnectionConfig) => {
-    openConnection.mutate(
-      { name: name || defaultName(config), config, save },
-      {
-        onSuccess: () => {
-          // 连上了就说明配置有效，草稿没用了，清掉免得下次残留半成品。
-          clearDraft(config.kind);
-          setPrefill(null);
-          setSaved(listSavedConnections());
-        },
-      },
-    );
-  };
-
-  /** 记录行上的「重连」：直接连，不打开表单。 */
-  const reconnect = useCallback(
-    (entry: SavedConnection) => {
-      setKind(entry.config.kind);
-      setName(entry.name);
-      openConnection.mutate({ name: entry.name, config: entry.config });
-    },
-    [openConnection],
-  );
 
   /**
-   * 正在连的那一条。
+   * 正在连的那一条记录。
    *
    * `openConnection` 是全局一个 mutation，把 `isPending` 直接传给每一行，
-   * 点击时全部十条记录一起转圈 —— 看不出到底在连哪台。这里记住被点的那条。
+   * 点击时全部记录一起转圈 —— 看不出到底在连哪台。这里记住被点的那条。
    */
   const [pendingId, setPendingId] = useState<string | null>(null);
   useEffect(() => {
     if (!openConnection.isPending) setPendingId(null);
   }, [openConnection.isPending]);
 
+  const closeDialog = useCallback(() => {
+    if (openConnection.isPending) return;
+    setTarget(null);
+  }, [openConnection.isPending]);
+
+  const submit = (config: ConnectionConfig) => {
+    const name = target?.name || defaultName(config);
+    openConnection.mutate(
+      { name, config, save },
+      {
+        onSuccess: (summary) => {
+          // 连上了就说明配置有效，草稿没用了，清掉免得下次残留半成品。
+          clearDraft(config.kind);
+          setSave(false);
+          setTarget(null);
+          setSaved(listSavedConnections());
+          // 弹窗开着连上之后自动落进工作区：用户填完信息是为了看数据，
+          // 不是为了回到这页看到一句「已连接」。
+          navigate(`/connections/${summary.id}`);
+        },
+      },
+    );
+  };
+
+  /** 记录行上的「重连」：直接连，不弹窗、不用重填。 */
+  const reconnect = useCallback(
+    (entry: SavedConnection) => {
+      setPendingId(entry.id);
+      openConnection.mutate(
+        { name: entry.name, config: entry.config },
+        { onSuccess: (summary) => navigate(`/connections/${summary.id}`) },
+      );
+    },
+    [navigate, openConnection],
+  );
+
   /**
-   * 记录行上的「填入表单」：缺密码、想改端口时走这条路。
+   * 记录行上的「编辑连接」：缺密码、想改端口时走这条路。
    *
-   * 必须真把配置摊进表单 —— 以前只切了页签，表单还停在上一次的草稿上，
-   * 点了和没点一样，用户只能自己重打一遍地址。
+   * 弹窗里带着那一条的原名与原配置 —— 同名同类型会覆盖保存，所以改完直接落回同一条记录。
    */
-  const fillForm = useCallback((entry: SavedConnection) => {
-    setKind(entry.config.kind);
-    setName(entry.name);
-    setPrefill(entry);
-    setTab("new");
+  const editSaved = useCallback((entry: SavedConnection) => {
+    setTarget({ kind: entry.config.kind, saved: entry, name: entry.name });
   }, []);
 
   const removeSaved = useCallback((entry: SavedConnection) => {
@@ -118,8 +124,11 @@ export function ConnectPage() {
   useEffect(() => {
     if (!pendingResume) return;
     setSearchParams({}, { replace: true });
-    openConnection.mutate({ name: pendingResume.name, config: pendingResume.config });
-  }, [pendingResume, openConnection, setSearchParams]);
+    openConnection.mutate(
+      { name: pendingResume.name, config: pendingResume.config },
+      { onSuccess: (summary) => navigate(`/connections/${summary.id}`) },
+    );
+  }, [pendingResume, openConnection, setSearchParams, navigate]);
 
   const pluginList = useMemo(
     () => plugins ?? [{ kind: "kafka" as BrokerKind, displayName: "Kafka", capabilities: [] }],
@@ -128,36 +137,35 @@ export function ConnectPage() {
 
   return (
     <div className="h-full overflow-auto">
-      {/* 表单页用 2xl 而不是 3xl：浅色主题下 768px 宽的空表单会让「名字」和「地址」
-          隔着半个屏幕，眼睛要在两行之间来回跑。 */}
-      <div className="mx-auto w-full max-w-2xl px-6 py-7">
+      <div className="mx-auto w-full max-w-2xl px-6 py-8">
         <h1 className="text-(length:--text-app-display) font-semibold tracking-tight text-slate-900">
           开始使用
         </h1>
         <p className="mt-1 text-(length:--text-app-body) leading-relaxed text-slate-500">
-          {saved.length > 0
-            ? `连过的 ${saved.length} 个环境都还在，点「重连」直接接回来，不用重填地址`
-            : "还没有连接记录。挑一种中间件连上，就能开始管理主题、队列与消息"}
+          选择要连接的中间件，在弹出的窗口里填连接信息
         </p>
 
-        {/* 页签：一条细下划线，选中项用主色描边 —— 比两个大按钮轻，也比下拉省一次点击。 */}
-        <div
-          role="tablist"
-          aria-label="连接入口"
-          className="mt-5 mb-3 flex items-center gap-1 border-b border-slate-200"
-        >
-          <TabButton
-            active={tab === "saved"}
-            label="连接记录"
-            count={saved.length}
-            onClick={() => setTab("saved")}
-          />
-          <TabButton active={tab === "new"} label="新建连接" onClick={() => setTab("new")} />
+        <div className="mt-5 grid gap-2 sm:grid-cols-2">
+          {pluginList.map((plugin) => (
+            <KindCard
+              key={plugin.kind}
+              kind={plugin.kind}
+              displayName={plugin.displayName}
+              onPick={() => setTarget({ kind: plugin.kind, name: "" })}
+            />
+          ))}
         </div>
 
-        {tab === "saved" ? (
-          saved.length === 0 ? (
-            <EmptySaved onCreate={() => setTab("new")} />
+        <div className="mt-7">
+          <div className="mb-2 flex items-baseline justify-between gap-2">
+            <h2 className="text-(length:--text-app-body) font-semibold text-slate-800">连接记录</h2>
+            <span className="text-(length:--text-app-meta) text-meta">
+              {saved.length > 0 ? "点「重连」直接接回去" : "连过一次之后会留在这里"}
+            </span>
+          </div>
+
+          {saved.length === 0 ? (
+            <EmptySaved />
           ) : (
             <ul className="flex flex-col gap-2">
               {saved.map((entry) => (
@@ -165,140 +173,126 @@ export function ConnectPage() {
                   <SavedRow
                     entry={entry}
                     busy={pendingId === entry.id}
-                    onReconnect={() => {
-                      setPendingId(entry.id);
-                      reconnect(entry);
-                    }}
-                    onFill={() => fillForm(entry)}
+                    onReconnect={() => reconnect(entry)}
+                    onEdit={() => editSaved(entry)}
                     onRemove={() => removeSaved(entry)}
                   />
                 </li>
               ))}
             </ul>
-          )
-        ) : (
-          <div className="flex flex-col gap-3">
-            <Card>
-              <CardHeader
-                title="选择中间件"
-                extra={
-                  <span className="text-(length:--text-app-micro) text-meta">
-                    类型清单由后端下发
-                  </span>
-                }
-              />
-              <CardBody className="grid gap-2 sm:grid-cols-2">
-                {pluginList.map((plugin) => (
-                  <KindCard
-                    key={plugin.kind}
-                    kind={plugin.kind}
-                    displayName={plugin.displayName}
-                    active={plugin.kind === kind}
-                    onPick={() => setKind(plugin.kind)}
-                  />
-                ))}
-              </CardBody>
-            </Card>
-
-            <Card>
-              <CardHeader
-                title="连接信息"
-                extra={
-                  <span className="text-(length:--text-app-micro) text-meta">
-                    {BROKER_LABEL[kind]}
-                  </span>
-                }
-              />
-              <CardBody className="flex flex-col gap-4">
-                <Field label="连接名称（可选）" hint="同名同类型会覆盖已保存的连接">
-                  <Input
-                    value={name}
-                    onChange={(event) => setName(event.currentTarget.value)}
-                    placeholder={kind === "kafka" ? "例如：本地 Kafka" : "例如：本地 RabbitMQ"}
-                  />
-                </Field>
-
-                {kind === "kafka" ? (
-                  <ConnectionFormKafka
-                    submitting={openConnection.isPending}
-                    onSubmit={submit}
-                    save={save}
-                    onSaveChange={setSave}
-                    initialConfig={
-                      prefill?.config.kind === "kafka" ? prefill.config : null
-                    }
-                  />
-                ) : (
-                  <ConnectionFormRabbitMq
-                    submitting={openConnection.isPending}
-                    onSubmit={submit}
-                    save={save}
-                    onSaveChange={setSave}
-                    initialConfig={
-                      prefill?.config.kind === "rabbitMq" ? prefill.config : null
-                    }
-                  />
-                )}
-              </CardBody>
-            </Card>
-          </div>
-        )}
+          )}
+        </div>
       </div>
+
+      {/* 弹窗按 key 重建：换一条记录 / 换一种中间件时表单状态必须整套换掉，
+          否则会看到上一条的地址留在输入框里。 */}
+      {target ? (
+        <ConnectDialog
+          key={`${target.kind}:${target.saved?.id ?? "new"}`}
+          target={target}
+          submitting={openConnection.isPending}
+          save={save}
+          onSaveChange={setSave}
+          onSubmit={submit}
+          onClose={closeDialog}
+        />
+      ) : null}
     </div>
   );
 }
 
-function TabButton({
-  active,
-  label,
-  count,
-  onClick,
+/**
+ * 填连接信息的弹窗。
+ *
+ * 抽出来是为了 `key` 能重建它 —— 表单的初值来自草稿或已保存记录，
+ * 只在挂载时读一次。
+ */
+function ConnectDialog({
+  target,
+  submitting,
+  save,
+  onSaveChange,
+  onSubmit,
+  onClose,
 }: {
-  active: boolean;
-  label: string;
-  count?: number;
-  onClick: () => void;
+  target: Target;
+  submitting: boolean;
+  save: boolean;
+  onSaveChange: (next: boolean) => void;
+  onSubmit: (config: ConnectionConfig) => void;
+  onClose: () => void;
 }) {
+  const [name, setName] = useState(target.name);
+  const hint = KIND_HINT[target.kind];
+  const editing = Boolean(target.saved);
+
   return (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={active}
-      onClick={onClick}
-      className={cn(
-        // 选中项靠 2px 主色下划线 + 深一档的字重说话，不再叠半透明底：
-        // 一段 24px 高的淡靛蓝方块比线更抢眼，而它表达的只是「当前页签」。
-        "-mb-px border-b-2 px-3 py-2 text-(length:--text-app-body) transition-colors",
-        active
-          ? "border-indigo-600 font-semibold text-slate-900"
-          : "border-transparent font-medium text-slate-500 hover:text-slate-800",
-      )}
+    <Modal
+      open
+      size="sm"
+      title={`连接 ${BROKER_LABEL[target.kind]}`}
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={submitting}>
+            取消
+          </Button>
+          {/* 表单本体在滚动区里，提交按钮放在页脚才不会随字段增减跑掉。
+              靠 form 属性把页脚按钮接回弹窗里的 <form>。 */}
+          <Button type="submit" form={FORM_ID} loading={submitting}>
+            连接
+          </Button>
+        </>
+      }
     >
-      {label}
-      {count !== undefined ? (
-        <span
-          className={cn(
-            "ml-1.5 rounded px-1 py-0.5 text-(length:--text-app-micro)",
-            active ? "bg-indigo-50 text-indigo-600" : "bg-slate-100 text-slate-500",
-          )}
-        >
-          {count}
-        </span>
-      ) : null}
-    </button>
+      <div className="flex flex-col gap-4">
+        <p className="text-(length:--text-app-meta) leading-relaxed text-meta">
+          {hint.summary}
+          {editing ? " · 改完保存会覆盖同名同类型的记录" : ""}
+        </p>
+
+        <Field label="连接名称（可选）" hint="同名同类型会覆盖已保存的连接">
+          <Input
+            value={name}
+            onChange={(event) => setName(event.currentTarget.value)}
+            placeholder={target.kind === "kafka" ? "例如：本地 Kafka" : "例如：本地 RabbitMQ"}
+            autoFocus
+          />
+        </Field>
+
+        {target.kind === "kafka" ? (
+          <ConnectionFormKafka
+            formId={FORM_ID}
+            onSubmit={onSubmit}
+            save={save}
+            onSaveChange={onSaveChange}
+            initialConfig={target.saved?.config.kind === "kafka" ? target.saved.config : null}
+          />
+        ) : (
+          <ConnectionFormRabbitMq
+            formId={FORM_ID}
+            onSubmit={onSubmit}
+            save={save}
+            onSaveChange={onSaveChange}
+            initialConfig={target.saved?.config.kind === "rabbitMq" ? target.saved.config : null}
+          />
+        )}
+      </div>
+    </Modal>
   );
 }
 
-/** 一张中间件卡片：整张可点，选中态用主色描边而不是换底色。 */
+/** 弹窗里表单的 id：页脚按钮靠它提交滚动区里的表单。 */
+const FORM_ID = "connect-form";
+
+/** 一张中间件卡片：整张可点，点下去就开弹窗。 */
 function KindCard({
   kind,
   displayName,
-  active,
   onPick,
 }: {
   kind: BrokerKind;
   displayName: string;
-  active: boolean;
   onPick: () => void;
 }) {
   const hint = KIND_HINT[kind] ?? { summary: "", port: "" };
@@ -307,35 +301,32 @@ function KindCard({
       type="button"
       data-kind={kind}
       onClick={onPick}
-      aria-pressed={active}
       className={cn(
-        "group flex items-start gap-3 rounded-xl p-3 text-left transition-colors",
-        // 选中用「实线主色描边 + 白底 + 主色图标块」，未选中用中性描边。
-        // 选中态不再半透明铺底：浅色主题里那层 60% 的靛蓝落在白卡上会发灰。
-        active
-          ? "bg-white ring-1 ring-indigo-500"
-          : "bg-white ring-1 ring-slate-200 hover:ring-slate-300",
+        "group flex items-center gap-3 rounded-xl bg-white p-3.5 text-left transition-colors",
+        "ring-1 ring-slate-200 hover:ring-indigo-300",
       )}
     >
       <span
         className={cn(
-          "flex size-8 shrink-0 items-center justify-center rounded-lg",
-          active ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500",
+          "flex size-9 shrink-0 items-center justify-center rounded-lg",
+          kind === "kafka" ? "bg-amber-50 text-broker-kafka" : "bg-violet-50 text-broker-rabbitmq",
         )}
       >
         <Server className="size-4" />
       </span>
       <span className="min-w-0 flex-1">
         <span className="flex items-baseline gap-2">
-          <span className="text-(length:--text-app-body) font-semibold text-slate-900">{displayName}</span>
-          <span className="text-(length:--text-app-micro) text-meta">
-            端口 {hint.port}
+          <span className="text-(length:--text-app-body) font-semibold text-slate-900">
+            {displayName}
           </span>
+          <span className="text-(length:--text-app-micro) text-meta">端口 {hint.port}</span>
         </span>
-        <span className="mt-0.5 block text-(length:--text-app-meta) leading-relaxed text-slate-500">
+        <span className="mt-0.5 block truncate text-(length:--text-app-meta) text-meta">
           {hint.summary}
         </span>
       </span>
+      {/* 箭头只在悬停时上色：两张大白卡常驻一个主色按钮，会把「选一个」变成「点按钮」。 */}
+      <ArrowRight className="size-3.5 shrink-0 text-meta transition-colors group-hover:text-indigo-600" />
     </button>
   );
 }
@@ -345,13 +336,13 @@ function SavedRow({
   entry,
   busy,
   onReconnect,
-  onFill,
+  onEdit,
   onRemove,
 }: {
   entry: SavedConnection;
   busy: boolean;
   onReconnect: () => void;
-  onFill: () => void;
+  onEdit: () => void;
   onRemove: () => void;
 }) {
   const config = entry.config;
@@ -369,15 +360,13 @@ function SavedRow({
       <span
         className={cn(
           "flex size-7 shrink-0 items-center justify-center rounded-lg",
-          config.kind === "kafka"
-            ? "bg-amber-50 text-broker-kafka"
-            : "bg-violet-50 text-broker-rabbitmq",
+          config.kind === "kafka" ? "bg-amber-50 text-broker-kafka" : "bg-violet-50 text-broker-rabbitmq",
         )}
       >
         <Plug className="size-3.5" />
       </span>
       <div className="min-w-0 flex-1">
-        {/* 第一行：名字 + 类型 + 用户；第二个行：端点。信息分两层，扫读先认名字。 */}
+        {/* 第一行：名字 + 类型 + 用户；第二行：端点。信息分两层，扫读先认名字。 */}
         <p className="flex items-baseline gap-2 truncate text-(length:--text-app-body) font-medium text-slate-900">
           <span className="truncate">{entry.name}</span>
           <span className="shrink-0 text-(length:--text-app-micro) font-normal text-meta">
@@ -398,8 +387,8 @@ function SavedRow({
       </div>
       {/* 一行里只留一个主色按钮：记录列表竖着排十行时，十个实心主色按钮
           会连成一条比内容还显眼的色带。 */}
-      <Button size="sm" variant="ghost" onClick={onFill}>
-        {missingSecret ? "补口令" : "填入表单"}
+      <Button size="sm" variant="ghost" onClick={onEdit}>
+        {missingSecret ? "补口令" : "编辑连接"}
       </Button>
       <Button
         size="sm"
@@ -421,64 +410,53 @@ function SavedRow({
   );
 }
 
-function EmptySaved({ onCreate }: { onCreate: () => void }) {
+function EmptySaved() {
   return (
-    // 空态用 `Empty` 的同一套长相：实心浅灰圆 + 一句标题 + 一句引导 + 一个主动作。
-    // 以前这里是一整块虚线描边的大方框，和「新建连接」页签里的卡片长得不像同一套东西。
-    <div className="flex flex-col items-center gap-3 rounded-xl bg-white px-6 py-12 text-center ring-1 ring-slate-200">
-      <span className="flex size-10 items-center justify-center rounded-full bg-slate-100 text-secondary">
-        <Plug className="size-5" />
+    // 空态是**引导**而不是一块占位：一句标题 + 一句说明即可，
+    // 上面的中间件卡片本来就是下一步能点的东西，这里不再放第二个按钮。
+    <div className="flex items-center gap-3 rounded-xl bg-white px-3 py-3 ring-1 ring-slate-200">
+      <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-slate-100 text-secondary">
+        <Plug className="size-3.5" />
       </span>
-      <div>
-        <p className="text-(length:--text-app-title) font-medium text-slate-800">还没有连过的环境</p>
-        <p className="mt-1 text-(length:--text-app-meta) text-meta">
+      <div className="min-w-0 flex-1">
+        <p className="text-(length:--text-app-body) font-medium text-slate-800">
+          还没有连过的环境
+        </p>
+        <p className="text-(length:--text-app-meta) text-meta">
           连上一次之后，这里会留下地址与用户名，下次点一下就回来
         </p>
       </div>
-      <Button size="sm" icon={<ArrowRight className="size-3.5" />} onClick={onCreate}>
-        新建连接
-      </Button>
     </div>
   );
 }
 
+/** 没填名字时的默认名。只用中间件名：端点已经单列在记录行第二行，名字里再重复一遍只会让一行读两遍同样的地址。 */
 function defaultName(config: ConnectionConfig): string {
-  return config.kind === "kafka"
-    ? `Kafka ${config.brokers[0] ?? ""}`.trim()
-    : `RabbitMQ ${config.host}:${config.port}`;
+  return config.kind === "kafka" ? "Kafka" : "RabbitMQ";
 }
 
-/** 表单公共的提交区：保存开关 + 提交按钮。 */
+/** 表单公共的提交区：保存开关。提交按钮在弹窗页脚上。 */
 export function SubmitRow({
-  submitting,
-  label,
   save,
   onSaveChange,
 }: {
-  submitting: boolean;
-  label: string;
   save: boolean;
   onSaveChange: (next: boolean) => void;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-3">
-      <label className="flex items-start gap-2 text-(length:--text-app-meta) text-slate-500">
-        <input
-          type="checkbox"
-          className="mt-0.5"
-          checked={save}
-          onChange={(event) => onSaveChange(event.currentTarget.checked)}
-        />
-        <span>
-          保存此连接（连同密码写入本机 localStorage）
-          <br />
-          <span className="text-meta">不勾选则仅在本次运行期间有效</span>
-        </span>
-      </label>
-      <Button type="submit" loading={submitting}>
-        {label}
-      </Button>
-    </div>
+    <label className="flex items-start gap-2 border-t border-slate-100 pt-3 text-(length:--text-app-meta) text-slate-500">
+      <input
+        type="checkbox"
+        className="mt-0.5"
+        checked={save}
+        onChange={(event) => onSaveChange(event.currentTarget.checked)}
+      />
+      <span>
+        保存此连接（连同密码写入本机 localStorage）
+        <br />
+        <span className="text-meta">不勾选则仅在本次运行期间有效</span>
+      </span>
+    </label>
   );
 }
 

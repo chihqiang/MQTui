@@ -7,7 +7,8 @@ import type { ConnectionConfig, TlsMode } from "@/types";
 import { FORM_DEFAULTS, SubmitRow, TLS_OPTIONS } from "../connect-page";
 
 interface Props {
-  submitting: boolean;
+  /** 表单的 DOM id，见 Kafka 表单里的同类说明。 */
+  formId: string;
   onSubmit: (config: ConnectionConfig) => void;
   save: boolean;
   onSaveChange: (next: boolean) => void;
@@ -35,7 +36,7 @@ function initial(): ConnectionConfig & { kind: "rabbitMq" } {
 
 /** RabbitMQ 连接表单。字段变更即时写入 localStorage 草稿。 */
 export function ConnectionFormRabbitMq({
-  submitting,
+  formId,
   onSubmit,
   save,
   onSaveChange,
@@ -57,6 +58,7 @@ export function ConnectionFormRabbitMq({
 
   return (
     <form
+      id={formId}
       className="flex flex-col gap-3"
       onSubmit={(event) => {
         event.preventDefault();
@@ -134,7 +136,7 @@ export function ConnectionFormRabbitMq({
         队列列表与堆积量只能由管理插件提供；留空则需手动输入队列名查看消息。
       </p>
 
-      <SubmitRow submitting={submitting} label="连接" save={save} onSaveChange={onSaveChange} />
+      <SubmitRow save={save} onSaveChange={onSaveChange} />
     </form>
   );
 }

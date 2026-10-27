@@ -7,7 +7,11 @@ import type { ConnectionConfig, SaslMechanism, TlsMode } from "@/types";
 import { FORM_DEFAULTS, SASL_OPTIONS, SubmitRow, TLS_OPTIONS } from "../connect-page";
 
 interface Props {
-  submitting: boolean;
+  /**
+   * 表单的 DOM id。弹窗把提交按钮放在页脚（不随字段增减跑掉），
+   * 靠 `form` 属性接回这里。
+   */
+  formId: string;
   onSubmit: (config: ConnectionConfig) => void;
   save: boolean;
   onSaveChange: (next: boolean) => void;
@@ -36,7 +40,7 @@ function initial(): ConnectionConfig & { kind: "kafka" } {
 
 /** Kafka 连接表单。字段变更即时写入 localStorage 草稿，误关页面不丢输入。 */
 export function ConnectionFormKafka({
-  submitting,
+  formId,
   onSubmit,
   save,
   onSaveChange,
@@ -62,6 +66,7 @@ export function ConnectionFormKafka({
 
   return (
     <form
+      id={formId}
       className="flex flex-col gap-3"
       onSubmit={(event) => {
         event.preventDefault();
@@ -133,12 +138,7 @@ export function ConnectionFormKafka({
         </div>
       ) : null}
 
-      <SubmitRow
-        submitting={submitting}
-        label="连接"
-        save={save}
-        onSaveChange={onSaveChange}
-      />
+      <SubmitRow save={save} onSaveChange={onSaveChange} />
     </form>
   );
 }
