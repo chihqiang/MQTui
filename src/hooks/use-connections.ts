@@ -47,6 +47,8 @@ export function useOpenConnection() {
         name: summary.name,
         kind: summary.kind,
         endpoint: summary.endpoint,
+        // 记下这次「要不要口令」：不带认证连上的机器，下次不该被追问一个不存在的口令。
+        noAuth: !needsAuth(input.config),
       });
       // 用户勾选「保存连接」时才落盘，密码随之进入 localStorage —— 由用户在界面上显式确认。
       if (input.save) {
@@ -62,6 +64,17 @@ export function useOpenConnection() {
       pushToast("error", connectFailureLine(payload, endpointOf(input)));
     },
   });
+}
+
+/**
+ * 这份配置要不要口令。
+ *
+ * Kafka 看 SASL 机制（`none` 就是明文直连）；RabbitMQ 看有没有填账号 ——
+ * 默认的 `guest` 也算「要」，它是真的会被校验的。
+ */
+function needsAuth(config: ConnectionConfig): boolean {
+  if (config.kind === "kafka") return config.auth.mechanism !== "none";
+  return config.auth.username.trim() !== "" || config.auth.password !== "";
 }
 
 /** 错误摘要里用来指认「连的是哪儿」的那一段地址。 */

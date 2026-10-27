@@ -20,6 +20,7 @@ import {
   displayName,
   mergeHistory,
   previewOf,
+  secretLabelOf,
   secretStateOf,
   type ConnectionHistoryItem,
 } from "@/lib/connection-history";
@@ -140,6 +141,17 @@ function endpointOf(config: ConnectionConfig): string {
     : `${config.host}:${config.port}`;
 }
 
+/**
+ * 这份配置要不要口令。
+ *
+ * Kafka 看 SASL 机制（`none` 就是明文直连）；RabbitMQ 看有没有填账号 ——
+ * 默认的 `guest` 也算「要」，它是真的会被校验的。
+ */
+function needsAuth(config: ConnectionConfig): boolean {
+  if (config.kind === "kafka") return config.auth.mechanism !== "none";
+  return config.auth.username.trim() !== "" || config.auth.password !== "";
+}
+
 /** 首页的历史 = 保存过的记录 + 连成功过的地址（只有名字与地址，没有口令）。 */
 function historyOf(savedList: readonly SavedConnection[]) {
   return mergeHistory(
@@ -150,6 +162,7 @@ function historyOf(savedList: readonly SavedConnection[]) {
       endpoint: endpointOf(entry.config),
       savedAt: entry.savedAt,
       hasSecret: Boolean(entry.config.auth.password),
+      noAuth: !needsAuth(entry.config),
     })),
     listRecentConnections(),
   );
@@ -256,6 +269,17 @@ export function ConnectPage() {
     [navigate, openConnection],
   );
 
+  /**
+   * 不用口令的那一行「连接一次」：一格里都不用填，直接按草稿再连一次。
+   *
+   * 和 `connectOnce` 走同一份配置拼装，只是没有账号口令可填 ——
+   * 这一类行之所以走到弹窗，是因为「连过但没保存」，不是因为它缺东西。
+   */
+  const reconnectUnsaved = useCallback(
+    (item: ConnectionHistoryItem) => connectOnce(item, { username: "", password: "" }),
+    [connectOnce],
+  );
+
   /** 从历史里删掉一条「只是连过」的地址：它没有配置可删，删的是这条记忆。 */
   const forgetRecent = useCallback((kind: BrokerKind, endpoint: string) => {
     forgetConnection({ kind, endpoint });
@@ -339,7 +363,7 @@ export function ConnectPage() {
               连接记录
             </h1>
             <p className="mt-2 text-(length:--text-app-body) leading-relaxed text-slate-500">
-              点「重连」直接回去；标着「口令不在本机」的那几条，点开补一次口令。
+              点「重连」直接回去；标着「口令不在本机」的那几条，点开补一次口令。没标的就是不用口令。
             </p>
 
             {/* 一张表，不分段。
@@ -449,6 +473,7 @@ export function ConnectPage() {
             setAsk(null);
             setTarget({ kind: ask.kind as BrokerKind, endpoint: ask.endpoint });
           }}
+          onDirect={() => reconnectUnsaved(ask)}
           onConnect={(credential) => connectOnce(ask, credential)}
           onClose={() => setAsk(null)}
         />
@@ -471,6 +496,7 @@ function UnsavedConnectionDialog({
   item,
   labels,
   busy,
+  onDirect,
   onFill,
   onConnect,
   onClose,
@@ -478,6 +504,8 @@ function UnsavedConnectionDialog({
   item: ConnectionHistoryItem;
   labels: readonly string[];
   busy: boolean;
+  /** 这台机器不用口令：直接照草稿重连一次，什么都不用填。 */
+  onDirect: () => void;
   /** 带上地址去填参数（TLS、SASL、vhost 这些都在那一步）。 */
   onFill: () => void;
   /** 就地补口令再连一次，不留记录。 */
@@ -486,6 +514,13 @@ function UnsavedConnectionDialog({
 }) {
   const kind = item.kind as BrokerKind;
   const name = displayName(item, labels);
+  /**
+   * 这一行用不上口令。
+   *
+   * 「没存口令」和「不用口令」长得一样，含义正相反。前者要人补一次，
+   * 后者再问就是纯干扰 —— 这台机器当初就是明文直连的。
+   */
+  const noAuth = item.noAuth;
   /**
    * 账号：历史里没存过它，但表单草稿里可能还留着上一次填的那一份。
    * 这份草稿是同一台机器上的同一份表单记忆，用它预填不算编造。
@@ -496,28 +531,40 @@ function UnsavedConnectionDialog({
   const [password, setPassword] = useState("");
   const needsUser = draftUser.trim() === "";
 
+  // 不用口令的那一行没有表单可提交：打开就是「再连一次」，按钮走 `onDirect`。
+  const footer = noAuth ? (
+    <>
+      <Button variant="ghost" onClick={onClose} disabled={busy}>
+        取消
+      </Button>
+      <Button loading={busy} onClick={onDirect} title="按原来的参数再连一次（不保存）">
+        连接一次
+      </Button>
+    </>
+  ) : (
+    <>
+      <Button variant="ghost" onClick={onClose} disabled={busy}>
+        取消
+      </Button>
+      <Button
+        type="submit"
+        form={UNSAVED_FORM_ID}
+        loading={busy}
+        disabled={password.trim() === "" || (needsUser && username.trim() === "")}
+        title="用上面填的账号与口令连一次（不保存）"
+      >
+        连接一次
+      </Button>
+    </>
+  );
+
   return (
     <Modal
       open
       size="sm"
-      title="口令不在本机"
+      title={noAuth ? "这台机器不用口令" : "口令不在本机"}
       onClose={busy ? () => undefined : onClose}
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose} disabled={busy}>
-            取消
-          </Button>
-          <Button
-            type="submit"
-            form={UNSAVED_FORM_ID}
-            loading={busy}
-            disabled={password.trim() === "" || (needsUser && username.trim() === "")}
-            title="用上面填的账号与口令连一次（不保存）"
-          >
-            连接一次
-          </Button>
-        </>
-      }
+      footer={footer}
     >
       <div className="flex flex-col gap-3.5">
         <div className="flex items-center gap-2.5 rounded-lg bg-slate-50 px-3 py-2">
@@ -541,37 +588,41 @@ function UnsavedConnectionDialog({
         </div>
 
         <p className="text-(length:--text-app-meta) leading-relaxed text-meta">
-          地址和账号还留着，口令当初没勾「保存此连接」，所以不在本机。
+          {noAuth
+            ? "这台机器当初是不带认证连上的，地址还留着，直接再连一次就行。"
+            : "地址还留着，口令当初没勾「保存此连接」，所以不在本机。"}
         </p>
 
-        <form
-          id={UNSAVED_FORM_ID}
-          className="flex flex-col gap-3"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (busy) return;
-            onConnect({ username: username.trim(), password });
-          }}
-        >
-          <Field label="用户名" hint={needsUser ? undefined : "上次填过的账号，改了就按新的连"}>
-            <Input
-              value={username}
-              onChange={(event) => setUsername(event.currentTarget.value)}
-              placeholder="username"
-              autoComplete="off"
-              autoFocus
-            />
-          </Field>
-          <Field label="口令">
-            <Input
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.currentTarget.value)}
-              placeholder="password"
-              autoComplete="off"
-            />
-          </Field>
-        </form>
+        {noAuth ? null : (
+          <form
+            id={UNSAVED_FORM_ID}
+            className="flex flex-col gap-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (busy) return;
+              onConnect({ username: username.trim(), password });
+            }}
+          >
+            <Field label="用户名" hint={needsUser ? undefined : "上次填过的账号，改了就按新的连"}>
+              <Input
+                value={username}
+                onChange={(event) => setUsername(event.currentTarget.value)}
+                placeholder="username"
+                autoComplete="off"
+                autoFocus
+              />
+            </Field>
+            <Field label="口令">
+              <Input
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.currentTarget.value)}
+                placeholder="password"
+                autoComplete="off"
+              />
+            </Field>
+          </form>
+        )}
 
         {/* 另一条路放在下面，用一条分隔线跟上面的主表单隔开：
             它不是次等选择，是另一个目的 —— 想把它留成记录。 */}
@@ -586,7 +637,9 @@ function UnsavedConnectionDialog({
             <span className="min-w-0 flex-1">
               去填参数
               <span className="ml-1 font-normal text-meta">
-                地址已带上，还能改 TLS / SASL / vhost，勾保存就留成记录
+                {noAuth
+                  ? "地址已带上，要加 TLS / SASL / vhost，或者想把它留成记录"
+                  : "地址已带上，还能改 TLS / SASL / vhost，勾保存就留成记录"}
               </span>
             </span>
             <IconForward className="size-3.5 shrink-0" />
@@ -714,7 +767,10 @@ function HistoryRow({
   const name = displayName(item, labels);
   const Icon = brokerIcon(kind);
   const ready = canReconnect(item) && entry !== null;
+  // 徽标只说「缺」：用不上口令的机器没缺东西，标上去等于替它报一次不存在的错。
   const missing = secretStateOf(item) === "missing";
+  // 点开小弹窗时填什么，跟着这一行的性质走：要口令的补口令，不要的问参数。
+  const openLabel = secretLabelOf(item);
   const user = entry?.config.auth.username?.trim();
   // 名字被省略时（自动填的「Kafka」、或就是主机段），用中间件名顶上，
   // 免得这一行读起来只剩一串地址。
@@ -779,7 +835,7 @@ function HistoryRow({
         </>
       ) : (
         <Button size="sm" variant="secondary" loading={openBusy} onClick={onOpen}>
-          补口令
+          {openLabel}
         </Button>
       )}
       <button

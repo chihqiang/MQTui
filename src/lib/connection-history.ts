@@ -26,6 +26,14 @@ export interface ConnectionHistoryItem {
    * 地址与账号。行上据此标一句「口令不在本机」，主操作也跟着换成「补口令」。
    */
   hasSecret: boolean;
+  /**
+   * 这一行**根本用不上**口令。
+   *
+   * 「没口令」和「不需要口令」是两件事，之前被压成了一件事：连一台没开 SASL 的
+   * Kafka，记下来的那一刻就把它标成「口令不在本机」，点开还让你补一个不存在的口令。
+   * 本机开 SASL 而留着口令，是缺；本机本来就不收口令，那是这台机器的定义。
+   */
+  noAuth: boolean;
   /** 排序用：保存时间或最近连接时间。 */
   at: number;
 }
@@ -39,6 +47,8 @@ export interface SavedLike {
   savedAt: number;
   /** 这份配置里有没有口令；缺省按「有」算，调用方不知道时不该被判成不能重连。 */
   hasSecret?: boolean;
+  /** 这份配置是否根本不用认证；缺省按「要」算，调用方不知道时不该被判成不需要。 */
+  noAuth?: boolean;
 }
 
 export interface RecentLike {
@@ -46,6 +56,8 @@ export interface RecentLike {
   kind: string;
   endpoint: string;
   usedAt: number;
+  /** 连这一次用的配置要不要认证。老数据没有这个字段，见 `noAuth` 的说明。 */
+  noAuth?: boolean;
 }
 
 /**
@@ -108,6 +120,7 @@ export function mergeHistory(
       endpoint: entry.endpoint,
       savedId: entry.id,
       hasSecret: entry.hasSecret ?? true,
+      noAuth: entry.noAuth ?? false,
       at: entry.savedAt,
     });
   }
@@ -120,15 +133,19 @@ export function mergeHistory(
       if (entry.usedAt > existing.at) existing.at = entry.usedAt;
       continue;
     }
-    // `recent-connections` 只有名字与地址，口令从来没落过盘，
-    // 所以这里如实记下「口令不在本机」—— 行上要标的就是这件事。
+    // `recent-connections` 只有名字与地址，口令从来没落过盘。
+    // 于是「缺口令」只对**要口令的那台机器**成立：连它的时候没带 SASL，
+    // 就没有口令可缺 —— 之前一视同仁地标「口令不在本机」，是在替用户找一样不存在的东西。
+    // 老记录没有 `noAuth` 字段，按「要认证」处理：宁可多问一次，不敢替人断言不用。
+    const noAuth = entry.noAuth ?? false;
     items.set(key, {
       key,
       name: entry.name,
       kind: entry.kind,
       endpoint: entry.endpoint,
       savedId: null,
-      hasSecret: false,
+      hasSecret: noAuth,
+      noAuth,
       at: entry.usedAt,
     });
   }
@@ -146,17 +163,26 @@ export function mergeHistory(
  *
  * 有两份数据的人容易写出两份判据（首页一份、命令面板一份），于是同一条记录
  * 在一个入口说「重连」、在另一个入口说「补口令」，点了必然失败一个。
- * 这里只认一件事：口令在不在本机。
+ * 这里只认一件事：要用的口令在不在本机 —— 用不上口令的机器从来就没缺过它。
  */
-export function canReconnect(item: { savedId: string | null; hasSecret: boolean }): boolean {
-  return item.savedId !== null && item.hasSecret;
+export function canReconnect(item: {
+  savedId: string | null;
+  hasSecret: boolean;
+  noAuth?: boolean;
+}): boolean {
+  return item.savedId !== null && (item.noAuth === true || item.hasSecret);
 }
 
 /** 行上的身份标记：口令在不在本机。故意只分两种，多一档就变成需要解释的分类。 */
 export type SecretState = "saved" | "missing";
 
-export function secretStateOf(item: { hasSecret: boolean }): SecretState {
-  return item.hasSecret ? "saved" : "missing";
+export function secretStateOf(item: { hasSecret: boolean; noAuth?: boolean }): SecretState {
+  return item.noAuth === true || item.hasSecret ? "saved" : "missing";
+}
+
+/** 这一行点开之后填的是「口令」还是「连接参数」。 */
+export function secretLabelOf(item: { noAuth?: boolean }): string {
+  return item.noAuth === true ? "重填参数" : "补口令";
 }
 
 /**

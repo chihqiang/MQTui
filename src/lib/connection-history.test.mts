@@ -18,6 +18,7 @@ import {
   isAutomaticName,
   mergeHistory,
   previewOf,
+  secretLabelOf,
   secretStateOf,
 } from "./connection-history.ts";
 
@@ -175,4 +176,36 @@ test("口令标记只看口令，不看有没有账号", () => {
   // 但只要历史里没存口令，这份配置就不该被说成「已存口令」。
   assert.equal(secretStateOf({ hasSecret: true }), "saved");
   assert.equal(secretStateOf({ hasSecret: false }), "missing");
+});
+
+test("不带认证连上的机器：不标缺口令，也不该被问口令", () => {
+  // 明文直连的 Kafka 本来就不收口令。把它标成「口令不在本机」，
+  // 等于让用户去找一样这台机器根本不要的东西。
+  const items = mergeHistory([], [{ ...recent("local", "127.0.0.1:9092", 10), noAuth: true }]);
+  assert.equal(items[0].noAuth, true);
+  assert.equal(secretStateOf(items[0]), "saved");
+  assert.equal(secretLabelOf(items[0]), "重填参数");
+});
+
+test("要认证却没存口令的机器：照旧标缺口令", () => {
+  const items = mergeHistory([], [{ ...recent("prod", "10.0.1.12:9092", 10), noAuth: false }]);
+  assert.equal(secretStateOf(items[0]), "missing");
+  assert.equal(secretLabelOf(items[0]), "补口令");
+});
+
+test("老记录没有 noAuth 字段时按「要口令」处理", () => {
+  // 宁可多问一次，也不敢替人断言「这台不用口令」。
+  const items = mergeHistory([], [recent("old", "10.0.1.9:9092", 10)]);
+  assert.equal(items[0].noAuth, false);
+  assert.equal(secretStateOf(items[0]), "missing");
+});
+
+test("保存过的配置：noAuth 与口令两者任一即可重连", () => {
+  const plain = {
+    ...saved("kafka:local", "local", "127.0.0.1:9092", 1),
+    hasSecret: false,
+    noAuth: true,
+  };
+  const items = mergeHistory([plain], []);
+  assert.equal(canReconnect(items[0]), true);
 });

@@ -21,6 +21,13 @@ export interface RecentConnection {
   endpoint: string;
   /** 最近使用时间（毫秒）。 */
   usedAt: number;
+  /**
+   * 连这一次用的配置要不要口令（Kafka 开了 SASL / RabbitMQ 带了账号）。
+   *
+   * 只说「要不要」，不说「是哪个账号」—— 用户名照样不落盘，这和以前一致。
+   * 老记录没有这个字段：读的时候当作「要」，宁可多问一次口令，不敢替人断言不用。
+   */
+  noAuth?: boolean;
 }
 
 /** 已保存的连接：完整配置，可直接用来重连。 */
@@ -39,7 +46,8 @@ function isRecent(value: unknown): value is RecentConnection {
     typeof value.name === "string" &&
     (value.kind === "kafka" || value.kind === "rabbitMq") &&
     typeof value.endpoint === "string" &&
-    typeof value.usedAt === "number"
+    typeof value.usedAt === "number" &&
+    (value.noAuth === undefined || typeof value.noAuth === "boolean")
   );
 }
 
