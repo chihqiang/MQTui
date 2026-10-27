@@ -1,8 +1,9 @@
-import type {
-  InputHTMLAttributes,
-  ReactNode,
-  SelectHTMLAttributes,
-  TextareaHTMLAttributes,
+import {
+  useRef,
+  type InputHTMLAttributes,
+  type ReactNode,
+  type SelectHTMLAttributes,
+  type TextareaHTMLAttributes,
 } from "react";
 
 import { cn } from "@/lib/cn";
@@ -37,32 +38,68 @@ export function Select({ className, children, ...props }: SelectHTMLAttributes<H
  * 过滤框里改一个字往往要从头再来，全选删除比按退格更顺手。
  * 只在有值时出现，空框上挂一个 ✕ 是纯粹的视觉噪音。
  *
- * 放大镜也只在 `icon` 打开时出现：一个 64 宽的小过滤框里塞图标，
- * 能看见的字符会少两个，不值。
+ * 几处对齐上的坑：
+ * 1. **放大镜和 ✕ 用同一个垂直基准**。原来左边是 12px 图标靠 `top-1/2`
+ *    定位（按图标盒子算中线）、右边是 `p-1` 的按钮（按文字盒子算中线），
+ *    两个中线不是同一条，看起来像手工摆的。现在左右都用 `size-6` 的盒子
+ *    撑满高度再居中，`pl-8` / `pr-8` 与盒子尺寸共用同一个数。
+ * 2. **内边距写死，不跟着图标出现/消失跳**。`pl-` 只由 `icon` 决定，
+ *    `pr-` 一直留着 —— 否则一打字整行文字会左移 20px。
+ * 3. **焦点环画在容器上**。输入框自己套一层胶囊是为了让图标和触发区
+ *    一起变色；如果焦点环还留在 `<input>` 内层，就会出现「双层描边」。
+ *    这里把内层摊平，`group` 里只留一个真正的 `input`。
+ *
+ * `box` 是尺寸档：`page` 给页头工具条（32px），`inline` 给工具栏里
+ * 紧挨着按钮的小过滤框（28px）。两档只在高度和圆角上不同。
  */
 export function SearchInput({
   value,
   onValueChange,
   className,
   icon = false,
+  box = "inline",
   ...props
-}: Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "onChange"> & {
+}: Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "size"> & {
   value: string;
   onValueChange: (next: string) => void;
   /** 左侧是否显示放大镜。 */
   icon?: boolean;
+  /** 尺寸档：页头工具条用 `page`，行内工具栏用 `inline`。 */
+  box?: "page" | "inline";
 }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
   return (
-    <div className="relative min-w-0">
+    <div
+      className={cn(
+        "group relative min-w-0 cursor-text border border-slate-200 bg-white shadow-xs",
+        box === "page" ? "h-8 rounded-lg" : "h-7 rounded-md",
+        "transition-colors duration-(--motion-fast)",
+        "hover:border-slate-300",
+        "focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/15",
+        className,
+        // 容器接管了边框与焦点环，输入框自己不再画（见下面的 `border-0 shadow-none`）。
+        // Tailwind 的工具类顺序由层叠决定，这里用 `[&>input]` 覆盖干净。
+        "[&>input]:rounded-none [&>input]:border-0 [&>input]:bg-transparent [&>input]:shadow-none",
+        "[&>input]:focus:border-0 [&>input]:focus:ring-0",
+      )}
+      // 点空白处（图标、右内边距）也要能进来打字：这两块加起来快 30px，
+      // 是这类输入框里最容易点到又最没反应的地方。
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          event.preventDefault();
+          inputRef.current?.focus();
+        }
+      }}
+    >
       {icon ? (
         <IconSearch
           size={12}
-          className={cn(
-            "pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 text-slate-500",
-          )}
+          className="pointer-events-none absolute top-0 bottom-0 left-0 my-auto ml-2 text-meta transition-colors group-focus-within:text-indigo-500"
         />
       ) : null}
       <input
+        ref={inputRef}
         value={value}
         onChange={(event) => onValueChange(event.currentTarget.value)}
         // Esc 清空：过滤场景里比「按 8 次退格」直接得多。
@@ -73,7 +110,13 @@ export function SearchInput({
           }
           props.onKeyDown?.(event);
         }}
-        className={cn(FIELD_CLASS, icon && "pl-7", value ? "pr-8" : undefined, className)}
+        className={cn(
+          FIELD_CLASS,
+          "h-full rounded-none border-0 bg-transparent px-0 shadow-none",
+          icon ? "pl-8" : "pl-2.5",
+          // 清空键的位置一直占着，打字时文字不会横向跳。
+          "pr-8",
+        )}
         {...props}
       />
       {value ? (
@@ -81,7 +124,7 @@ export function SearchInput({
           type="button"
           onClick={() => onValueChange("")}
           aria-label="清空"
-          className="absolute top-1/2 right-1.5 -translate-y-1/2 rounded p-1 text-meta transition-colors hover:bg-slate-100 hover:text-slate-700"
+          className="absolute top-0 right-1 bottom-0 my-auto flex size-6 items-center justify-center rounded text-meta transition-colors hover:bg-slate-100 hover:text-slate-700"
         >
           <IconClose size={12} />
         </button>

@@ -149,7 +149,9 @@ export function TopicsPage() {
           onValueChange={setKeyword}
           placeholder="按主题名过滤"
           aria-label="过滤主题"
-          className="h-8 w-64 text-(length:--text-app-body)"
+          icon
+          box="page"
+          className="w-64"
         />
       </PageToolbar>
 

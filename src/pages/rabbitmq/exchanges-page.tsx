@@ -164,7 +164,9 @@ export function ExchangesPage() {
           onValueChange={setKeyword}
           placeholder="按名称 / routing key 过滤"
           aria-label="过滤交换机与绑定"
-          className="h-8 w-64 text-(length:--text-app-body)"
+          icon
+          box="page"
+          className="w-64"
         />
       </PageToolbar>
 

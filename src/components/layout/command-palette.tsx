@@ -1,9 +1,10 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef } from "react";
 
 import { useCommandPalette } from "@/hooks/use-command-palette";
 import { cn } from "@/lib/cn";
 
 import { DENSITY_OPTIONS } from "@/lib/list-view";
+import { splitHighlight } from "@/lib/highlight";
 import { usePreferences } from "@/hooks/use-preferences";
 import { IconSearch } from "@/lib/icons";
 
@@ -30,8 +31,10 @@ export function CommandPalette() {
   } = useCommandPalette();
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const [preferences] = usePreferences();
+  const [preferences, updatePreferences] = usePreferences();
   const density = preferences.density;
+  const onToggleDensity = () =>
+    updatePreferences({ density: density === "compact" ? "comfortable" : "compact" });
 
   // 打开就聚焦：面板是键盘驱动的，多一次点击都是浪费。
   useEffect(() => {
@@ -63,22 +66,51 @@ export function CommandPalette() {
         aria-modal="true"
         aria-label="命令面板"
       >
-        <div className="flex items-center gap-2 border-b border-slate-200 px-3">
-          <IconSearch className="shrink-0 text-slate-500" />
+        {/*
+          搜索行。原来输入框自带的 `focus:outline-none` 没管住内层的
+          `box-shadow` 焦点环，一打开面板就是一个贴边的紫色矩形、四个角
+          还是直角 —— 外面那圈 `rounded-xl` 等于白写。这里改成「整行承担
+          焦点」：焦点环交给这一层的 `focus-within`，输入框摊平。
+        */}
+        <div className="flex items-center gap-2 border-b border-slate-200 px-3 transition-colors focus-within:border-indigo-300">
+          <IconSearch
+            size={14}
+            className={cn(
+              "shrink-0 transition-colors",
+              query ? "text-indigo-500" : "text-meta",
+            )}
+          />
           <input
             ref={inputRef}
             value={query}
             onChange={(event) => onQueryChange(event.target.value)}
             onKeyDown={onKeyDown}
             placeholder="搜索页面或连接，回车跳转"
-            className="w-full bg-transparent py-3 text-(length:--text-app-title) text-slate-900 placeholder:text-meta focus:outline-none"
+            className="w-full bg-transparent py-3 text-(length:--text-app-title) text-slate-900 shadow-none placeholder:text-meta focus:ring-0 focus:outline-none"
             aria-label="搜索命令"
             aria-controls="command-list"
             aria-activedescendant={selected >= 0 ? `command-${selected}` : undefined}
             role="combobox"
             aria-expanded
           />
-          <kbd className="shrink-0 rounded border border-slate-200 bg-slate-50 px-1 py-0.5 text-(length:--text-app-micro) text-secondary">
+          {/* 只有打了字才给一个清空键：空框上挂 ✕ 是噪音，
+              而打字之后「全删重来」比按 N 次退格顺手得多。 */}
+          {query ? (
+            <button
+              type="button"
+              // 点按钮不能把焦点从输入框抢走，否则清完还得再点回来。
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                onQueryChange("");
+                inputRef.current?.focus();
+              }}
+              aria-label="清空搜索"
+              className="-mr-1 flex size-6 shrink-0 items-center justify-center rounded text-meta transition-colors hover:bg-slate-100 hover:text-slate-700"
+            >
+              ✕
+            </button>
+          ) : null}
+          <kbd className="shrink-0 rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-(length:--text-app-micro) text-secondary">
             Esc
           </kbd>
         </div>
@@ -97,6 +129,7 @@ export function CommandPalette() {
                 group={showsGroup(matches, index) ? match.command.group : undefined}
                 onHover={() => setSelected(index)}
                 onClick={() => runAt(index)}
+                query={query}
               >
                 {match.command.title}
               </CommandRow>
@@ -104,15 +137,21 @@ export function CommandPalette() {
           )}
         </div>
 
-        <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-4 py-2 text-(length:--text-app-meta) text-slate-500">
-          <span>↑↓ 选择 · 回车执行 · Esc 关闭</span>
-          {/* 这里原来写「当前表格密度：紧凑 · ⌘K 开关」，让人以为能点。
-              它只是一句状态说明，所以现在把「改密度」的入口明说出去。 */}
-          <span className="truncate">
-            密度：{DENSITY_OPTIONS.find((option) => option.value === density)?.label ?? "紧凑"}
-            <span className="mx-1 text-meta">·</span>
-            搜「密度」可改
-          </span>
+        {/*
+          底栏原来右侧写着「密度：紧凑 · 搜『密度』可改」—— 一句话形容一个
+          动作，用户读完还得回搜索框里把「密度」两个字打出来。现在它就是个
+          按钮：按一下切到另一档，文案直接说明按下去会发生什么。
+        */}
+        <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-4 py-1.5 text-(length:--text-app-meta) text-meta">
+          <span className="truncate">↑↓ 选择 · 回车执行 · Esc 关闭</span>
+          <button
+            type="button"
+            onClick={onToggleDensity}
+            title="表格密度：紧凑一屏信息多，宽松更好读"
+            className="shrink-0 rounded px-1.5 py-0.5 transition-colors hover:bg-slate-100 hover:text-slate-800"
+          >
+            密度：{DENSITY_OPTIONS.find((option) => option.value === density)?.label ?? "紧凑"} · 切换
+          </button>
         </div>
       </div>
     </div>
@@ -129,6 +168,7 @@ function CommandRow({
   id,
   active,
   group,
+  query,
   onHover,
   onClick,
   children,
@@ -136,14 +176,17 @@ function CommandRow({
   id: string;
   active: boolean;
   group?: string;
+  /** 当前查询词，用来高亮标题里命中的那几个字。 */
+  query: string;
   onHover: () => void;
   onClick: () => void;
-  children: ReactNode;
+  children: string;
 }) {
+  const parts = splitHighlight(children, query);
   return (
     <>
       {group ? (
-        <p className="px-4 pt-2 pb-1 text-(length:--text-app-meta) font-medium tracking-wider text-secondary uppercase">
+        <p className="mt-1 border-t border-slate-100 px-4 pt-2 pb-1 text-(length:--text-app-meta) font-medium tracking-wider text-meta first:mt-0 first:border-t-0">
           {group}
         </p>
       ) : null}
@@ -164,7 +207,11 @@ function CommandRow({
             : "text-secondary hover:bg-slate-50",
         )}
       >
-        <span className="truncate">{children}</span>
+        <span className="truncate">
+          {parts.head}
+          {parts.hit ? <mark className="rounded-[2px] bg-indigo-100 px-0.5 text-slate-900">{parts.hit}</mark> : null}
+          {parts.tail}
+        </span>
         {active ? <span className="text-(length:--text-app-meta) text-meta">↵</span> : null}
       </button>
     </>

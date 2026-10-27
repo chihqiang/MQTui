@@ -98,7 +98,9 @@ export function ConsumerGraphPage() {
           onValueChange={setKeyword}
           placeholder="按交换机 / 队列 / 连接名过滤"
           aria-label="过滤消费链路"
-          className="h-8 w-64 text-(length:--text-app-body)"
+          icon
+          box="page"
+          className="w-64"
         />
       </PageToolbar>
 

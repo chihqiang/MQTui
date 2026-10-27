@@ -150,7 +150,9 @@ export function PoliciesPage() {
           onValueChange={setKeyword}
           placeholder="按名称 / 模式 / 键过滤"
           aria-label="过滤策略"
-          className="h-8 w-64 text-(length:--text-app-body)"
+          icon
+          box="page"
+          className="w-64"
         />
       </PageToolbar>
 

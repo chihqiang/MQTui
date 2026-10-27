@@ -121,6 +121,13 @@ export function MessageLocatePanel({ connectionId, target, onSelect }: Props) {
 
   return (
     <div className="flex h-full flex-col rounded-lg border border-slate-200">
+      {/*
+        表单区。四个字段各自是一个「标签 + 控件」的竖排盒子，`items-end`
+        对齐的是这些盒子的底边 —— 控件底边确实齐了，但问题是标签和控件之间
+        没有共同的节奏：标签行高随文字走，长一点的那个（「内容片段（须配
+        时间区间）」）会把整行撑高，旁边三个字段就跟着下沉。这里给标签钉
+        一行行高（`leading-4` + `truncate`），四个盒子才一样高。
+      */}
       <form
         className="flex flex-wrap items-end gap-2 border-b border-slate-200 px-3 py-2"
         onSubmit={(event) => {
@@ -131,39 +138,39 @@ export function MessageLocatePanel({ connectionId, target, onSelect }: Props) {
         }}
       >
         <label className="flex flex-col gap-1">
-          <span className="text-(length:--text-app-meta) text-slate-500">key（精确匹配）</span>
+          <span className="truncate text-(length:--text-app-meta) text-secondary">key（精确匹配）</span>
           <Input
             value={form.key}
             onChange={(event) => update({ key: event.currentTarget.value })}
             placeholder="如 order-1001"
-            className="h-8 w-44 text-(length:--text-app-body)"
+            className="h-8 w-40 text-(length:--text-app-body)"
           />
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-(length:--text-app-meta) text-slate-500">内容片段（须配时间区间）</span>
+          <span className="truncate text-(length:--text-app-meta) text-secondary">内容片段（须配时间区间）</span>
           <Input
             value={form.content}
             onChange={(event) => update({ content: event.currentTarget.value })}
             placeholder="如 timeout"
-            className="h-8 w-44 text-(length:--text-app-body)"
+            className="h-8 w-40 text-(length:--text-app-body)"
           />
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-(length:--text-app-meta) text-slate-500">起始时间</span>
+          <span className="truncate text-(length:--text-app-meta) text-secondary">起始时间</span>
           <Input
             type="datetime-local"
             value={form.after}
             onChange={(event) => update({ after: event.currentTarget.value })}
-            className="h-8 w-52 text-(length:--text-app-body)"
+            className="h-8 w-48 text-(length:--text-app-body)"
           />
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-(length:--text-app-meta) text-slate-500">结束时间</span>
+          <span className="truncate text-(length:--text-app-meta) text-secondary">结束时间</span>
           <Input
             type="datetime-local"
             value={form.before}
             onChange={(event) => update({ before: event.currentTarget.value })}
-            className="h-8 w-52 text-(length:--text-app-body)"
+            className="h-8 w-48 text-(length:--text-app-body)"
           />
         </label>
         {contentMode ? (

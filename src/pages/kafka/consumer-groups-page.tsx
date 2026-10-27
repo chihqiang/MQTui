@@ -71,14 +71,15 @@ export function ConsumerGroupsPage() {
           setKeyword(draft.trim());
         }}
       >
-        <div className="w-72">
-          <SearchInput
-            value={draft}
-            onValueChange={setDraft}
-            placeholder="按组名过滤（不区分大小写）"
-            aria-label="消费组关键字"
-          />
-        </div>
+        <SearchInput
+          value={draft}
+          onValueChange={setDraft}
+          placeholder="按组名过滤（不区分大小写）"
+          aria-label="消费组关键字"
+          icon
+          box="page"
+          className="w-72"
+        />
         <Button type="submit" size="sm">
           过滤
         </Button>

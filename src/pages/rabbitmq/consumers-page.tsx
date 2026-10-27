@@ -128,7 +128,9 @@ export function ConsumersPage() {
           onValueChange={setKeyword}
           placeholder="队列 / 连接名 / consumer tag / 账号"
           aria-label="过滤消费者"
-          className="h-8 w-64 text-(length:--text-app-body)"
+          icon
+          box="page"
+          className="w-64"
         />
         <label className="flex items-center gap-1.5 text-(length:--text-app-meta) text-slate-500">
           <input

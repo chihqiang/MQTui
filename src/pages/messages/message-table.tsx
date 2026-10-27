@@ -371,19 +371,27 @@ export function MessageTable({
       </div>
 
       <div className="flex items-center gap-2 border-b border-slate-200 px-3 py-1.5">
+        {/*
+          两个过滤框原来左边没放大镜、右边却有一个 ✕ —— 点进去的第一眼
+          分不清哪个是「搜 key」哪个是「搜内容」。补上放大镜之后盒子宽度
+          必须留在外面：`SearchInput` 现在是胶囊容器，`flex-1` 给内层 input
+          是不起作用的。
+        */}
         <SearchInput
           value={filter.key}
           onValueChange={(key) => setFilter((prev) => ({ ...prev, key }))}
           placeholder="按 key 过滤"
           aria-label="按 key 过滤"
-          className="h-7 w-40 text-(length:--text-app-body)"
+          icon
+          className="w-40 shrink-0"
         />
         <SearchInput
           value={filter.content}
           onValueChange={(content) => setFilter((prev) => ({ ...prev, content }))}
           placeholder="按内容过滤（不区分大小写）"
           aria-label="按内容过滤"
-          className="h-7 min-w-0 flex-1 text-(length:--text-app-body)"
+          icon
+          className="min-w-0 flex-1"
         />
         {isFilterActive(filter) ? (
           <Button size="xs" variant="ghost" onClick={() => setFilter(EMPTY_FILTER)}>

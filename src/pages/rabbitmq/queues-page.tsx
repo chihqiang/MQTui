@@ -139,7 +139,9 @@ export function QueuesPage() {
           onValueChange={setKeyword}
           placeholder="按队列名过滤"
           aria-label="过滤队列"
-          className="h-8 w-64 text-(length:--text-app-body)"
+          icon
+          box="page"
+          className="w-64"
         />
       </PageToolbar>
 
