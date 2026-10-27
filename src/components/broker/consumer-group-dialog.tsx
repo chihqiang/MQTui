@@ -21,6 +21,8 @@ import { connectionPath } from "@/lib/nav";
 import { OFFSET_COLUMNS } from "@/types/consumer";
 import type { ConsumerGroupInfo } from "@/types";
 
+import { LagTrendSection } from "./lag-trend-section";
+
 /** 消费组详情弹窗的入口参数。 */
 export interface ConsumerGroupDialogProps {
   connectionId: string;
@@ -103,6 +105,10 @@ export function ConsumerGroupDialog({ connectionId, group, onClose }: ConsumerGr
               </p>
             )}
           </section>
+
+          {/* 趋势放在分区进度之后：先看「现在卡在哪」，再问「是在追还是越欠越多」。
+              顺序反了的话，用户会先读一分钟的趋势图再回头看明细。 */}
+          <LagTrendSection connectionId={connectionId} group={group.name} />
 
           <section>
             <SectionTitle

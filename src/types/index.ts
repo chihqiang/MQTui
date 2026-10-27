@@ -5,6 +5,7 @@ export * from "./consumer-graph";
 export * from "./consumer-link";
 export * from "./disposal";
 export * from "./health";
+export * from "./lag-trend";
 export * from "./message";
 export * from "./offset-reset";
 export * from "./orphan";

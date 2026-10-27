@@ -43,6 +43,7 @@ pub fn run() {
             commands::reset::reset_phases,
             commands::consumer::list_consumer_groups,
             commands::consumer::get_consumer_group,
+            commands::consumer::sample_consumer_lag_trend,
             commands::message::list_topics,
             commands::topic::get_topic,
             commands::topic::get_topic_capabilities,

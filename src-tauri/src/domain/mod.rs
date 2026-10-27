@@ -10,6 +10,7 @@ pub mod consumer_disconnect;
 pub mod consumer_graph;
 pub mod consumer_link;
 pub mod health;
+pub mod lag_trend;
 pub mod message;
 pub mod message_route;
 pub mod migration_runbook;
@@ -60,6 +61,10 @@ pub use consumer_link::{
     summarize as summarize_consumers,
 };
 pub use health::{CheckStatus, HealthCheck, HealthReport, WRITE_ACCESS_KEY};
+pub use lag_trend::{
+    LagSample, LagTrend, LagTrendVerdict, LagVerdict, PartitionLagProgress,
+    compute as compute_lag_trend, describe as describe_lag_trend, series as lag_trend_series,
+};
 pub use message::{
     MessageDetail, MessageHeader, MessageLocate, MessagePage, MessageQuery, MessageSearch,
     MessageSummary, SendOutcome, SendRequest, content_type_problem, delivery_mode,

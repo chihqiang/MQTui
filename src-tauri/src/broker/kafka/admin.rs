@@ -200,12 +200,28 @@ pub fn assemble_detail(
     }
 }
 
+/// 确认一个消费组存在，不存在时报错而不是返回空结果。
+///
+/// 拉取组列表用的是**完整组名**做前缀再精确比对：`fetch_group_list` 的前缀
+/// 匹配会把 `orders` 也匹配到 `orders-v2`，直接取第一条就会读错组的位点。
+pub fn probe_group(worker: &BaseConsumer, group_name: &str) -> AppResult<()> {
+    let list = worker
+        .fetch_group_list(Some(group_name), GROUPS_TIMEOUT)
+        .map_err(AppError::from)?;
+    let found = list.groups().iter().any(|group| group.name() == group_name);
+    if found {
+        Ok(())
+    } else {
+        Err(AppError::NotFound(format!("消费组 {group_name}")))
+    }
+}
+
 /// 查询消费组已提交位点并计算滞后。
 ///
 /// rdkafka 的 `committed_offsets` 只返回「当前 consumer 的 group.id 视角」下的分区，
 /// 因此调用方的 `worker` 必须是以目标组名作为 `group.id` 建出来的 consumer，
 /// 见 `message::kafka::consumer_groups`。
-fn fetch_committed_offsets(
+pub fn fetch_committed_offsets(
     worker: &BaseConsumer,
     group_name: &str,
 ) -> AppResult<Vec<ConsumerGroupOffset>> {

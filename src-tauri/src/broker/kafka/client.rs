@@ -265,6 +265,23 @@ impl KafkaClient {
             .map_err(|error| AppError::Broker(format!("创建 Kafka 管理客户端失败: {error}")))
     }
 
+    /// 用给定配置构造客户端，**不建连**。
+    ///
+    /// 只给参数校验类单测用：那些分支必须在发出任何网络请求之前就失败，
+    /// 走 `connect()` 会先花十秒等元数据超时。生产路径一律用 `connect()`。
+    #[cfg(test)]
+    pub fn detached(config: &KafkaConfig) -> AppResult<Self> {
+        let base = client_config(config);
+        let admin = base.create()?;
+        let producer = base.create()?;
+        Ok(Self {
+            config: base,
+            bootstrap: config.brokers.join(","),
+            admin: Arc::new(admin),
+            producer,
+        })
+    }
+
     /// 建一个只读的查询 consumer。
     ///
     /// 与 `consumer_config` 配合使用：调用方决定 group.id，

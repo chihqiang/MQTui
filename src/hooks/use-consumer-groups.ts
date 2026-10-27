@@ -43,3 +43,29 @@ export function useConsumerGroup(
     enabled: Boolean(connectionId) && Boolean(group),
   });
 }
+
+/**
+ * 采样一个消费组的滞后趋势。
+ *
+ * 默认不开：这个请求会在后端等满一个采样窗口（5 秒），用户只是想看成员列表时
+ * 不该被迫等它。传 `undefined` 表示「还没开始采」。
+ */
+export function useLagTrend(
+  connectionId: string | undefined,
+  group: string | undefined,
+  windowMs: number | undefined,
+) {
+  return useQuery({
+    queryKey: queryKeys.lagTrend(connectionId ?? "", group ?? "", windowMs ?? 0),
+    queryFn: () =>
+      consumerService.sampleLagTrend(
+        connectionId as string,
+        group as string,
+        windowMs,
+      ),
+    enabled: Boolean(connectionId && group && windowMs),
+    // 结果只代表那一段时间，不缓存复用。
+    gcTime: 0,
+    retry: false,
+  });
+}

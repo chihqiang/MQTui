@@ -6,6 +6,7 @@
 pub mod consumer_groups;
 pub mod dto;
 pub mod hotspots;
+pub mod lag_trend;
 pub mod locate;
 pub mod locate_cursor;
 pub mod migrations;
