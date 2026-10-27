@@ -5,28 +5,33 @@ import {
   IconForward,
   IconPlug,
   IconPlus,
+  IconRepeat,
   IconServer,
   IconTrash,
 } from "@/lib/icons";
 
-import { Button, Card } from "@/components/ui";
+import { Button, Card, Field, Input, Modal } from "@/components/ui";
 import { useOpenConnection } from "@/hooks/use-connections";
 import { usePluginKinds } from "@/hooks/use-plugin-kinds";
 import { cn } from "@/lib/cn";
 import {
+  brokerPortFor,
+  displayName,
   mergeHistory,
   needsSecret,
   previewOf,
   type ConnectionHistoryItem,
 } from "@/lib/connection-history";
-import { BROKER_LABEL } from "@/lib/nav";
+import { BROKER_LABEL, brokerIcon } from "@/lib/nav";
 import { reconnectLabel } from "@/lib/reconnect";
+import { BROKER_TONE_CLASS, brokerTone } from "@/lib/visual";
 import {
   deleteSavedConnection,
   forgetConnection,
   getSavedConnection,
   listRecentConnections,
   listSavedConnections,
+  readDraft,
   type SavedConnection,
 } from "@/lib/session-storage";
 import type { BrokerKind, ConnectionConfig, SaslMechanism, TlsMode } from "@/types";
@@ -55,11 +60,77 @@ import { ConnectWizard } from "./connect-wizard";
  * 这里每张卡都带着类型，那里什么都没带。
  */
 
+/** 徽标底色。未知类型退回中性灰，不拿品牌色冒充。 */
+function toneClass(tone: ReturnType<typeof brokerTone>): string {
+  return tone === "neutral" ? "bg-slate-100 text-secondary" : BROKER_TONE_CLASS[tone].tint;
+}
+
+/** 弹窗里那个表单的 id：页脚的提交按钮在 form 之外，用 `form` 属性指过来。 */
+const UNSAVED_FORM_ID = "unsaved-connection-form";
+
 /** 每种中间件一句人话 + 默认端口。文案属于界面，不进后端清单。 */
 const KIND_HINT: Record<BrokerKind, { summary: string; port: string }> = {
   kafka: { summary: "主题、分区、消费组与位点", port: "9092" },
   rabbitMq: { summary: "队列、交换机、绑定与消息处置", port: "15672（管理 API）" },
 };
+
+/**
+ * 一条历史 + 现场补的账号口令 → 一份能提交的配置。
+ *
+ * 底子是表单草稿（上次填过的 TLS、SASL 机制、vhost 都还在里面）；没有草稿就从默认值起。
+ * 只覆盖三处：地址（历史说了算，那是真连过的那台）、用户名与口令。草稿只是「这台机器上
+ * 同一份表单的记忆」，就地重试不写回它 —— 不留记录这件事得是真的。
+ */
+function configForHistory(
+  item: ConnectionHistoryItem,
+  credential: { username: string; password: string },
+): ConnectionConfig {
+  const draft = readDraft(item.kind as BrokerKind);
+  const base: ConnectionConfig = draft ?? formDefaults(item.kind as BrokerKind);
+  if (base.kind === "kafka") {
+    return {
+      ...base,
+      brokers: item.endpoint.split(",").map((part) => part.trim()).filter(Boolean),
+      auth: { ...base.auth, username: credential.username, password: credential.password },
+    };
+  }
+  const first = item.endpoint.split(",")[0]?.trim() ?? "";
+  const index = first.lastIndexOf(":");
+  return {
+    ...base,
+    host: index > 0 ? first.slice(0, index) : first,
+    port: brokerPortFor(item.kind, item.endpoint),
+    auth: {
+      ...base.auth,
+      username: credential.username || base.auth.username,
+      password: credential.password,
+    },
+  };
+}
+
+/** 表单默认值 → 一份完整配置（`ConnectionConfig` 是邻接标签，`kind` 得自己补上）。 */
+function formDefaults(kind: BrokerKind): ConnectionConfig {
+  if (kind === "kafka") {
+    return {
+      kind: "kafka",
+      brokers: [FORM_DEFAULTS.kafka.brokers],
+      tls: FORM_DEFAULTS.kafka.tls,
+      auth: { mechanism: FORM_DEFAULTS.kafka.mechanism, username: "", password: "" },
+      options: {},
+    };
+  }
+  return {
+    kind: "rabbitMq",
+    host: FORM_DEFAULTS.rabbitMq.host,
+    port: FORM_DEFAULTS.rabbitMq.port,
+    tls: FORM_DEFAULTS.rabbitMq.tls,
+    auth: {
+      username: FORM_DEFAULTS.rabbitMq.username,
+      password: FORM_DEFAULTS.rabbitMq.password,
+      vhost: FORM_DEFAULTS.rabbitMq.vhost,
+    },
+  };
+}
 
 /** 一条连接配置 → 人认得出的地址。历史与报错摘要共用同一份措辞。 */
 function endpointOf(config: ConnectionConfig): string {
@@ -103,6 +174,14 @@ export function ConnectPage() {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [target, setTarget] = useState<Target | null>(null);
+  /**
+   * 「连过 · 未保存」那一行点下去先问一句要去哪：去填参数（带上地址），
+   * 还是就地再试一次（主机/端口/账号都还记得，缺的只有口令）。
+   *
+   * 直接弹表单会显得「点重连」被改成了「重填」；直接连又必定因为缺口令失败。
+   * 这两种都是猜测，不如把两个动作摊开、说清各自要补什么。
+   */
+  const [ask, setAsk] = useState<ConnectionHistoryItem | null>(null);
   /**
    * 顶栏「＋」是唯一一个「跳转 + 立刻弹窗」的入口：页面会在脚下换掉，
    * 再盖一层弹窗，用户很容易以为刚才那下点空了。这里留一条可关闭的提示，
@@ -163,6 +242,21 @@ export function ConnectPage() {
     setSaved(listSavedConnections());
     setHistory(readHistory());
   }, []);
+
+  /**
+   * 「就连这一次」：历史里记得主机、端口、账号，唯独没有口令 —— 补上口令再连，
+   * 不做任何落盘（这条记录的语义就是「参数不在本机」，别偷偷替人改成保存）。
+   */
+  const connectOnce = useCallback(
+    (item: ConnectionHistoryItem, credential: { username: string; password: string }) => {
+      const config = configForHistory(item, credential);
+      openConnection.mutate(
+        { name: displayName(item) || BROKER_LABEL[item.kind as BrokerKind], config },
+        { onSuccess: (summary) => navigate(`/connections/${summary.id}`) },
+      );
+    },
+    [navigate, openConnection],
+  );
 
   /** 从历史里删掉一条「只是连过」的地址：它没有配置可删，删的是这条记忆。 */
   const forgetRecent = useCallback((kind: BrokerKind, endpoint: string) => {
@@ -248,7 +342,7 @@ export function ConnectPage() {
               连接记录
             </h1>
             <p className="mt-2 text-(length:--text-app-body) leading-relaxed text-slate-500">
-              点「重连」直接接回去；换地址或口令走「编辑连接」
+              保存过的记录点「重连」直接回去；没保存的只留了地址，点开补一下口令。
             </p>
 
             {savedCount > 0 ? (
@@ -274,7 +368,7 @@ export function ConnectPage() {
                 <p className="flex items-baseline gap-2 text-(length:--text-app-micro) font-semibold tracking-wider text-secondary uppercase">
                   <span>连过 · 未保存</span>
                   <span className="font-normal normal-case text-meta">
-                    参数不在本机，点一下重填地址
+                    地址还在，口令不在本机
                   </span>
                 </p>
                 <ul className="mt-2 flex flex-col gap-1.5">
@@ -282,9 +376,8 @@ export function ConnectPage() {
                     <li key={item.key}>
                       <RecentRow
                         item={item}
-                        onResume={() =>
-                          setTarget({ kind: item.kind as BrokerKind, endpoint: item.endpoint })
-                        }
+                        labels={pluginList.map((plugin) => plugin.displayName)}
+                        onOpen={() => setAsk(item)}
                         onForget={() => forgetRecent(item.kind as BrokerKind, item.endpoint)}
                       />
                     </li>
@@ -332,7 +425,8 @@ export function ConnectPage() {
             {/* 空态不等于白纸：连过但没勾「保存」的机器会走上面那段记录形态，
                 点一下把地址带回向导。这里只剩「为什么上面什么都没有」这一句。 */}
             <p className="mt-4 text-(length:--text-app-meta) leading-relaxed text-meta">
-              勾选「保存此连接」才会留下可一键重连的记录；只连不保存的机器会留在「连过 · 未保存」里。
+              勾选「保存此连接」才会留下可一键重连的记录；只连没保存的机器会留在「连过 · 未保存」里，
+              地址还在，口令每次现填。
             </p>
           </>
         )}
@@ -355,7 +449,163 @@ export function ConnectPage() {
           }}
         />
       ) : null}
+
+      {/* 「连过 · 未保存」点开后的小弹窗：去填参数，还是就地补个口令接一次。
+          两个动作都写清各自要补什么 —— 前者补全部，后者只缺口令。 */}
+      {ask ? (
+        <UnsavedConnectionDialog
+          item={ask}
+          labels={pluginList.map((plugin) => plugin.displayName)}
+          busy={openConnection.isPending}
+          onFill={() => {
+            setAsk(null);
+            setTarget({ kind: ask.kind as BrokerKind, endpoint: ask.endpoint });
+          }}
+          onConnect={(credential) => connectOnce(ask, credential)}
+          onClose={() => setAsk(null)}
+        />
+      ) : null}
     </div>
+  );
+}
+
+/**
+ * 「连过 · 未保存」那一行点开后的选择。
+ *
+ * 为什么要有这个弹窗：那一行只有一个地址，口令不在本机。给「重连」必定失败，
+ * 给「重新连接…」又等于把「连接」改叫成「重填」。所以把它拆成两条路，并说清
+ * 各自要补什么：想留成记录就去填参数；只是现在要连一次就只补口令。
+ *
+ * 两条路都不写「记住口令」—— 这一段的语义就是「参数不在本机」，
+ * 真觉得该记住的时刻是填完表单勾「保存此连接」。
+ */
+function UnsavedConnectionDialog({
+  item,
+  labels,
+  busy,
+  onFill,
+  onConnect,
+  onClose,
+}: {
+  item: ConnectionHistoryItem;
+  labels: readonly string[];
+  busy: boolean;
+  /** 带上地址去填参数（TLS、SASL、vhost 这些都在那一步）。 */
+  onFill: () => void;
+  /** 就地补口令再连一次，不留记录。 */
+  onConnect: (credential: { username: string; password: string }) => void;
+  onClose: () => void;
+}) {
+  const kind = item.kind as BrokerKind;
+  const name = displayName(item, labels);
+  /**
+   * 账号：历史里没存过它，但表单草稿里可能还留着上一次填的那一份。
+   * 这份草稿是同一台机器上的同一份表单记忆，用它预填不算编造。
+   */
+  const draft = readDraft(kind);
+  const draftUser = draft?.auth?.username ?? "";
+  const [username, setUsername] = useState(draftUser);
+  const [password, setPassword] = useState("");
+  const needsUser = draftUser.trim() === "";
+
+  return (
+    <Modal
+      open
+      size="sm"
+      title="这台机器没有保存口令"
+      onClose={busy ? () => undefined : onClose}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} disabled={busy}>
+            取消
+          </Button>
+          <Button
+            type="submit"
+            form={UNSAVED_FORM_ID}
+            loading={busy}
+            disabled={password.trim() === "" || (needsUser && username.trim() === "")}
+            title="用上面填的账号与口令连一次（不保存）"
+          >
+            连接一次
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3.5">
+        <div className="flex items-center gap-2.5 rounded-lg bg-slate-50 px-3 py-2">
+          <span
+            className={cn(
+              "flex size-7 shrink-0 items-center justify-center rounded-lg",
+              toneClass(brokerTone(kind)),
+            )}
+          >
+            <IconPlug className="size-3.5" />
+          </span>
+          <div className="min-w-0">
+            <p className="truncate text-(length:--text-app-meta) font-medium text-slate-800">
+              {name ? `${name} · ` : ""}
+              {BROKER_LABEL[kind] ?? item.kind}
+            </p>
+            <p className="truncate font-mono text-(length:--text-app-micro) text-meta">
+              {item.endpoint}
+            </p>
+          </div>
+        </div>
+
+        <p className="text-(length:--text-app-meta) leading-relaxed text-meta">
+          地址还留着，口令当初没勾「保存此连接」，所以不在本机。
+        </p>
+
+        <form
+          id={UNSAVED_FORM_ID}
+          className="flex flex-col gap-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (busy) return;
+            onConnect({ username: username.trim(), password });
+          }}
+        >
+          <Field label="用户名" hint={needsUser ? undefined : "上次填过的账号，改了就按新的连"}>
+            <Input
+              value={username}
+              onChange={(event) => setUsername(event.currentTarget.value)}
+              placeholder="username"
+              autoComplete="off"
+              autoFocus
+            />
+          </Field>
+          <Field label="口令">
+            <Input
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.currentTarget.value)}
+              placeholder="password"
+              autoComplete="off"
+            />
+          </Field>
+        </form>
+
+        {/* 另一条路放在下面，用一条分隔线跟上面的主表单隔开：
+            它不是次等选择，是另一个目的 —— 想把它留成记录。 */}
+        <div className="border-t border-slate-100 pt-3">
+          <button
+            type="button"
+            onClick={onFill}
+            disabled={busy}
+            className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-(length:--text-app-meta) text-indigo-600 transition-colors hover:bg-indigo-50 disabled:opacity-50"
+          >
+            <IconRepeat className="size-3.5 shrink-0" />
+            <span className="min-w-0 flex-1">
+              去填参数
+              <span className="ml-1 font-normal text-meta">
+                地址已带上，还能改 TLS / SASL / vhost，勾保存就留成记录
+              </span>
+            </span>
+            <IconForward className="size-3.5 shrink-0" />
+          </button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -438,47 +688,79 @@ function KindCard({
 /**
  * 一条「连过但没保存」的历史。
  *
- * 这一行不能提供「重连」：`recent-connections` 里只有名字与地址，口令没落盘
- * （用户当初没勾保存），点下去必定失败 —— 与其给一个会报错的按钮，不如把
- * 地址带进向导，人只需要补口令。
+ * 这一行给不出「重连」：`recent-connections` 里只有名字与地址，口令没落盘
+ * （用户当初没勾保存），点下去必定失败。所以整行只做一件事 —— 点开一个把两件事
+ * 摊开的小弹窗：去填参数（带上地址），或者就地补个口令再连一次。直接弹表单会
+ * 显得「重连」被换成了「重填」；直接连又必定失败，两种都是替用户猜。
+ *
+ * 形状上也故意比保存过的记录轻一档：它是「还有一台机器」，不是每天要按的按钮。
+ * 所以动作不常驻在行上 —— 悬停才浮出来，挪开就还回地址。
  */
 function RecentRow({
   item,
-  onResume,
+  labels,
+  onOpen,
   onForget,
 }: {
   item: ConnectionHistoryItem;
-  onResume: () => void;
+  /** 中间件的显示名：名字与它相同时不重复写一遍。 */
+  labels: readonly string[];
+  onOpen: () => void;
   onForget: () => void;
 }) {
   const kind = item.kind as BrokerKind;
+  const name = displayName(item, labels);
+  const Icon = brokerIcon(kind);
   return (
-    <div className="group/row flex items-center gap-3 rounded-xl bg-white/60 px-3 py-2 ring-1 ring-slate-200/70 transition-colors hover:bg-white hover:ring-slate-300">
+    <div
+      onClick={onOpen}
+      className="group/row flex cursor-pointer items-center gap-3 rounded-xl bg-white/60 px-3 py-2 ring-1 ring-slate-200/70 transition-colors hover:bg-white hover:ring-slate-300 focus-within:bg-white focus-within:ring-slate-300"
+    >
       <span
         className={cn(
           "flex size-7 shrink-0 items-center justify-center rounded-lg",
-          kind === "kafka" ? "bg-amber-50 text-broker-kafka" : "bg-violet-50 text-broker-rabbitmq",
+          toneClass(brokerTone(kind)),
         )}
       >
-        <IconPlug className="size-3.5" />
+        {Icon ? <Icon size={14} /> : <IconPlug className="size-3.5" />}
       </span>
       <div className="min-w-0 flex-1">
+        {/* 名字是自动填上的就不写：那种行读起来是「Kafka · Kafka / 127.0.0.1:9092」，
+            同一个词说两遍。地址那一行本身已经说清了是哪台机器。 */}
         <p className="flex items-baseline gap-2 truncate text-(length:--text-app-meta) font-medium text-slate-800">
-          <span className="truncate">{item.name}</span>
+          {name ? <span className="truncate">{name}</span> : null}
           <span className="shrink-0 text-(length:--text-app-micro) font-normal text-meta">
             {BROKER_LABEL[kind] ?? item.kind}
+          </span>
+          <span className="shrink-0 text-(length:--text-app-micro) font-normal text-meta">
+            口令不在这台机器上
           </span>
         </p>
         <p className="truncate font-mono text-(length:--text-app-micro) text-meta">{item.endpoint}</p>
       </div>
-      <Button size="sm" variant="ghost" onClick={onResume} title={`重新填写 ${item.name} 的连接信息`}>
-        重新连接…
-      </Button>
+      {/* 整行可点，但按钮仍然在：键盘用户和「看着像能点」都需要它。
+          平时它只是地址后面的一个箭头，指针压上来才连文字一起显形。 */}
       <button
         type="button"
-        onClick={onForget}
-        aria-label={`从历史里移除 ${item.name}`}
-        title={`从历史里移除 ${item.name}`}
+        onClick={(event) => {
+          event.stopPropagation();
+          onOpen();
+        }}
+        className="flex shrink-0 items-center gap-0.5 rounded-md px-1.5 py-1 text-(length:--text-app-micro) text-secondary transition-colors hover:bg-slate-100 hover:text-slate-900 focus-visible:bg-slate-100"
+        aria-label={`打开 ${name || item.endpoint} 的连接选项`}
+      >
+        <span className="hidden group-hover/row:inline group-focus-within/row:inline">连接</span>
+        <IconForward className="size-3.5" />
+      </button>
+      <button
+        type="button"
+        onClick={(event) => {
+          // 行本身点了会打开弹窗，删除不该顺带把它也打开。
+          event.stopPropagation();
+          onForget();
+        }}
+        aria-label={`从历史里移除 ${name || item.endpoint}`}
+        title={`从历史里移除 ${name || item.endpoint}`}
         className="shrink-0 rounded-md p-1.5 text-meta opacity-0 transition-opacity group-hover/row:opacity-100 hover:bg-rose-50 hover:text-rose-600 group-focus-within/row:opacity-100"
       >
         <IconTrash className="size-3.5" />
