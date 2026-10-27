@@ -5,19 +5,21 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "npm run typecheck && vite build",
+    "build": "npm run typecheck && npm run lint:ui && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
     "typecheck": "tsc --noEmit",
-    "test:rust": "cd src-tauri && cargo test --lib --no-default-features"
+    "lint:ui": "node scripts/lint-ui.mjs",
+    "test:rust": "cd src-tauri && cargo test --lib --no-default-features",
+    "test:web": "node --test src/lib/highlight.test.mts src/lib/command-palette.test.mts src/lib/consumer-link.test.mts src/lib/topic-config.test.mts src/lib/message-locate.test.mts src/lib/consumer-disconnect.test.mts src/lib/topology-graph.test.mts src/lib/consumer-graph.test.mts src/lib/cluster.test.mts src/lib/runtime.test.mts src/lib/offset-reset.test.mts src/lib/policy.test.mts src/lib/parameter.test.mts src/lib/refresh.test.mts src/lib/failure.test.mts src/lib/format.test.mts src/lib/list-view.test.mts src/lib/monitor-layout.test.mts src/lib/layout.test.mts src/lib/page-size.test.mts src/lib/virtual-window.test.mts src/lib/visual.test.mts src/lib/scroll-restore.test.mts src/lib/stranded.test.mts src/lib/reconnect.test.mts src/lib/connect-failure.test.mts"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.105.0",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-opener": "^2",
-    "lucide-react": "^0.545.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "react-icons": "^5.7.0",
     "react-router": "^8.5.0",
     "zustand": "^5.0.16"
   },

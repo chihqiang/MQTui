@@ -1,8 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
-import { ArrowRight, Plug, Plus, Server, Trash2 } from "lucide-react";
-
-import { IconClose } from "@/lib/icons";
+import {
+  IconClose,
+  IconForward,
+  IconPlug,
+  IconPlus,
+  IconServer,
+  IconTrash,
+} from "@/lib/icons";
 
 import { Button, Card } from "@/components/ui";
 import { useOpenConnection } from "@/hooks/use-connections";
@@ -270,7 +275,7 @@ function NewConnectionRow({
 }) {
   return (
     <div className="mt-8 flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-slate-300 px-4 py-3">
-      <Plus className="size-4 shrink-0 text-meta" />
+      <IconPlus className="size-4 shrink-0 text-meta" />
       <span className="text-(length:--text-app-meta) text-secondary">新建连接</span>
       {kinds.map((item) => (
         <Button key={item.kind} size="sm" variant="ghost" onClick={() => onPick(item.kind)}>
@@ -311,7 +316,7 @@ function KindCard({
           kind === "kafka" ? "bg-amber-50 text-broker-kafka" : "bg-violet-50 text-broker-rabbitmq",
         )}
       >
-        <Server className="size-6" />
+        <IconServer className="size-6" />
       </span>
       <span className="min-w-0 flex-1">
         <span className="flex items-baseline gap-2">
@@ -325,7 +330,7 @@ function KindCard({
         </span>
       </span>
       {/* 箭头只在悬停时上色：两张大白卡常驻一个主色按钮，会把「选一个」变成「点按钮」。 */}
-      <ArrowRight className="size-4 shrink-0 text-meta transition-colors group-hover:text-indigo-600" />
+      <IconForward className="size-4 shrink-0 text-meta transition-colors group-hover:text-indigo-600" />
     </button>
   );
 }
@@ -363,7 +368,7 @@ function SavedRow({
           config.kind === "kafka" ? "bg-amber-50 text-broker-kafka" : "bg-violet-50 text-broker-rabbitmq",
         )}
       >
-        <Plug className="size-4" />
+        <IconPlug className="size-4" />
       </span>
       <div className="min-w-0 flex-1">
         {/* 第一行：名字 + 类型 + 用户；第二行：端点。信息分两层，扫读先认名字。 */}
@@ -405,7 +410,7 @@ function SavedRow({
         aria-label={`从记录里删除 ${entry.name}`}
         className="shrink-0 rounded-md p-1.5 text-meta transition-colors hover:bg-rose-50 hover:text-rose-600"
       >
-        <Trash2 className="size-3.5" />
+        <IconTrash className="size-3.5" />
       </button>
     </Card>
   );

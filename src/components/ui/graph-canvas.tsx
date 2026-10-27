@@ -15,11 +15,15 @@ export interface CanvasNode {
 }
 
 /**
- * 分层拓扑画布：绝对定位的节点 + SVG 连线。
+ * 分层拓扑画布：绝对定位的节点 + 连线。
  *
  * 不用力导向布局（见 `lib/topology-graph.ts` 的说明），也不引入图形库——
  * 这里需要的只是「按算好的坐标摆框、连线、点击高亮」，一个 400 行的
  * 图形库会带进一整套自己的坐标体系，反而和固定分层打架。
+ *
+ * 唯一一处手写 SVG 就是那几根线：图标库给的是「图标」，不是「任意两点之间的
+ * 线」，坐标由 `edgeLines` 算出来，只能落到 `<line>` 上。除此之外的图形一律
+ * 走 `react-icons`（见 `lib/icons.tsx`），别顺手在这里再画第二个形状。
  */
 export function GraphCanvas({
   nodes,

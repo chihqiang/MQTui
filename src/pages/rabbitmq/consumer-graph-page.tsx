@@ -141,7 +141,11 @@ export function ConsumerGraphPage() {
   );
 }
 
-/** 画布：绝对定位的节点 + SVG 连线。与拓扑图同一套做法，只是节点多了「连接」一类。 */
+/**
+ * 画布：绝对定位的节点 + 连线。与拓扑图同一套做法，只是节点多了「连接」一类。
+ *
+ * 手写 SVG 只限这一层连线（坐标由 `consumer-graph` 算好）；图标仍走 `lib/icons.tsx`。
+ */
 function GraphBoard({
   layout,
   lines,

@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, Repeat, Server } from "lucide-react";
-
 import { Button, Field, Input, Modal } from "@/components/ui";
 import { useOpenConnection } from "@/hooks/use-connections";
 import { usePluginKinds } from "@/hooks/use-plugin-kinds";
 import { cn } from "@/lib/cn";
+import { IconBack, IconForward, IconRepeat, IconServer } from "@/lib/icons";
 import { isTypingTarget } from "@/lib/command-palette";
 import { connectFailure, focusField, type ConnectFailure } from "@/lib/connect-failure";
 import { toAppError } from "@/lib/errors";
@@ -211,7 +210,7 @@ export function ConnectWizard({
             {/* 新建时能退回第一步换类型；编辑记录时退回去没有意义。 */}
             {canGoBack ? (
               <Button variant="ghost" onClick={backToKind} disabled={busy}>
-                <ArrowLeft className="size-3.5" />
+                <IconBack className="size-3.5" />
                 上一步
               </Button>
             ) : null}
@@ -310,7 +309,7 @@ function KindStep({
                   : "bg-violet-50 text-broker-rabbitmq",
               )}
             >
-              <Server className="size-5" />
+              <IconServer className="size-5" />
             </span>
             <span className="min-w-0 flex-1">
               <span className="flex items-baseline gap-2">
@@ -325,7 +324,7 @@ function KindStep({
                 {KIND_SUMMARY[plugin.kind]}
               </span>
             </span>
-            <ArrowRight className="size-4 shrink-0 text-meta transition-colors group-hover:text-indigo-600" />
+            <IconForward className="size-4 shrink-0 text-meta transition-colors group-hover:text-indigo-600" />
           </button>
         ))}
       </div>
@@ -366,7 +365,7 @@ function FormStep({
       {/* 类型写在表单最上面，并且能改：从卡片点进来时这一步是省掉的，
           但「我刚才是不是点错了」这个念头得有地方落。 */}
       <div className="flex items-center gap-2">
-        <Server className="size-3.5 shrink-0 text-meta" />
+        <IconServer className="size-3.5 shrink-0 text-meta" />
         <span className="text-(length:--text-app-meta) text-secondary">
           正在配置 <span className="font-medium text-slate-800">{BROKER_LABEL[kind]}</span>
           {" · "}
@@ -378,7 +377,7 @@ function FormStep({
             onClick={onChangeKind}
             className="ml-auto shrink-0 rounded-md px-2 py-1 text-(length:--text-app-micro) text-indigo-600 transition-colors hover:bg-indigo-50"
           >
-            <Repeat className="mr-0.5 inline size-3" />
+            <IconRepeat className="mr-0.5 inline size-3" />
             换一种中间件
           </button>
         ) : null}

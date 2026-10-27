@@ -1,52 +1,64 @@
 /**
  * 图标集。
  *
- * 只引 `lucide-react` 里用得到的形状，统一走这个出口：
+ * 只引 `react-icons` 里用得到的形状，统一走这个出口：
  * 1. 尺寸、线宽在一处定，界面上不会出现 15px 与 16px 混排；
- * 2. 图标永远配 `aria-hidden`，语义由按钮的 `aria-label` 或文字承担。
+ * 2. 图标永远配 `aria-hidden`，语义由按钮的 `aria-label` 或文字承担；
+ * 3. 组件文件不直接 `import from "react-icons/*"` —— 换图标集时只改这里。
  *
- * 不自己写 SVG：图标是最典型的「能用成熟库就别造轮子」。
+ * 不自己写 SVG：图标是最典型的「能用成熟库就别造轮子」。需要新形状时先在
+ * `react-icons/lu`（Lucide 线性图标）里找，找到就加一条导出，别手绘路径。
  */
 import {
-  AlertTriangle,
-  ArrowLeft,
-  ChevronDown,
-  ChevronRight,
-  Copy,
-  CornerUpLeft,
-  Inbox,
-  Loader2,
-  PanelLeftClose,
-  PanelLeftOpen,
-  Plus,
-  RefreshCw,
-  Search,
-  Send,
-  Skull,
-  X,
-} from "lucide-react";
-import type { LucideProps } from "lucide-react";
+  LuArrowLeft,
+  LuArrowRight,
+  LuChevronDown,
+  LuChevronRight,
+  LuCopy,
+  LuCornerUpLeft,
+  LuInbox,
+  LuLoaderCircle,
+  LuPanelLeftClose,
+  LuPanelLeftOpen,
+  LuPlug,
+  LuPlus,
+  LuRepeat,
+  LuRefreshCw,
+  LuSearch,
+  LuSend,
+  LuServer,
+  LuSkull,
+  LuTrash2,
+  LuTriangleAlert,
+  LuX,
+} from "react-icons/lu";
+import type { IconBaseProps, IconType } from "react-icons";
 
 /** 统一尺寸：14px 配 12/13px 文字，16px 配 14px 文字。 */
-const BASE: LucideProps = { size: 14, strokeWidth: 2, "aria-hidden": true };
+const BASE: IconBaseProps = { size: 14, strokeWidth: 2, "aria-hidden": true };
 
-const make = (Icon: typeof X) => (props: LucideProps) => <Icon {...BASE} {...props} />;
+const make = (Icon: IconType) => (props: IconBaseProps) => <Icon {...BASE} {...props} />;
 
-export const IconAlert = make(AlertTriangle);
-export const IconBack = make(ArrowLeft);
-export const IconChevronDown = make(ChevronDown);
-export const IconChevronRight = make(ChevronRight);
-export const IconClose = make(X);
-export const IconCollapse = make(PanelLeftClose);
-export const IconCopy = make(Copy);
-export const IconDeadLetter = make(Skull);
-export const IconExpand = make(PanelLeftOpen);
-export const IconInbox = make(Inbox);
-export const IconPlus = make(Plus);
-export const IconRedeliver = make(CornerUpLeft);
-export const IconRefresh = make(RefreshCw);
-export const IconResend = make(Send);
-export const IconSearch = make(Search);
+export const IconAlert = make(LuTriangleAlert);
+export const IconBack = make(LuArrowLeft);
+export const IconForward = make(LuArrowRight);
+export const IconChevronDown = make(LuChevronDown);
+export const IconChevronRight = make(LuChevronRight);
+export const IconClose = make(LuX);
+export const IconCollapse = make(LuPanelLeftClose);
+export const IconCopy = make(LuCopy);
+export const IconDeadLetter = make(LuSkull);
+export const IconExpand = make(LuPanelLeftOpen);
+export const IconInbox = make(LuInbox);
+export const IconPlug = make(LuPlug);
+export const IconPlus = make(LuPlus);
+export const IconRedeliver = make(LuCornerUpLeft);
+export const IconRefresh = make(LuRefreshCw);
+export const IconResend = make(LuSend);
+export const IconRepeat = make(LuRepeat);
+export const IconSearch = make(LuSearch);
+export const IconServer = make(LuServer);
+export const IconTrash = make(LuTrash2);
 
 /** 加载指示器：和 `animate-spin` 一起用。 */
-export const IconSpinner = make(Loader2);
+export const IconSpinner = make(LuLoaderCircle);
