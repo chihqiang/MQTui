@@ -4,16 +4,14 @@ import { NavLink, useNavigate } from "react-router";
 import { useCloseConnection, useConnections } from "@/hooks/use-connections";
 import { cn } from "@/lib/cn";
 import { IconChevronDown, IconClose, IconPlus, IconServer } from "@/lib/icons";
-import { BROKER_LABEL, brokerIcon, connectionPath } from "@/lib/nav";
+import { BROKER_LABEL, NEW_CONNECTION_PATH, brokerIcon, connectionPath } from "@/lib/nav";
 import { disconnectLabel } from "@/lib/reconnect";
 import { BROKER_TONE_CLASS, brokerTone } from "@/lib/visual";
-
-import { CommandTrigger } from "./command-trigger";
 
 /**
  * 顶部栏。
  *
- * 只放「整个应用」的东西：品牌、命令面板、当前连接、新建。
+ * 只放「整个应用」的东西：品牌、当前连接、新建。
  * 连接列表、页面菜单属于导航，在侧栏里，不在这儿。
  *
  * 当前连接做成了一个真的切换器：点名字展开连接清单，一条一条换过去。
@@ -71,8 +69,6 @@ export function TopBar({
           的图标，点它什么都不会发生（`resolveLayout` 只看宽度）—— 一个
           点了没反应的按钮比没有这个按钮更让人困惑，所以直接去掉。 */}
       <span className="mx-1 h-5 w-px shrink-0 bg-slate-200" aria-hidden />
-
-      <CommandTrigger />
 
       {/* 中段留白：两个按钮组之间没有间距时，整条栏看着像没排完。 */}
       <span className="flex-1" />
@@ -169,7 +165,7 @@ export function TopBar({
           唯一一个真的会问「连哪种」的入口；首页的卡片带着类型，点进去直接
           就是参数表单。 */}
       <NavLink
-        to="/?new=1"
+        to={NEW_CONNECTION_PATH}
         title="新建连接"
         aria-label="新建连接"
         className="flex size-8 shrink-0 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900"

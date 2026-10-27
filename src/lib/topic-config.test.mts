@@ -1,4 +1,4 @@
-// @ts-expect-error node 内置模块未随仓库提供类型声明（与 command-palette.test.mts 一致）
+// @ts-expect-error node 内置模块未随仓库提供类型声明（与 refresh.test.mts 一致）
 import assert from "node:assert/strict";
 // @ts-expect-error 同上
 import test from "node:test";

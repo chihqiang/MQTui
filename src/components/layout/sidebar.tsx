@@ -11,7 +11,14 @@ import {
   IconServer,
 } from "@/lib/icons";
 import { groupConnectionsByKind } from "@/lib/layout";
-import { BROKER_LABEL, brokerIcon, buildNavItems, connectionPath, type NavItem } from "@/lib/nav";
+import {
+  BROKER_LABEL,
+  NEW_CONNECTION_PATH,
+  brokerIcon,
+  buildNavItems,
+  connectionPath,
+  type NavItem,
+} from "@/lib/nav";
 import { disconnectLabel } from "@/lib/reconnect";
 import { BROKER_TONE_CLASS, brokerTone } from "@/lib/visual";
 import { readCollapsedGroups, saveCollapsedGroups } from "@/lib/workspace-storage";
@@ -70,7 +77,7 @@ export function Sidebar() {
           连接
         </p>
         <NavLink
-          to="/?new=1"
+          to={NEW_CONNECTION_PATH}
           title="新建连接"
           aria-label="新建连接"
           className="flex size-6 items-center justify-center rounded-md text-meta transition-colors hover:bg-slate-100 hover:text-slate-900"

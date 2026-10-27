@@ -4,7 +4,7 @@ import { useOpenConnection } from "@/hooks/use-connections";
 import { usePluginKinds } from "@/hooks/use-plugin-kinds";
 import { cn } from "@/lib/cn";
 import { IconBack, IconForward, IconRepeat, IconServer } from "@/lib/icons";
-import { isTypingTarget } from "@/lib/command-palette";
+import { isTypingTarget } from "@/lib/keyboard";
 import { connectFailure, focusField, type ConnectFailure } from "@/lib/connect-failure";
 import { toAppError } from "@/lib/errors";
 import { BROKER_LABEL } from "@/lib/nav";
@@ -147,7 +147,7 @@ export function ConnectWizard({
    * `⌘←` / `Ctrl+←` 回上一步。
    * 第一步：`↑` `↓` 挪动高亮，`Enter` 选中，`1` / `2` 直接选第几张卡。
    *
-   * 两个都不能和「正在输入」抢：同一个窗口里还有命令面板、过滤框。
+   * 两个都不能和「正在输入」抢：同一个窗口里还有搜索框、过滤框。
    * 所以键盘动作要求焦点落在向导自己在管的元素上 —— 第一步是 `data-wizard-keys`
    * 标记的卡片容器（打开时就拿到了焦点），第二步是带 `#connect-form` 的表单。
    */
