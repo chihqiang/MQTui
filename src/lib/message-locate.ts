@@ -213,3 +213,32 @@ export function locateFormIssue(form: LocateForm): string | null {
   if (isLocateFormEmpty(form)) return "至少填写 key、内容片段或时间区间之一";
   return null;
 }
+
+/**
+ * 从一条已经看到的消息生成定位表单：「按这个 key 继续找」。
+ *
+ * 为什么要绕回定位面板而不是就地加一个「同 key 的下一条」：定位是**顺序扫描**，
+ * 有区间、有游标、有代价说明。就地翻页会把这三件事藏起来，用户翻着翻着就不知道
+ * 自己兜了多大一圈。把人带回定位面板、把 key 填进去，代价与范围依旧是可见的。
+ *
+ * 时间区间不继承消息时间戳：一条消息的时间只是区间里的一个点，拿它当区间会
+ * 立刻空手而归。留空即「从头顺序扫」，那是这个动作最常见的意图。
+ */
+export function locateFormFromKey(key: string): LocateForm {
+  return { ...EMPTY_LOCATE_FORM, key: key.trim() };
+}
+
+/**
+ * 带参数的定位表单与「用户已经动过的表单」的合并规则。
+ *
+ * 规则只有一条：**刚带进来的参数优先，其余字段沿用现场**。比如用户手上正开着
+ * 一个时间区间，从详情里点了「按这个 key 继续找」，他期待的是「在这个区间里
+ * 按这个 key 找」，而不是把区间清掉。
+ *
+ * 参数为空（没带）时原样返回，避免把一个干净的表单洗成空表单而触发多余的重扫。
+ */
+export function withFallbackKey(current: LocateForm, key: string | null): LocateForm {
+  const incoming = key?.trim();
+  if (!incoming || current.key.trim() === incoming) return current;
+  return { ...current, key: incoming };
+}

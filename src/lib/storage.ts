@@ -24,6 +24,8 @@ export const STORAGE_KEYS = {
   workspace: "workspace",
   /** 最近访问过的 topic / queue，按连接隔离。 */
   messageTargets: "message-targets",
+  /** 最近用过的消费组名，按连接隔离：位点重置的唯一手输项。 */
+  consumerGroups: "consumer-groups",
   /** 侧栏里被手动折起来的组（中间件 / 当前连接的页面菜单）。 */
   collapsedGroups: "collapsed-groups",
 } as const;

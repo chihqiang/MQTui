@@ -201,3 +201,30 @@ test("scan progress distinguishes exhausted from resumable", () => {
   const more = describeScanProgress({ scanned: 100, hits: 3, pages: 0, exhausted: false });
   assert.ok(more.includes("还没读完"), more);
 });
+
+import { locateFormFromKey, withFallbackKey } from "./message-locate.ts";
+
+test("按 key 继续找只填 key，不继承消息时间戳", () => {
+  assert.deepEqual(locateFormFromKey(" order-1 "), {
+    key: "order-1",
+    content: "",
+    after: "",
+    before: "",
+  });
+});
+
+test("带进来的 key 覆盖现场 key，但保留用户已经填好的区间", () => {
+  const current = { key: "old", content: "timeout", after: "2026-01-01T00:00", before: "2026-01-01T01:00" };
+  const next = withFallbackKey(current, "order-9");
+  assert.equal(next.key, "order-9");
+  assert.equal(next.content, "timeout");
+  assert.equal(next.after, "2026-01-01T00:00");
+});
+
+test("没有带参数时不动现场表单", () => {
+  const current = { key: "kept", content: "", after: "", before: "" };
+  assert.equal(withFallbackKey(current, null), current);
+  assert.equal(withFallbackKey(current, "  "), current);
+  // 同名不产生新对象，避免无意义的重扫。
+  assert.equal(withFallbackKey(current, "kept"), current);
+});

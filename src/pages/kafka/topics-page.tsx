@@ -28,6 +28,7 @@ import { errorMessage } from "@/lib/errors";
 import { failureText, shouldReplaceWithError } from "@/lib/failure";
 import { formatNumber } from "@/lib/format";
 import { connectionPath } from "@/lib/nav";
+import { TopicRetentionBatchModal } from "@/pages/kafka/topic-retention-batch";
 import type { HotspotReport } from "@/types";
 
 /**
@@ -57,6 +58,7 @@ export function TopicsPage() {
   const [creating, setCreating] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
   const [report, setReport] = useState<HotspotReport | null>(null);
+  const [retention, setRetention] = useState(false);
   const analyze = useAnalyzeHotspots(connectionId);
 
   const toggle = (name: string) =>
@@ -134,9 +136,36 @@ export function TopicsPage() {
               分析分区热点（{selected.length}）
             </Button>
             {selected.length ? (
-              <Button size="sm" variant="ghost" onClick={() => setSelected([])}>
-                清空选择
-              </Button>
+              <>
+                {/* 勾选的价值就在这三个按钮上：勾完只能「分析热点」的话，
+                    想读消息或改保留还得一个个点进去。 */}
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() =>
+                    navigate(`${connectionPath(connectionId as string, "messages")}?target=${encodeURIComponent(selected[0])}`)
+                  }
+                  disabled={selected.length > 1}
+                  title={
+                    selected.length > 1
+                      ? "消息页一次只读一个主题，请只勾一个"
+                      : "读这个主题里的消息"
+                  }
+                >
+                  看消息
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => setRetention(true)}
+                  title="批量把保留时长设成同一个值，先逐个核对再提交"
+                >
+                  设保留（{selected.length}）
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setSelected([])}>
+                  清空选择
+                </Button>
+              </>
             ) : null}
             <Button size="sm" disabled={skeleton} onClick={() => setCreating(true)}>
               新建主题
@@ -172,9 +201,34 @@ export function TopicsPage() {
           <CardHeader
             title={skeleton ? "主题" : `主题（${formatNumber(filtered.length)}）`}
             extra={
-              selected.length ? (
-                <span className="text-(length:--text-app-meta) text-slate-500">已选 {selected.length} 个</span>
-              ) : undefined
+              /* 表头勾选框放在右上角这一栏、只覆盖当前过滤后看得到的主题：
+                 标题是 `<h2>`，往里塞 input 会把标题的截断规则搞乱；而全选到一批
+                 自己没看见的主题上，是这张表最容易出事的地方。 */
+              <div className="flex items-center gap-3">
+                {!skeleton && filtered.length ? (
+                  <label className="flex cursor-pointer items-center gap-1.5 text-(length:--text-app-meta) text-slate-500">
+                    <input
+                      type="checkbox"
+                      aria-label="全选当前列表里的主题"
+                      checked={filtered.every((topic) => selected.includes(topic.name))}
+                      ref={(node) => {
+                        if (!node) return;
+                        const picked = filtered.filter((topic) => selected.includes(topic.name)).length;
+                        node.indeterminate = picked > 0 && picked < filtered.length;
+                      }}
+                      onChange={(event) =>
+                        setSelected(
+                          event.currentTarget.checked ? filtered.map((topic) => topic.name) : [],
+                        )
+                      }
+                    />
+                    全选
+                  </label>
+                ) : null}
+                {selected.length ? (
+                  <span className="text-(length:--text-app-meta) text-slate-500">已选 {selected.length} 个</span>
+                ) : null}
+              </div>
             }
           />
           <CardBody className="p-0">
@@ -251,6 +305,15 @@ export function TopicsPage() {
       )}
 
       <CreateTopicModal open={creating} onClose={() => setCreating(false)} />
+
+      {retention ? (
+        <TopicRetentionBatchModal
+          connectionId={connectionId}
+          topics={selected}
+          internal={(data ?? []).filter((topic) => topic.internal && selected.includes(topic.name)).map((topic) => topic.name)}
+          onClose={() => setRetention(false)}
+        />
+      ) : null}
     </PageBody>
   );
 }

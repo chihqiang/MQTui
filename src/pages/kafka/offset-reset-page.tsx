@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams } from "react-router";
 
 import {
@@ -17,8 +17,10 @@ import {
 } from "@/components/ui";
 import { PageBody, PageHeader } from "@/components/layout/page-header";
 import { useConsumerGroups } from "@/hooks/use-consumer-groups";
+import { useConnections } from "@/hooks/use-connections";
 import { useCommitReset, useResetPhases, useResetPreview } from "@/hooks/use-offset-reset";
 import { useTopics } from "@/hooks/use-broker-data";
+import { dedupeChoices } from "@/lib/choice";
 import { errorMessage } from "@/lib/errors";
 import { failureText } from "@/lib/failure";
 import { formatNumber } from "@/lib/format";
@@ -31,6 +33,7 @@ import {
   planTone,
   stepTone,
 } from "@/lib/offset-reset";
+import { connectionMemoryKey, listRecentGroups, rememberGroup } from "@/lib/workspace-storage";
 import { useSessionStore } from "@/stores";
 import type { ResetPlan, ResetTarget } from "@/types";
 
@@ -52,7 +55,7 @@ const TARGETS: { value: ResetTarget; label: string; hint: string }[] = [
  */
 export function OffsetResetPage() {
   const { connectionId } = useParams();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { data: topics } = useTopics(connectionId, true);
   /**
    * 组名候选。这一页是全站唯一「敲错名字代价最大」的输入：组名打错，预览会说
@@ -60,19 +63,62 @@ export function OffsetResetPage() {
    * 一次拉 100 组（与列表页同页大小），超出部分照旧可以手输。
    */
   const { data: groupPage } = useConsumerGroups(connectionId, "");
-  const groupChoices = (groupPage?.pages[0]?.items ?? []).map((item) => ({
-    value: item.name,
-    hint: item.members > 0 ? `${item.members} 成员` : "无成员",
-  }));
+  /**
+   * 候选 = 「服务端第一页」+「这位用户最近用过的」。
+   *
+   * 只给第一页是不够的：几百个组的集群里，真正要重置的那个组通常在后面。
+   * 最近用过的排前面 —— 它们正是「刚才在那个页面看过的那个组」。
+   * 组名与连接记忆的 key 都要真实存在，所以顺手拿到当前连接的标识。
+   */
+  const { data: connections } = useConnections();
+  const activeConnectionId = useSessionStore((state) => state.activeConnectionId);
+  const connection = connections?.find((item) => item.id === activeConnectionId);
+  const memoryKey = connection
+    ? connectionMemoryKey(connection.kind, connection.endpoint)
+    : "";
+  const recentGroups = memoryKey ? listRecentGroups(memoryKey) : [];
+  const groupChoices = useMemo(() => {
+    const remote = (groupPage?.pages[0]?.items ?? []).map((item) => ({
+      value: item.name,
+      hint: item.members > 0 ? `${item.members} 成员` : "无成员",
+    }));
+    return dedupeChoices([
+      ...recentGroups.map((name) => ({ value: name, hint: "最近用过" })),
+      ...remote,
+    ]);
+  }, [groupPage, memoryKey]);
   /**
    * 组名可以由别的页面带过来（消费组详情里的「重置位点」）：
    * 那个组名是人刚刚在上一页看见的东西，不该让他记住再敲一遍。
-   * 只认初始值 —— 之后用户自己改的以输入框为准。
+   *
+   * 组名从 URL 派生，用户自己敲的也写回 URL。
+   *
+   * 为什么不让它留在 `useState` 里：消费组详情页的「重置位点」是带着 `?group=`
+   * 跳过来的，同一页里再点一次那条链接，本地 state 不会变 —— 而用户期待的正是
+   * 「换成我刚点的那个组」。URL 是这一页唯一的输入来源，state 只能在它之上做草稿。
    */
-  const [group, setGroup] = useState(() => searchParams.get("group") ?? "");
+  const group = searchParams.get("group") ?? "";
+  const setGroup = (next: string) => {
+    setSearchParams(
+      (prev) => {
+        const params = new URLSearchParams(prev);
+        if (next.trim()) params.set("group", next);
+        else params.delete("group");
+        return params;
+      },
+      { replace: true },
+    );
+  };
   const [topic, setTopic] = useState("");
   const [target, setTarget] = useState<ResetTarget>("earliest");
   const [previewing, setPreviewing] = useState(false);
+
+  // 生成对照表那一刻就把组名记下来：候选里出现「刚才那个组」比猜第一页准得多。
+  // 不在每次按键时记 —— 打字过程中的半截名字不值得占用一格候选。
+  useEffect(() => {
+    if (!memoryKey || !previewing) return;
+    rememberGroup(memoryKey, group);
+  }, [memoryKey, previewing, group]);
 
   const ready = group.trim().length > 0 && topic.trim().length > 0;
   const preview = useResetPreview(connectionId, group.trim(), topic.trim(), target, previewing);
@@ -100,7 +146,14 @@ export function OffsetResetPage() {
       <Card>
         <CardHeader title="条件" />
         <CardBody className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <Field label="消费组">
+          <Field
+            label="消费组"
+            hint={
+              groupChoices.length
+                ? "可从候选里点，也可以直接敲；候选＝最近用过的 + 集群里的前 100 个"
+                : "集群里的组名没读到，直接敲组名即可"
+            }
+          >
             <ComboInput
               value={group}
               choices={groupChoices}

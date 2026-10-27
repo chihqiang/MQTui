@@ -118,3 +118,41 @@ export function readCollapsedGroups(): string[] {
 export function saveCollapsedGroups(keys: readonly string[]): void {
   writeJson(COLLAPSED_KEY, [...keys]);
 }
+
+/**
+ * 最近用过的消费组名（按连接隔离）。
+ *
+ * 位点重置页是全站唯一「手敲名字代价最大」的输入框：组名打错，预览会说
+ * 「没有需要改动的分区」，用户很容易读成「这个组没问题」。所以除了从服务端
+ * 拉一页组名做候选，还要记住**这位用户刚刚用过的那几个** —— 它们不在第一页里
+ * 也大概率是他眼下要找的那个。
+ *
+ * 存的是名字本身，不是 ID：组名是集群里的稳定标识，重启后依然有效。
+ */
+const MAX_GROUPS = 8;
+
+type GroupMap = Record<string, string[]>;
+
+function isGroupMap(value: unknown): value is GroupMap {
+  if (!guards.record(value)) return false;
+  return Object.values(value).every(
+    (item) => Array.isArray(item) && item.every((name) => typeof name === "string"),
+  );
+}
+
+export function listRecentGroups(memoryKey: string): string[] {
+  if (!memoryKey) return [];
+  const map = readJson(STORAGE_KEYS.consumerGroups, isGroupMap) ?? {};
+  return map[memoryKey] ?? [];
+}
+
+export function rememberGroup(memoryKey: string, group: string): void {
+  const name = group.trim();
+  if (!memoryKey || !name) return;
+  const map = readJson(STORAGE_KEYS.consumerGroups, isGroupMap) ?? {};
+  const others = (map[memoryKey] ?? []).filter((item) => item !== name);
+  writeJson(STORAGE_KEYS.consumerGroups, {
+    ...map,
+    [memoryKey]: [name, ...others].slice(0, MAX_GROUPS),
+  });
+}

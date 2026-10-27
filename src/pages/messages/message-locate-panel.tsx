@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { Button, Input, VirtualList } from "@/components/ui";
 import {
@@ -19,6 +19,7 @@ import {
   locateFormIssue,
   parseLocalDateTime,
   shiftContentRange,
+  withFallbackKey,
   type ContentStep,
   type LocateForm,
 } from "@/lib/message-locate";
@@ -28,6 +29,12 @@ interface Props {
   connectionId: string;
   target: string;
   onSelect: (message: MessageSummary) => void;
+  /**
+   * 从消息详情带进来的 key。变化时把 key 填进表单并**自动开扫**：
+   * 用户点的是「继续找」，不是「帮我把字填好，再点一次定位」。
+   * 现场已经填好的其它条件（比如时间区间）保留 —— 见 `withFallbackKey`。
+   */
+  initialKey?: string | null;
 }
 
 /** 行高固定，与消息列表保持一致（正文 14px 之后紧凑档是 36，这里留 2px 余量）。 */
@@ -43,7 +50,7 @@ const ROW_HEIGHT = 38;
  * 「继续扫描」不是重跑一次同样的条件（那会把已看过的部分重读一遍），
  * 而是把后端给的游标原样回传，从每个分区上次停下的位置接着读。
  */
-export function MessageLocatePanel({ connectionId, target, onSelect }: Props) {
+export function MessageLocatePanel({ connectionId, target, onSelect, initialKey }: Props) {
   const [form, setForm] = useState<LocateForm>(EMPTY_LOCATE_FORM);
   // 只有点过「定位」才真正提交条件：边输入边扫会把集群当成自己的打字机。
   const [submitted, setSubmitted] = useState<LocateForm>(EMPTY_LOCATE_FORM);
@@ -53,6 +60,29 @@ export function MessageLocatePanel({ connectionId, target, onSelect }: Props) {
   // 实际下发的区间。内容搜索会在发请求前补齐区间，这里记下补齐后的结果，
   // 让「往前挪一小时」这类操作有确定的目标，而不是基于用户看到的半个区间去猜。
   const [applied, setApplied] = useState<LocateForm>(EMPTY_LOCATE_FORM);
+
+  /**
+   * 带进来的 key：变了就填进表单并立刻开扫（点的是「继续找」，不是「帮我填好再点一次」）。
+   *
+   * 用「上一次吃进去的 key」去重，而不是把它并进 `useState` 的初值：初值只在挂载时
+   * 生效，之后再点另一个 key 就失灵；反过来每渲染一次都吃，用户自己改的输入会被盖掉。
+   * 现场填好的其它条件要保留（`withFallbackKey`）—— 手上开着时间区间的人，
+   * 要的是「在这个区间里按这个 key 找」。
+   */
+  const consumedKey = useRef<string | null>(null);
+  if (initialKey && initialKey !== consumedKey.current) {
+    consumedKey.current = initialKey;
+    const next = withFallbackKey(form, initialKey);
+    setForm(next);
+    setSubmitted(next);
+    setApplied(next);
+    setPage(undefined);
+    setNotice(null);
+    const request = buildLocateRequest(connectionId, target, next, LOCATE_LIMIT);
+    if (request) {
+      locate.mutate(request, { onSuccess: (result) => setPage(appendPage(undefined, result)) });
+    }
+  }
 
   const issue = locateFormIssue(form);
   const update = (patch: Partial<LocateForm>) => setForm((prev) => ({ ...prev, ...patch }));

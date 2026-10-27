@@ -1,17 +1,16 @@
 import { useMemo, useState } from "react";
 
-import { Badge, Button, Input, Modal, Select } from "@/components/ui";
+import { Badge, Button, Input, Select } from "@/components/ui";
 import { usePreviewTopicConfigs, useUpdateTopicConfigs } from "@/hooks/use-topics";
 import {
   collectChanges,
-  describePlan,
   hasChanges,
-  isRisky,
   missingConfigs,
   rowState,
   type ConfigRow,
 } from "@/lib/topic-config";
-import type { ConfigCompatReport, ConfigPlan, ConfigPreview, TopicDetail } from "@/types";
+import type { ConfigPreview, TopicDetail } from "@/types";
+import { ConfigConfirmModal } from "@/pages/kafka/topic-config-confirm";
 
 /**
  * 主题配置项编辑器。
@@ -157,10 +156,10 @@ export function TopicConfigEditor({
         </p>
       )}
 
-      <ConfirmModal
+      <ConfigConfirmModal
         plan={plan}
         compat={compat}
-        topic={detail.name}
+        title={`确认修改配置 · ${detail.name}`}
         pending={update.isPending}
         onClose={() => setPreviewResult(null)}
         onConfirm={confirm}
@@ -255,148 +254,4 @@ function ConfigRowBadge({
   }
   if (dirty) return <Badge tone="info">待保存</Badge>;
   return <span className="text-(length:--text-app-body) text-slate-500">已生效</span>;
-}
-
-/**
- * 提交前的确认框。
- *
- * 三个必须出现的内容：改的是哪几项（改前 → 改后）、后果是什么、
- * 值清空等于恢复默认。少任何一条，用户都没法判断自己是不是填错了一格。
- */
-function ConfirmModal({
-  plan,
-  compat,
-  topic,
-  pending,
-  onClose,
-  onConfirm,
-}: {
-  plan: ConfigPlan | null;
-  compat: ConfigCompatReport | null;
-  topic: string;
-  pending: boolean;
-  onClose: () => void;
-  onConfirm: () => void;
-}) {
-  const open = plan !== null;
-  const lines = plan ? describePlan(plan) : [];
-  const impacts = plan?.impacts ?? [];
-  const resets = plan?.items.filter((item) => item.value.trim() === "") ?? [];
-
-  return (
-    <Modal
-      open={open}
-      title={`确认修改配置 · ${topic}`}
-      onClose={onClose}
-      footer={
-        <>
-          <Button size="sm" variant="ghost" onClick={onClose}>
-            取消
-          </Button>
-          <Button
-            size="sm"
-            disabled={pending || !plan?.items.length || compat?.ok === false}
-            onClick={onConfirm}
-          >
-            {pending ? "提交中…" : compat?.ok === false ? "版本不支持" : "确认修改"}
-          </Button>
-        </>
-      }
-    >
-      <div className="flex flex-col gap-3 text-(length:--text-app-body) text-slate-600">
-        {plan && plan.items.length === 0 ? (
-          <p className="text-slate-500">配置没有变化，无需提交。</p>
-        ) : null}
-
-        {lines.length ? (
-          <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
-            <p className="mb-1 text-(length:--text-app-meta) uppercase tracking-wide text-secondary font-medium">改动</p>
-            <ul className="flex flex-col gap-1 font-mono text-(length:--text-app-meta) text-slate-800">
-              {lines.map((line) => (
-                <li key={line}>{line}</li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-
-        {resets.length ? (
-          <p className="text-amber-700">
-            清空值的项将删除覆盖项，回落到 broker 默认值：
-            {resets.map((item) => item.key).join(", ")}
-          </p>
-        ) : null}
-
-        {isRisky(plan as ConfigPlan) ? (
-          <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-800">
-            <p className="mb-1 text-(length:--text-app-meta) uppercase tracking-wide text-amber-700">
-              提交前请确认后果
-            </p>
-            <ul className="flex list-disc flex-col gap-1 pl-4">
-              {impacts.map((text) => (
-                <li key={text}>{text}</li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-
-        {compat ? <CompatBlock report={compat} /> : null}
-
-        <p className="text-slate-500">
-          提交走增量接口，未列出的配置项保持原样。改动会立即对新写入的数据生效。
-        </p>
-      </div>
-    </Modal>
-  );
-}
-
-/**
- * 版本兼容性区块。
- *
- * 三档分开显示，而不是只标一个红点：
- * - `unsupported`（红）：确定集群版本不够，提交必被拒，按钮直接锁住；
- * - `unknown`（灰）：读不到集群版本。**不锁按钮** —— 探测不到不等于不支持，
- *   因为探测失败把功能整个关掉，比让用户点一下再被拒更糟；
- * - `supported`：只在有额外注意事项时才列出，否则一行「全部满足」就够。
- */
-function CompatBlock({ report }: { report: ConfigCompatReport }) {
-  const blocked = report.items.filter((item) => item.verdict === "unsupported");
-  const unknown = report.items.filter((item) => item.verdict === "unknown");
-  const supported = report.items.filter((item) => item.verdict === "supported");
-
-  if (!report.items.length) return null;
-
-  const version = report.clusterVersion ?? "未知";
-
-  return (
-    <div className="flex flex-col gap-2">
-      {blocked.length ? (
-        <div className="rounded-md border border-rose-200 bg-rose-50 p-3 text-rose-800">
-          <p className="mb-1 text-(length:--text-app-meta) uppercase tracking-wide text-rose-700">
-            集群版本不支持（当前 {version}）
-          </p>
-          <ul className="flex list-disc flex-col gap-1 pl-4">
-            {blocked.map((item) => (
-              <li key={item.name}>
-                <span className="font-mono text-(length:--text-app-meta)">{item.name}</span> — {item.message}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-
-      {unknown.length ? (
-        <p className="text-slate-500">
-          读不到集群版本，以下 {unknown.length} 项未做兼容性校验（提交时若被服务端拒绝，
-          原因通常是这一项在集群上不存在）：
-          {unknown.map((item) => item.name).join(", ")}
-        </p>
-      ) : null}
-
-      {!blocked.length && !unknown.length ? (
-        <p className="text-slate-500">
-          版本检查通过：{supported.length} 项在当前集群（{version}）上可用。
-        </p>
-      ) : null}
-    </div>
-  );
 }

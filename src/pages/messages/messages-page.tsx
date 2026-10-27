@@ -61,6 +61,13 @@ export function MessagesPage() {
   // RabbitMQ 的 payload 随列表下发，点开详情时直接带过去，不再回源。
   const [selected, setSelected] = useState<MessageSummary | null>(null);
   const [mode, setMode] = useState<Mode>("browse");
+  /**
+   * 从消息详情带进定位面板的 key。
+   *
+   * 用 state 而不是 URL：它是一次性的动作参数（「接着找这个」），不是这一屏的
+   * 持久条件。放进 URL 会让刷新后又莫名其妙地扫一遍同一个 key。
+   */
+  const [locateKey, setLocateKey] = useState<string | null>(null);
 
   useEffect(() => {
     if (target && memoryKey) rememberTarget(memoryKey, target);
@@ -174,6 +181,7 @@ export function MessagesPage() {
               connectionId={activeConnectionId}
               target={target}
               onSelect={setSelected}
+              initialKey={locateKey}
             />
           ) : (
             <MessageTable
@@ -197,6 +205,14 @@ export function MessagesPage() {
           connectionId={activeConnectionId}
           message={selected}
           onClose={() => setSelected(null)}
+          // 详情里「按这个 key 继续找」：切到定位模式并把 key 填进去。
+          // 时间区间不继承消息时间戳 —— 一条消息的时间不是一个区间，拿它当区间只会空手而归。
+          onLocateKey={(key) => {
+            setLocateKey(key);
+            setMode("locate");
+            // 详情是从哪条消息打开的已经不重要了：接下来要看的是这一串。
+            setSelected(null);
+          }}
         />
       ) : null}
     </PageBody>
