@@ -1,12 +1,11 @@
 import { NavLink } from "react-router";
 
-import { useConnections } from "@/hooks/use-connections";
-import { usePreferences } from "@/hooks/use-preferences";
+import { useCloseConnection, useConnections } from "@/hooks/use-connections";
 import { cn } from "@/lib/cn";
-import { isMacPlatform } from "@/lib/command-palette";
-import { IconCollapse, IconExpand, IconPlus, IconSearch, IconSettings } from "@/lib/icons";
+import { IconClose, IconCollapse, IconExpand, IconPlus, IconSearch } from "@/lib/icons";
 import { BROKER_LABEL } from "@/lib/nav";
-import type { LayoutMode } from "@/lib/layout";
+import { disconnectLabel } from "@/lib/reconnect";
+import { NARROW_WIDTH, type LayoutMode } from "@/lib/layout";
 
 import { CommandTrigger } from "./command-trigger";
 
@@ -20,26 +19,26 @@ import { CommandTrigger } from "./command-trigger";
  * 折叠/展开按钮的分档：分组/平铺 ↔ 极简 是一对反操作，同一个位置互换图标。
  * 窗口太窄时这个按钮禁用 —— 点了也不会生效（`resolveLayout` 会强制极简），
  * 让按钮保持可点却不响应，比直接禁用更让人困惑。
+ *
+ * 断开当前连接放在「当前连接」旁边，而不是埋在某个菜单里：连接建立了就总得
+ * 有个地方收场。以前 `close_connection` 后端有、前端完全没接 —— 连上之后
+ * 只能关窗口。
  */
 export function TopBar({
   layout,
   current,
   narrow,
-  onOpenSettings,
 }: {
   layout: LayoutMode;
   /** 当前连接，用于在标题位置说明「在看哪台机器」。 */
-  current: { name: string; kind: keyof typeof BROKER_LABEL; endpoint: string } | undefined;
+  current: { id: string; name: string; kind: keyof typeof BROKER_LABEL; endpoint: string } | undefined;
   /** 窄屏时布局被强制为极简，切换按钮没有意义。 */
   narrow: boolean;
-  /** 打开偏好设置。齿轮放在最右，和「新建连接」分开，避免误点。 */
-  onOpenSettings: () => void;
 }) {
-  const [, updatePreferences] = usePreferences();
   const { data: connections } = useConnections();
+  const closeConnection = useCloseConnection();
 
   const collapsed = layout === "collapsed";
-  const toggle = () => updatePreferences({ layout: collapsed ? "grouped" : "collapsed" });
   // 极简档把连接列表收成了图标条，需要另一个入口把它们放出来。
   const hiddenConnections = collapsed && (connections?.length ?? 0) > 0;
 
@@ -55,21 +54,20 @@ export function TopBar({
         <span className="text-(length:--text-app-title) font-semibold tracking-tight text-slate-900">MQTui</span>
       </span>
 
-      <button
-        type="button"
-        onClick={toggle}
-        disabled={narrow}
-        aria-label={collapsed ? "展开侧边栏" : "收起侧边栏"}
-        title={
-          narrow ? "窗口过窄，侧边栏已强制收起" : collapsed ? "展开侧边栏" : "收起侧边栏"
-        }
+      {/* 布局跟着窗口宽度走，这里不再是一个「切换档位」的按钮：
+          窗口够宽时它在，告诉你「再窄就收起来了」；窗口窄到已经收起时它变灰，
+          `title` 写清为什么点不动。一个只能描述状态、不能改变状态的图标，
+          比一个点了没反应的按钮诚实。 */}
+      <span
+        aria-hidden={narrow}
+        title={narrow ? `窗口窄于 ${NARROW_WIDTH}px，侧边栏已自动收起` : "侧边栏随窗口宽度自动收起 / 展开"}
         className={cn(
-          "flex size-8 shrink-0 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900",
-          narrow && "cursor-not-allowed opacity-40 hover:bg-transparent hover:text-slate-500",
+          "flex size-8 shrink-0 items-center justify-center rounded-lg text-meta",
+          narrow && "opacity-40",
         )}
       >
         {collapsed ? <IconExpand /> : <IconCollapse />}
-      </button>
+      </span>
 
       <CommandTrigger />
 
@@ -84,6 +82,19 @@ export function TopBar({
           <span className="shrink-0 text-(length:--text-app-meta) text-meta">
             {BROKER_LABEL[current.kind]} · {current.endpoint}
           </span>
+          {/* 断开放在名字旁边而不是藏在菜单里：它是这条连接的「收场」动作，
+              位置应该和「我在连这个」这句话连在一起。断开后停回连接页 ——
+              停在原页会立刻收到一堆「连接不存在」。 */}
+          <button
+            type="button"
+            onClick={() => closeConnection.mutate(current.id)}
+            disabled={closeConnection.isPending}
+            aria-label={disconnectLabel(current.name, closeConnection.isPending)}
+            title={disconnectLabel(current.name, closeConnection.isPending)}
+            className="ml-1 flex size-6 shrink-0 items-center justify-center rounded-md text-secondary transition-colors hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
+          >
+            <IconClose size={12} />
+          </button>
         </div>
       ) : (
         <span className="text-(length:--text-app-body) text-meta">未连接</span>
@@ -113,17 +124,6 @@ export function TopBar({
         >
           <IconPlus />
         </NavLink>
-        {/* 偏好入口。以前布局只能从顶栏的折叠按钮切、密度完全没有入口 ——
-            一个「当前表格密度：紧凑」只有显示、没有修改的地方。 */}
-        <button
-          type="button"
-          onClick={onOpenSettings}
-          aria-label="偏好设置"
-          title={`偏好设置（${isMacPlatform() ? "⌘," : "Ctrl+,"}）`}
-          className="flex size-8 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900"
-        >
-          <IconSettings />
-        </button>
       </span>
     </header>
   );

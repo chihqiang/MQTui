@@ -1,8 +1,8 @@
 /**
- * 单页条数偏好的单测。
+ * 单页条数解析的单测。
  *
- * 这几条错了都不会崩：请求照发、页面照显示，只是「设置里调的」和
- * 「实际翻到的」不是同一个数。所以用测试钉住。
+ * 这几条错了都不会崩：请求照发、页面照显示，只是前端以为拿到的条数和
+ * 后端真正返回的不是同一个数 —— 后者会让「还有下一页」的判断错位。
  */
 
 // @ts-expect-error node 内置模块未随仓库提供类型声明
@@ -13,7 +13,6 @@ import test from "node:test";
 import {
   DEFAULT_PAGE_SIZE,
   MAX_PAGE_SIZE,
-  PAGE_SIZE_OPTIONS,
   isPageSize,
   resolvePageSize,
 } from "./page-size.ts";
@@ -40,10 +39,8 @@ test("超过后端上限一律夹到上限", () => {
   assert.equal(resolvePageSize(MAX_PAGE_SIZE), MAX_PAGE_SIZE);
 });
 
-test("设置里能选的每一项都在合法区间内", () => {
-  for (const option of PAGE_SIZE_OPTIONS) {
-    assert.ok(isPageSize(option.value), `${option.value} 不该被判成非法`);
-    // 选完再解析必须原样返回：选项不能选中之后就变了个数。
-    assert.equal(resolvePageSize(option.value), option.value);
-  }
+test("默认条数本身必须是合法值", () => {
+  assert.ok(isPageSize(DEFAULT_PAGE_SIZE));
+  // 默认值走一遍解析必须原样返回：默认值自己不能被夹紧改掉。
+  assert.equal(resolvePageSize(DEFAULT_PAGE_SIZE), DEFAULT_PAGE_SIZE);
 });

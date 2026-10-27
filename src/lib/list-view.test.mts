@@ -12,6 +12,7 @@ import test from "node:test";
 
 import {
   DEFAULT_DENSITY,
+  DENSITY,
   DENSITY_ROW_HEIGHT,
   FILTER_DEBOUNCE_MS,
   FILTER_PARAM,
@@ -22,7 +23,6 @@ import {
   densityRowPadding,
   filterChanged,
   filterFromParams,
-  isDensity,
   shouldCommitFilter,
   shouldRunThrottled,
   withFilter,
@@ -66,12 +66,9 @@ test("同值不算改变，避免历史里堆重复记录", () => {
   assert.equal(filterChanged("order", "orders"), true);
 });
 
-test("密度取值与默认档", () => {
-  assert.equal(DEFAULT_DENSITY, "compact");
-  assert.equal(isDensity("compact"), true);
-  assert.equal(isDensity("comfortable"), true);
-  assert.equal(isDensity("loose"), false);
-  assert.equal(isDensity(undefined), false);
+test("密度只有一档，全站一致", () => {
+  assert.equal(DENSITY, DEFAULT_DENSITY);
+  assert.equal(DENSITY, "compact");
 });
 
 test("两档密度给出不同的行内边距", () => {

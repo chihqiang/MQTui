@@ -16,13 +16,13 @@ import {
   DEFAULT_STATUS_DENSITY,
   DEFAULT_WINDOW_SIZE,
   META_FONT_SIZE,
+  META_SCALE,
   MIN_WINDOW_SIZE,
   TEXT_SIZE_CLASS,
   brokerIdentity,
   brokerTone,
   fitsLayout,
   initialWindowSize,
-  isMetaScale,
   isSemanticTone,
   metaFontSize,
   statusBarHeight,
@@ -93,10 +93,9 @@ test("次级字号两档：默认 12px，紧凑档更小", () => {
   assert.equal(metaFontSize("dense"), "11px");
 });
 
-test("字号档位校验挡住脏数据", () => {
-  assert.equal(isMetaScale("normal"), true);
-  assert.equal(isMetaScale("huge"), false);
-  assert.equal(isMetaScale(undefined), false);
+test("次级字号只有一档，界面不因偏好而变形", () => {
+  assert.equal(metaFontSize(), metaFontSize(META_SCALE));
+  assert.equal(metaFontSize(), "12px");
 });
 
 test("状态条紧凑档比宽松档薄，且不为 0", () => {

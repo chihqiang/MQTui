@@ -5,7 +5,7 @@
  * 「第几条正在连」的簿记 —— 于是同一条记录在首页转圈、在命令面板里却是灰的，
  * 点了还会重复发起请求。
  *
- * 这里只做两件纯的事：判断哪一条正在连、以及什么条件下禁止再点。
+ * 这里只做纯的事：判断哪一条正在连、什么条件下禁止再点、按钮写什么字。
  * 状态本身仍然放在调用方，因为这个模块不碰 React。
  */
 
@@ -34,4 +34,14 @@ export function canReconnect(entry: { config: { auth: { username?: string; passw
  */
 export function reconnectLabel(name: string, busy: boolean): string {
   return busy ? `正在连接 ${name}` : "重连";
+}
+
+/**
+ * 断开按钮的文案。
+ *
+ * 和重连同一个道理：列表里可能同时挂着几条连接，常亮的叉号回答不了
+ * 「断的是哪一条」。悬停时把它说出来，点之前就确定。
+ */
+export function disconnectLabel(name: string, busy: boolean): string {
+  return busy ? `正在断开 ${name}` : `断开 ${name}`;
 }

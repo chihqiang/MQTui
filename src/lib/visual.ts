@@ -67,12 +67,17 @@ export const META_OPTIONS: { value: MetaScale; label: string; hint: string }[] =
 
 export const DEFAULT_META_SCALE: MetaScale = "normal";
 
-export function isMetaScale(value: unknown): value is MetaScale {
-  return value === "dense" || value === "normal";
-}
+/**
+ * 全站使用的次级字号。
+ *
+ * 这两档曾经是一个「偏好设置」里的开关：能调、但几乎没人调，而它调的是
+ * 全站每一处时间戳与位点 —— 一个几乎不被使用、却能让所有人的界面长得不一样
+ * 的开关。字号的档位应该由设计决定，不由用户现场试出来。
+ */
+export const META_SCALE: MetaScale = DEFAULT_META_SCALE;
 
 /** 写到 `--text-app-meta` 上的实际值（带单位）。 */
-export function metaFontSize(scale: MetaScale): string {
+export function metaFontSize(scale: MetaScale = META_SCALE): string {
   return `${META_FONT_SIZE[scale]}px`;
 }
 
@@ -92,11 +97,10 @@ export const STATUS_DENSITY_OPTIONS: { value: StatusDensity; label: string; hint
 
 export const DEFAULT_STATUS_DENSITY: StatusDensity = "compact";
 
-export function isStatusDensity(value: unknown): value is StatusDensity {
-  return value === "compact" || value === "comfortable";
-}
+/** 同样曾经是偏好项；健康条常驻每页标题上方，厚度由版面决定。 */
+export const STATUS_DENSITY: StatusDensity = DEFAULT_STATUS_DENSITY;
 
-export function statusBarHeight(density: StatusDensity): number {
+export function statusBarHeight(density: StatusDensity = STATUS_DENSITY): number {
   return density === "compact" ? 16 : 24;
 }
 
@@ -171,8 +175,7 @@ export const MIN_WINDOW_SIZE = { width: 720, height: 480 } as const;
  * 首次启动该给多大窗口。
  *
  * 记不清用户上次拖到多大（那是窗口管理器的事），但**第一次**不该给一个
- * 比自家窄屏阈值还小的尺寸。已经在存储里留过偏好的用户沿用默认值，
- * 不必为老用户改窗口大小。
+ * 比自家窄屏阈值还小的尺寸 —— 一启动就是降级档，等于自证「这窗口装不下自己」。
  */
 export function initialWindowSize(): { width: number; height: number } {
   return { ...DEFAULT_WINDOW_SIZE };

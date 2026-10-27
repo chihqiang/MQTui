@@ -13,11 +13,8 @@ import {
   rankCommands,
 } from "@/lib/command-palette";
 import { orderByRecent, pushRecent } from "@/lib/command-history";
-import { LAYOUT_OPTIONS } from "@/lib/layout";
-import { DENSITY_OPTIONS } from "@/lib/list-view";
-import { usePreferences } from "@/hooks/use-preferences";
 import { STORAGE_KEYS, guards, readJson, writeJson } from "@/lib/storage";
-import { useConnections } from "@/hooks/use-connections";
+import { useCloseConnection, useConnections } from "@/hooks/use-connections";
 import { useCapabilities } from "@/hooks/use-plugin-kinds";
 import { useCommandStore, useSessionStore } from "@/stores";
 
@@ -49,7 +46,10 @@ export function useCommandPalette() {
   const { data: connections } = useConnections();
   const current = connections?.find((item) => item.id === connectionId);
   const capabilities = useCapabilities(current?.kind);
-  const [preferences, updatePreferences] = usePreferences();
+  const closeConnection = useCloseConnection();
+  // 断开是一个 mutation 对象，每次渲染都是新的引用；直接用会让 `commands` 的
+  // useMemo 失效、列表每次渲染重算。只取它的入口函数即可。
+  const disconnect = closeConnection.mutate;
 
   const commands = useMemo<Command[]>(() => {
     // 只展开当前连接的菜单。跨连接的菜单用「切换到 X」命令表达，
@@ -74,33 +74,19 @@ export function useCommandPalette() {
       run: () => navigate(connectionPath(item.id)),
     }));
 
-    // 动作命令：开关类的设置项也收进面板，不用为此再加一个设置页或一排图标。
-    // 只列出「另一个档位」，用户看到的就是按下去会发生什么。
-    const densityCommands: Command[] = DENSITY_OPTIONS.filter(
-      (option) => option.value !== preferences.density,
-    ).map((option) => ({
-      id: `global:density:${option.value}`,
-      title: `表格密度改为「${option.label}」`,
-      group: "显示",
-      keywords: ["density", "row height", "miji", "hanggao", option.hint],
-      run: () => updatePreferences({ density: option.value }),
-    }));
-
-    // 布局同理：只列另外两档。窗口太窄时改这里不会生效，所以干脆不列，
-    // 免得用户点完发现「什么都没变」。
-    const layoutCommands: Command[] = LAYOUT_OPTIONS.filter(
-      (option) => option.value !== preferences.layout,
-    ).map((option) => ({
-      id: `global:layout:${option.value}`,
-      title: `侧边栏布局改为「${option.label}」`,
-      group: "显示",
-      keywords: ["layout", "sidebar", "nav", "buju", "celan", option.hint],
-      run: () => updatePreferences({ layout: option.value }),
-    }));
-
+    // 动作命令：不设设置页，这类「一步就能做完」的动作直接进面板。
     const globalCommands: Command[] = [
-      ...densityCommands,
-      ...layoutCommands,
+      ...(current
+        ? [
+            {
+              id: `global:disconnect:${current.id}`,
+              title: `断开连接 ${current.name}`,
+              group: "全局",
+              keywords: ["disconnect", "close", "duankai", "dk", current.endpoint],
+              run: () => disconnect(current.id),
+            },
+          ]
+        : []),
       {
         id: "global:new-connection",
         title: "新建连接",
@@ -111,15 +97,7 @@ export function useCommandPalette() {
     ];
 
     return [...menuCommands, ...connectionCommands, ...globalCommands];
-  }, [
-    capabilities,
-    connections,
-    current,
-    navigate,
-    preferences.density,
-    preferences.layout,
-    updatePreferences,
-  ]);
+  }, [capabilities, connections, current, disconnect, navigate]);
 
   /**
    * 空查询时按最近使用排序：打开面板的第一屏就该是「我天天点的那几个」。

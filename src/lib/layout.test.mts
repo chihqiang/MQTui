@@ -14,30 +14,24 @@ import {
   DEFAULT_LAYOUT,
   NARROW_WIDTH,
   groupNavItems,
-  isLayoutMode,
   navGroupOf,
   resolveLayout,
 } from "./layout.ts";
 
-test("宽度未知时不降级，按用户偏好先铺一版", () => {
-  assert.equal(resolveLayout("grouped", null), "grouped");
-  assert.equal(resolveLayout("classic", null), "classic");
+test("宽度未知时不降级，按默认布局先铺一版", () => {
+  assert.equal(resolveLayout(null), DEFAULT_LAYOUT);
 });
 
-test("窄屏一律降到极简，宽屏回到用户偏好", () => {
-  assert.equal(resolveLayout("grouped", NARROW_WIDTH - 1), "collapsed");
-  assert.equal(resolveLayout("classic", 320), "collapsed");
+test("窄屏一律降到极简，宽屏回到默认布局", () => {
+  assert.equal(resolveLayout(NARROW_WIDTH - 1), "collapsed");
+  assert.equal(resolveLayout(320), "collapsed");
   // 正好等于阈值算宽屏：边界不该因为用 < 还是 <= 而让 900px 的用户左右横跳。
-  assert.equal(resolveLayout("classic", NARROW_WIDTH), "classic");
-  assert.equal(resolveLayout("grouped", 1600), "grouped");
+  assert.equal(resolveLayout(NARROW_WIDTH), DEFAULT_LAYOUT);
+  assert.equal(resolveLayout(1600), DEFAULT_LAYOUT);
 });
 
-test("偏好的形状校验挡住脏数据", () => {
-  assert.equal(isLayoutMode("grouped"), true);
-  assert.equal(isLayoutMode("collapsed"), true);
-  assert.equal(isLayoutMode("grid"), false);
-  assert.equal(isLayoutMode(undefined), false);
-  assert.equal(isLayoutMode(DEFAULT_LAYOUT), true);
+test("默认布局是分组档", () => {
+  assert.equal(DEFAULT_LAYOUT, "grouped");
 });
 
 test("日常页和配置页落在不同分组", () => {

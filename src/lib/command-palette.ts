@@ -114,22 +114,6 @@ export function isPaletteShortcut(
 }
 
 /**
- * 触发设置弹窗的按键组合：⌘, / Ctrl+,。
- *
- * macOS 上是系统约定（几乎所有 App 都是这个键），Windows/Linux 上 Ctrl+, 也
- * 已经是主流习惯。两个平台的按键形式一致，差别只在修饰键 —— 与 `isPaletteShortcut`
- * 同一个写法。
- */
-export function isSettingsShortcut(
-  event: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey" | "shiftKey" | "altKey">,
-  isMac: boolean,
-): boolean {
-  if (event.key !== ",") return false;
-  if (event.altKey || event.shiftKey) return false;
-  return isMac ? event.metaKey : event.ctrlKey;
-}
-
-/**
  * 是否是「正在输入文字」。面板靠全局 keydown 触发，但用户在输入框里打 k、
  * 或在中转站里按 Ctrl+K（浏览器习惯）时不该弹出来。
  */

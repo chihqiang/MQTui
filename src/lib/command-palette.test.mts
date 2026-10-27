@@ -17,7 +17,6 @@ import {
   clampSelection,
   type Command,
   isPaletteShortcut,
-  isSettingsShortcut,
   isTypingTarget,
   moveSelection,
   rankCommands,
@@ -146,14 +145,3 @@ test("最近使用去重并裁到上限", () => {
   assert.equal(pushRecent([], "a").length, 1);
 });
 
-test("设置快捷键：mac 用 ⌘,，其他平台 Ctrl+,", () => {
-  const key = { key: ",", ctrlKey: false, metaKey: false, shiftKey: false, altKey: false };
-  assert.equal(isSettingsShortcut({ ...key, metaKey: true }, true), true);
-  assert.equal(isSettingsShortcut({ ...key, ctrlKey: true }, false), true);
-  // 不带修饰键的逗号是打字，不是命令。
-  assert.equal(isSettingsShortcut(key, true), false);
-  // 换个键就不是设置。
-  assert.equal(isSettingsShortcut({ ...key, key: ".", metaKey: true }, true), false);
-  // 带 Alt/Shift 的组合留给别的功能。
-  assert.equal(isSettingsShortcut({ ...key, metaKey: true, shiftKey: true }, true), false);
-});

@@ -22,7 +22,6 @@ import {
   RefreshCw,
   Search,
   Send,
-  Settings,
   Skull,
   X,
 } from "lucide-react";
@@ -48,7 +47,6 @@ export const IconRedeliver = make(CornerUpLeft);
 export const IconRefresh = make(RefreshCw);
 export const IconResend = make(Send);
 export const IconSearch = make(Search);
-export const IconSettings = make(Settings);
 
 /** 加载指示器：和 `animate-spin` 一起用。 */
 export const IconSpinner = make(Loader2);

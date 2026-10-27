@@ -3,9 +3,7 @@ import { useEffect, useRef } from "react";
 import { useCommandPalette } from "@/hooks/use-command-palette";
 import { cn } from "@/lib/cn";
 
-import { DENSITY_OPTIONS } from "@/lib/list-view";
 import { splitHighlight } from "@/lib/highlight";
-import { usePreferences } from "@/hooks/use-preferences";
 import { IconSearch } from "@/lib/icons";
 
 /**
@@ -31,10 +29,6 @@ export function CommandPalette() {
   } = useCommandPalette();
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const [preferences, updatePreferences] = usePreferences();
-  const density = preferences.density;
-  const onToggleDensity = () =>
-    updatePreferences({ density: density === "compact" ? "comfortable" : "compact" });
 
   // 打开就聚焦：面板是键盘驱动的，多一次点击都是浪费。
   useEffect(() => {
@@ -137,21 +131,8 @@ export function CommandPalette() {
           )}
         </div>
 
-        {/*
-          底栏原来右侧写着「密度：紧凑 · 搜『密度』可改」—— 一句话形容一个
-          动作，用户读完还得回搜索框里把「密度」两个字打出来。现在它就是个
-          按钮：按一下切到另一档，文案直接说明按下去会发生什么。
-        */}
         <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-4 py-1.5 text-(length:--text-app-meta) text-meta">
           <span className="truncate">↑↓ 选择 · 回车执行 · Esc 关闭</span>
-          <button
-            type="button"
-            onClick={onToggleDensity}
-            title="表格密度：紧凑一屏信息多，宽松更好读"
-            className="shrink-0 rounded px-1.5 py-0.5 transition-colors hover:bg-slate-100 hover:text-slate-800"
-          >
-            密度：{DENSITY_OPTIONS.find((option) => option.value === density)?.label ?? "紧凑"} · 切换
-          </button>
         </div>
       </div>
     </div>

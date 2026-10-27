@@ -20,8 +20,6 @@ export const STORAGE_KEYS = {
   savedConnections: "saved-connections",
   /** 按中间件分类的连接表单草稿。 */
   connectionDrafts: "connection-drafts",
-  /** 用户偏好（侧边栏折叠状态等 UI 设置）。 */
-  preferences: "preferences",
   /** 上次停留的工作区位置，用于重启后恢复现场。 */
   workspace: "workspace",
   /** 最近访问过的 topic / queue，按连接隔离。 */

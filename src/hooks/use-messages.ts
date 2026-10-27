@@ -1,8 +1,7 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 
 import { messageService, queryKeys } from "@/services";
-import { usePreferences } from "@/hooks/use-preferences";
-import { resolvePageSize } from "@/lib/page-size";
+import { DEFAULT_PAGE_SIZE } from "@/lib/page-size";
 import type { MessagePage } from "@/types";
 
 interface Options {
@@ -18,9 +17,8 @@ interface Options {
  * 前端不自己推算 offset，避免和后端的分页语义绑死。
  */
 export function useMessages({ connectionId, target, enabled = true }: Options) {
-  // 条数进 queryKey：改了偏好就该是另一份缓存，否则用户调完条数看到的还是旧页。
-  const [preferences] = usePreferences();
-  const pageSize = resolvePageSize(preferences.pageSize);
+  // 条数进 queryKey：分页策略变了就该是另一份缓存，否则会拿到按旧条数切好的页。
+  const pageSize = DEFAULT_PAGE_SIZE;
 
   return useInfiniteQuery({
     queryKey: queryKeys.messages(connectionId, target, pageSize),

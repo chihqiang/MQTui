@@ -2,9 +2,9 @@ import { useLayoutEffect, useRef, type CSSProperties, type HTMLAttributes, type 
 
 import { cn } from "@/lib/cn";
 import { IconSpinner } from "@/lib/icons";
-import { densityRowPadding } from "@/lib/list-view";
+import { DENSITY, densityRowPadding } from "@/lib/list-view";
 import { isRestorable, type ScrollMemory } from "@/lib/scroll-restore";
-import { usePreferences } from "@/hooks/use-preferences";
+
 import { RefreshBar } from "./refresh";
 import { Skeleton } from "./skeleton";
 
@@ -59,16 +59,15 @@ export function DataTable({
   scrollKey?: string;
   scrollMemory?: ScrollMemory;
 }) {
-  // 行高由偏好决定，两档全站一致 —— 表头、骨架、数据行共用同一个值。
-  const [preferences] = usePreferences();
+  // 行高全站一致 —— 表头、骨架、数据行共用同一个值。
 
   const table = (
-    // 行内边距以 CSS 变量下发：单元格只写一次 `py-(--row-py)`，不各自读偏好。
-    // 换密度只重渲染一次 `<table>`，而不是让每个单元格各触发一遍更新。
+    // 行内边距以 CSS 变量下发：单元格只写一次 `py-(--row-py)`，不各自计算。
+    // 两个值都由 `lib/list-view` 给出，单元格与虚拟列表的行高不会各算一套。
     <table
       className={cn("w-full text-left", className)}
       aria-busy={refreshing || undefined}
-      style={{ "--row-py": densityRowPadding(preferences.density) } as CSSProperties}
+      style={{ "--row-py": densityRowPadding(DENSITY) } as CSSProperties}
     >
       <thead>
         <tr>
@@ -231,10 +230,8 @@ export function TableCell({
     <td
       className={cn(
         "px-3",
-        // 行内边距从 `<td>` 上的 CSS 变量取，不再订阅偏好：
-        // 一行一个 `usePreferences()`，一屏 30 行就是 30 个订阅，
-        // 而它们 99% 的时间在算同一个值 —— 换密度时全站几百个单元格一起触发更新。
-        // `DataTable` 把档位写在 `<table>` 的变量上，行只是消费者。
+        // 行内边距从 `<table>` 上的 CSS 变量取：一行一个大整数不会变成几十个
+        // 各自算一遍的判断，`DataTable` 负责下发，行只是消费者。
         "py-(--row-py)",
         mono && "font-mono text-(length:--text-app-body)",
         muted && "text-meta",

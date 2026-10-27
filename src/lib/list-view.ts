@@ -19,9 +19,14 @@ export const DENSITY_OPTIONS: { value: Density; label: string; hint: string }[] 
 
 export const DEFAULT_DENSITY: Density = "compact";
 
-export function isDensity(value: unknown): value is Density {
-  return value === "compact" || value === "comfortable";
-}
+/**
+ * 全站使用的行密度。
+ *
+ * 这曾是偏好里最像借口的一项：两种密度都「能用」，选了哪档都不算错，
+ * 于是它只增加了一种可能性 —— 同一个人的两张表长得不一样。
+ * 面板里的表格密度应该由「一屏要看多少行」决定，不由用户现场试。
+ */
+export const DENSITY: Density = DEFAULT_DENSITY;
 
 /**
  * 行内边距与字号的类名。
@@ -36,7 +41,7 @@ export function densityRowClass(density: Density): string {
  * 行内边距的 CSS 值（不是类名）。
  *
  * 表格把它写成 `--row-py` 变量挂在 `<table>` 上，单元格只需 `py-(--row-py)`。
- * 这么做是为了让「换密度」只改一处，而不是让每个单元格各自订阅偏好。
+ * 这么做是为了让行距只有一个来源，而不是让每个单元格各自算一遍。
  * 两个值与 `densityRowClass` 必须一致 —— 所以由一个映射推导，不各写一遍。
  */
 export const ROW_PADDING_PX: Record<Density, string> = {

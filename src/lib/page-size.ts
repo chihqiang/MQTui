@@ -1,8 +1,9 @@
 /**
- * 消息列表单页条数：偏好值 → 真正发给后端的条数。
+ * 消息列表单页条数：取值 → 真正发给后端的条数。
  *
- * 这个数以前是 `use-messages.ts` 里写死的 100，而偏好里那个 `pageSize`
- * 全库没人读过 —— 设置里能调、调完没反应，比没有那个开关更糟。
+ * 这个数曾经是 `use-messages.ts` 里写死的 100，后来又变成设置里的一个开关。
+ * 开关撤掉之后回到「一个默认值 + 一层夹紧」：默认 100 条是读起来不卡、
+ * 翻页也不至于太勤的那个数，不该让用户去猜。
  *
  * 两件事容易做反且不报错：
  *
@@ -20,21 +21,13 @@ export const DEFAULT_PAGE_SIZE = 100;
 /** 与后端 `MAX_MESSAGE_LIMIT` 对齐。 */
 export const MAX_PAGE_SIZE = 500;
 
-/** 设置里能选的值。别的一律夹紧，不做「特殊照顾」。 */
-export const PAGE_SIZE_OPTIONS: { value: number; label: string; hint: string }[] = [
-  { value: 50, label: "50", hint: "一页 50 条，翻页最勤" },
-  { value: 100, label: "100", hint: "默认：一页 100 条" },
-  { value: 200, label: "200", hint: "一页 200 条，少翻几页" },
-  { value: 500, label: "500", hint: "一页 500 条（后端上限），重但少翻" },
-];
-
-/** 偏好里的值是否可用于发请求：正整数才认。 */
+/** 是否可用于发请求：正整数才认。 */
 export function isPageSize(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value > 0;
 }
 
 /**
- * 把偏好值转成实际请求条数。
+ * 把候选值转成实际请求条数。
  *
  * `undefined` / 非整数 / 非正数 → 默认值；超过上限 → 上限。
  * 返回的永远是后端会原样接受的那个数。

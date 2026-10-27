@@ -56,7 +56,7 @@ export function Segmented<T extends string>({
             type="button"
             aria-selected={active}
             // 只有当前选中项进 Tab 序列：一组单选按一次 Tab 就过去，
-            // 逐段停一次会让设置弹窗里的五组控件吃掉十几次 Tab。
+            // 逐段停一次会让一组五段的控件吃掉十几次 Tab。
             tabIndex={active ? 0 : -1}
             title={option.title}
             onKeyDown={(event) => {

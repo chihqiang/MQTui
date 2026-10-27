@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router";
 
 import { connectFailureLine } from "@/lib/connect-failure";
 import { toAppError } from "@/lib/errors";
@@ -69,20 +70,35 @@ function endpointOf(input: OpenConnectionInput): string {
   return config.kind === "kafka" ? config.brokers.join(", ") : `${config.host}:${config.port}`;
 }
 
-/** 关闭连接。 */
+/**
+ * 断开一条连接。
+ *
+ * 断开的语义是「后端句柄关掉、界面不再指向它」，所以三件事一起做：
+ * 清掉当前选中、把这条连接的所有缓存作废、把人送回连接页。
+ *
+ * 最后一件最容易漏：留在原页面时，概览 / 主题 / 队列的查询会立刻因为
+ * 「连接不存在」全部变成红色错误态 —— 用户点的是「断开」，看到的却是
+ * 满页报错。断开不是故障，界面不该用故障的样子回报它。
+ */
 export function useCloseConnection() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const pushToast = useSessionStore((state) => state.pushToast);
   const setActiveConnection = useSessionStore((state) => state.setActiveConnection);
 
   return useMutation({
     mutationFn: (id: string) => brokerService.closeConnection(id),
-    onSuccess: (_data, id) => {
+    onSuccess: async (_data, id) => {
       if (useSessionStore.getState().activeConnectionId === id) {
         setActiveConnection(null);
       }
-      pushToast("info", "连接已关闭");
-      void queryClient.invalidateQueries({ queryKey: queryKeys.connections() });
+      // 连接级查询挂在 `["connections","detail",id,...]` 下：整棵子树一起丢掉，
+      // 下次连上同一台机器时读到的必须是新数据，而不是断开前那份快照。
+      await queryClient.cancelQueries({ queryKey: queryKeys.connection(id) });
+      queryClient.removeQueries({ queryKey: queryKeys.connection(id) });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.connections() });
+      pushToast("info", "连接已断开");
+      navigate("/");
     },
     onError: (error: { message: string }) => pushToast("error", error.message),
   });

@@ -1,9 +1,11 @@
 import { NavLink, useParams } from "react-router";
 
 import { Badge } from "@/components/ui";
-import { useConnections } from "@/hooks/use-connections";
+import { useCloseConnection, useConnections } from "@/hooks/use-connections";
 import { cn } from "@/lib/cn";
+import { IconClose } from "@/lib/icons";
 import { BROKER_LABEL, connectionPath } from "@/lib/nav";
+import { disconnectLabel } from "@/lib/reconnect";
 import { brokerTone } from "@/lib/visual";
 
 /**
@@ -14,10 +16,14 @@ import { brokerTone } from "@/lib/visual";
  *
  * 常驻而不做成「下拉切换」：面板工具的典型用法是两个集群来回对照，
  * 切换成本要压到一次点击。
+ *
+ * 每条连接后面挂一个断开按钮，悬停才出现：列表里可能同时挂着五条连接，
+ * 五个常亮的叉号会让「切过去」这个主操作看起来和「断掉它」一样重要。
  */
 export function ConnectionSidebar() {
   const { connectionId } = useParams();
   const { data, isLoading } = useConnections();
+  const closeConnection = useCloseConnection();
 
   return (
     <aside className="flex w-60 shrink-0 flex-col border-r border-slate-200 bg-white">
@@ -36,12 +42,12 @@ export function ConnectionSidebar() {
           {data?.map((connection) => {
             const active = connectionId === connection.id;
             return (
-              <li key={connection.id}>
+              <li key={connection.id} className="group/row relative">
                 <NavLink
                   to={connectionPath(connection.id)}
                   aria-current={active ? "true" : undefined}
                   className={cn(
-                    "flex flex-col gap-1 rounded-lg px-2.5 py-2 text-(length:--text-app-body) transition-colors",
+                    "flex flex-col gap-1 rounded-lg px-2.5 py-2 pr-8 text-(length:--text-app-body) transition-colors",
                     active
                       ? "bg-indigo-50 text-indigo-900 ring-1 ring-indigo-100"
                       : "text-slate-600 hover:bg-slate-50 hover:text-slate-900",
@@ -57,6 +63,18 @@ export function ConnectionSidebar() {
                     {connection.endpoint}
                   </span>
                 </NavLink>
+                {/* 悬停 / 键盘聚焦时才出现：断开是「收场」，不该和「切过去」抢同一层的注意力。
+                    用 `focus-within` 是为了让 Tab 到这一行时它也现身，否则键盘用户摸不到。 */}
+                <button
+                  type="button"
+                  onClick={() => closeConnection.mutate(connection.id)}
+                  disabled={closeConnection.isPending}
+                  aria-label={disconnectLabel(connection.name, closeConnection.isPending)}
+                  title={disconnectLabel(connection.name, closeConnection.isPending)}
+                  className="absolute top-2 right-1.5 flex size-6 items-center justify-center rounded-md text-meta opacity-0 transition-opacity group-hover/row:opacity-100 hover:bg-rose-50 hover:text-rose-600 focus-visible:opacity-100 disabled:opacity-50"
+                >
+                  <IconClose size={12} />
+                </button>
               </li>
             );
           })}

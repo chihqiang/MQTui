@@ -23,25 +23,23 @@ export const LAYOUT_OPTIONS: { value: LayoutMode; label: string; hint: string }[
 
 export const DEFAULT_LAYOUT: LayoutMode = "grouped";
 
-export function isLayoutMode(value: unknown): value is LayoutMode {
-  return value === "grouped" || value === "classic" || value === "collapsed";
-}
-
-/** 窄屏阈值。低于此宽度一律降级为极简，与用户偏好无关。 */
+/** 窄屏阈值。低于此宽度一律降级为极简。 */
 export const NARROW_WIDTH = 900;
 
 /**
- * 实际生效的布局。
+ * 布局只有一个来源：窗口宽度。
  *
- * 窄屏优先于用户偏好：偏好是「我在这台机器上喜欢怎么排」，窗口宽度是
- * 「现在有多少地方可放」—— 后者更硬。只在窄屏覆盖、不写回偏好，
- * 窗口拉宽后立刻回到用户选的那档，不需要用户再点一次。
+ * 这里曾经是一份「偏好」——三档任选、存进 localStorage、跨启动保留。
+ * 但它调的是外壳本身：换个档位，连接列表、菜单、内容区全都换一遍位置，
+ * 而面板工具的用法其实只有一个正确答案 —— 够宽就给菜单，不够就收成图标条。
+ * 窗口宽度是那个答案，它不需要用户来确认。
+ * 一个「能改但没人愿意改」的开关，代价是每次打开都要判断「我现在是哪档」。
  */
-export function resolveLayout(preferred: LayoutMode, width: number | null): LayoutMode {
-  // 宽度还没测出来（首帧）时按用户偏好渲染：先铺一版正确的再改，
+export function resolveLayout(width: number | null): LayoutMode {
+  // 宽度还没测出来（首帧）时按分组渲染：先铺一版正确的再改，
   // 好过先按窄屏铺一列再展开成两列那种整屏跳动。
-  if (width === null) return preferred;
-  return width < NARROW_WIDTH ? "collapsed" : preferred;
+  if (width === null) return DEFAULT_LAYOUT;
+  return width < NARROW_WIDTH ? "collapsed" : DEFAULT_LAYOUT;
 }
 
 /** 菜单分组。`null` 表示不分组（平铺形态）。 */

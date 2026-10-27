@@ -20,12 +20,11 @@ import {
   VirtualList,
 } from "@/components/ui";
 import { useFreshness } from "@/hooks/use-freshness";
-import { usePreferences } from "@/hooks/use-preferences";
 import { useMessages } from "@/hooks/use-messages";
 import { errorMessage } from "@/lib/errors";
 import { failureText } from "@/lib/failure";
 import { formatBytes, formatNumber, formatTimestamp } from "@/lib/format";
-import { densityRowHeight } from "@/lib/list-view";
+import { DENSITY, densityRowHeight } from "@/lib/list-view";
 import { keepLoadMoreVisible } from "@/lib/refresh";
 import type { ScrollMemory } from "@/lib/scroll-restore";
 import { IconDeadLetter, IconRedeliver, IconResend } from "@/lib/icons";
@@ -197,9 +196,8 @@ export function MessageTable({
     setCursor(-1);
   }, [filter.key, filter.content]);
 
-  // 行高读全站密度档：`VirtualList` 的偏移量、键盘滚动、行高必须是同一个数。
-  const [preferences] = usePreferences();
-  const rowHeight = densityRowHeight(preferences.density);
+  // 行高只有一个来源：`VirtualList` 的偏移量、键盘滚动、行高必须是同一个数。
+  const rowHeight = densityRowHeight(DENSITY);
 
   // 行回调统一收到这里，不写在 `renderItem` 的内联箭头里：
   // 内联箭头每行都是新引用，`MessageRow` 的 memo 就白加了。

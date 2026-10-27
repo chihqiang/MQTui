@@ -3,7 +3,6 @@ import { useState } from "react";
 import { cn } from "@/lib/cn";
 import { IconChevronDown, IconChevronRight, IconRefresh } from "@/lib/icons";
 import { useHealth } from "@/hooks/use-health";
-import { usePreferences } from "@/hooks/use-preferences";
 import { errorMessage } from "@/lib/errors";
 import { failureText } from "@/lib/failure";
 import { statusBarHeight } from "@/lib/visual";
@@ -34,7 +33,6 @@ const STATUS_TEXT: Record<CheckStatus, string> = {
 export function HealthBar({ connectionId }: { connectionId: string | undefined }) {
   const { data, isFetching, error, refetch } = useHealth(connectionId);
   const [expanded, setExpanded] = useState(false);
-  const [preferences] = usePreferences();
 
   const items = data?.items ?? [];
   const failed = items.filter((item) => item.status === "failed").length;
@@ -42,13 +40,13 @@ export function HealthBar({ connectionId }: { connectionId: string | undefined }
 
   return (
     <div
-      // 厚度由偏好决定：它常驻每页标题上方，厚一格就少一行表格。
+      // 厚度是版面的决定：它常驻每页标题上方，厚一格就少一行表格。
       // 展开时不受此限 —— 用户主动点开的，就该给够高度。
-      style={{ minHeight: open ? undefined : statusBarHeight(preferences.statusDensity) }}
+      style={{ minHeight: open ? undefined : statusBarHeight() }}
       className={cn(
         "flex items-center gap-2 border-b border-slate-200 bg-white/80 px-3 py-1 text-(length:--text-app-meta)",
-        // 紧凑档的折叠态要真能压到一条线：内容不换行，才不会被撑开。
-        !open && preferences.statusDensity === "compact" && "flex-nowrap overflow-hidden",
+        // 折叠态要真能压到一条线：内容不换行，才不会被撑开。
+        !open && "flex-nowrap overflow-hidden",
       )}
     >
       <button

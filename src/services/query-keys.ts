@@ -31,7 +31,7 @@ export const queryKeys = {
     ["connections", "detail", id, "policy-preview", fingerprint] as const,
   /** 所有连接下所有查询的共同前缀，写操作后统一失效最省心。 */
   allConnections: () => ["connections", "detail"] as const,
-  /** 消息分页带上单页条数：改偏好后是另一份缓存，不会读到旧条数的页。 */
+  /** 消息分页带上单页条数：分页策略变了就该是另一份缓存，不会读到按旧条数切好的页。 */
   messages: (id: string, target: string, pageSize: number) =>
     ["connections", "detail", id, "messages", target, pageSize] as const,
   /** 定位结果按条件缓存：同一条件重复查询不该重扫一遍日志。 */
