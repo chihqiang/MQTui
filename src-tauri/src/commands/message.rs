@@ -342,10 +342,14 @@ pub async fn send_message(
             routing_key,
             payload,
             delivery_mode,
+            content_type,
+            content_encoding,
             headers,
         } => {
             ensure_payload(payload)?;
             ensure_delivery_mode(*delivery_mode)?;
+            let content_type = normalize_content_type(content_type.as_deref())?;
+            let content_encoding = normalize_content_encoding(content_encoding.as_deref())?;
             let connection = state
                 .connections
                 .get(&ConnectionId(connection_id.clone()))
@@ -355,8 +359,12 @@ pub async fn send_message(
                 exchange,
                 routing_key,
                 payload.as_bytes(),
-                *delivery_mode,
-                headers,
+                message::rabbitmq::MessageProperties {
+                    delivery_mode: *delivery_mode,
+                    content_type: content_type.as_deref(),
+                    content_encoding: content_encoding.as_deref(),
+                    headers,
+                },
             )
             .await?;
             Ok(SendOutcome {
@@ -477,9 +485,73 @@ fn ensure_delivery_mode(mode: u8) -> AppResult<()> {
     )))
 }
 
+/// 内容类型：去空白、空串视为「没填」、长度与空白在这里挡住。
+///
+/// 空串当没填而不是报错：表单清空的格子传上来就是空串，那不是用户的错误。
+/// 但真填了东西就得合法 —— `application/json` 少个斜杠在 AMQP 里不会被拒，
+/// 只是下游认不出来。
+fn normalize_content_type(value: Option<&str>) -> AppResult<Option<String>> {
+    let Some(raw) = value else {
+        return Ok(None);
+    };
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    if let Some(problem) = crate::domain::content_type_problem(trimmed) {
+        return Err(AppError::Invalid(format!("内容类型不合法：{problem}")));
+    }
+    Ok(Some(trimmed.to_owned()))
+}
+
+/// 内容编码同上，只是不限定形状（`gzip` / `utf-8` / `br` 都合法）。
+fn normalize_content_encoding(value: Option<&str>) -> AppResult<Option<String>> {
+    let Some(raw) = value else {
+        return Ok(None);
+    };
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    if let Some(problem) = crate::domain::content_type_problem(trimmed) {
+        return Err(AppError::Invalid(format!("内容编码不合法：{problem}")));
+    }
+    Ok(Some(trimmed.to_owned()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn content_type_blank_counts_as_unset() {
+        assert_eq!(normalize_content_type(None).unwrap(), None);
+        assert_eq!(normalize_content_type(Some("")).unwrap(), None);
+        assert_eq!(normalize_content_type(Some("   ")).unwrap(), None);
+        assert_eq!(
+            normalize_content_type(Some(" application/json ")).unwrap(),
+            Some("application/json".to_owned())
+        );
+    }
+
+    #[test]
+    fn content_type_with_space_or_overlong_is_rejected() {
+        // 有空格：AMQP 会原样收下，下游按类型分派时才认不出来。
+        assert!(normalize_content_type(Some("application / json")).is_err());
+        let long = "a".repeat(256);
+        assert!(normalize_content_type(Some(&long)).is_err());
+        // 255 字节是 AMQP shortstr 的上限，不是「差不多就行」。
+        assert!(normalize_content_type(Some(&"a".repeat(255))).is_ok());
+    }
+
+    #[test]
+    fn content_encoding_blank_counts_as_unset() {
+        assert_eq!(normalize_content_encoding(Some(" ")).unwrap(), None);
+        assert_eq!(
+            normalize_content_encoding(Some("gzip")).unwrap(),
+            Some("gzip".to_owned())
+        );
+    }
 
     #[test]
     fn empty_payload_is_rejected() {

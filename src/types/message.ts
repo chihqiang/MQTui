@@ -119,6 +119,10 @@ export interface RabbitMqSendRequest {
   payload: string;
   /** 投递模式：持久化消息（`2`）在 broker 重启后仍在，非持久化（`1`）不在。 */
   deliveryMode: number;
+  /** 内容类型，例如 `application/json`。缺省 `text/plain`。 */
+  contentType?: string;
+  /** 内容编码，例如 `gzip`。缺省不带。 */
+  contentEncoding?: string;
   headers: MessageHeader[];
 }
 

@@ -49,6 +49,45 @@ export function kafkaKey(value: string): string | undefined {
   return value.trim() === "" ? undefined : value;
 }
 
+/**
+ * 常见内容类型。
+ *
+ * `hint` 写「下游会怎么理解它」，因为这一格真正的风险不是填错格式，
+ * 而是填了一个下游不认的格式 —— AMQP 不会拒收，只是把它当成别的东西。
+ */
+export const CONTENT_TYPES = [
+  { value: "application/json", hint: "JSON 消费者按这条走；发对象就选它" },
+  { value: "text/plain", hint: "默认值，任何消费者都能读" },
+  { value: "application/xml", hint: "XML 消费者" },
+  { value: "application/octet-stream", hint: "二进制；内容会被当字节流" },
+] as const;
+
+/** 没填这一格时后端用的值，与 `domain::message::DEFAULT_CONTENT_TYPE` 一致。 */
+export const DEFAULT_CONTENT_TYPE = "text/plain";
+
+/**
+ * 内容类型 / 编码能不能交给 broker。
+ *
+ * 两者都是 AMQP 的 shortstr（≤255 字节），超了会在 publish 阶段出问题 ——
+ * 那时消息已经组装好，报错里看不到自己填的是什么。空串按「没填」处理：
+ * 表单清空格子产生的空串不是错误。
+ */
+export function contentFieldProblem(label: string, value: string): string | null {
+  const trimmed = value.trim();
+  if (trimmed === "") return null;
+  // eslint-disable-next-line no-control-regex
+  if (/\s/.test(trimmed)) return `${label}里不能有空格`;
+  // 用 UTF-8 字节数，不是字符数 —— AMQP 限的是字节。
+  if (new TextEncoder().encode(trimmed).length > 255) return `${label}最长 255 字节`;
+  return null;
+}
+
+/** 空串等于「没填」，交给后端走默认值，而不是发一个空内容类型过去。 */
+export function contentField(value: string): string | undefined {
+  const trimmed = value.trim();
+  return trimmed === "" ? undefined : trimmed;
+}
+
 /** exchange 空串就是默认交换机，不要 trim 成需要额外处理的形态。 */
 export function exchangeName(value: string): string {
   return value.trim();
@@ -65,6 +104,8 @@ export function sendBlockers(input: {
   topic?: string;
   exchange?: string;
   routingKey?: string;
+  contentType?: string;
+  contentEncoding?: string;
   payload: string;
 }): string | null {
   if (input.payload === "") return "消息内容不能为空";
@@ -77,5 +118,8 @@ export function sendBlockers(input: {
   if ((input.exchange ?? "").trim() === "" && (input.routingKey ?? "").trim() === "") {
     return "默认交换机需要 routing key（通常就是队列名）";
   }
-  return null;
+  return (
+    contentFieldProblem("内容类型", input.contentType ?? "") ??
+    contentFieldProblem("内容编码", input.contentEncoding ?? "")
+  );
 }

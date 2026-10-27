@@ -83,25 +83,126 @@ pub async fn detail(client: &RabbitMqClient, id: &str) -> AppResult<MessageDetai
 /// AMQP 侧的参数比 Kafka 多：exchange + routing key 决定路由，headers 是业务链路信息，
 /// 投递模式决定消息能不能活过 broker 重启。上一版走 `publish`，属性里硬编码了
 /// `text/plain` 与非持久化 —— 于是「发一条持久化消息看看」这种最常见的验证根本做不了。
+///
+/// `content_type` / `content_encoding` 现在是参数而不是常量：发一条 JSON 却不是
+/// `application/json`，按类型分派的消费者会走错分支，而且**不报错** —— 收下了，
+/// 只是当成另一类东西处理。这比直接失败更难查。
+///
+/// 属性收成 `MessageProperties` 而不是继续摊平成一个参数列表：投递模式、内容类型、
+/// 编码、headers 说的本来就是同一件事 ——「这条消息长什么样」。
+/// 摊成四个并列参数，调用处一眼看不出它们是一组，多来一个就得再加一个。
 pub async fn send(
     client: &RabbitMqClient,
     exchange: &str,
     routing_key: &str,
     payload: &[u8],
-    delivery_mode: u8,
-    headers: &[MessageHeader],
+    properties: MessageProperties<'_>,
 ) -> AppResult<String> {
-    let properties = BasicProperties::default()
-        .with_content_type("text/plain".into())
-        .with_delivery_mode(delivery_mode)
-        .with_headers(field_table_from_headers(
-            &headers
-                .iter()
-                .map(|header| (header.key.clone(), header.value.clone()))
-                .collect::<Vec<_>>(),
-        ));
-
     client
-        .publish_with(exchange, routing_key, payload, properties)
+        .publish_with(exchange, routing_key, payload, properties.to_basic())
         .await
+}
+
+/// 一条待投递消息的 AMQP 属性。
+pub struct MessageProperties<'a> {
+    /// `1` 非持久化、`2` 持久化。取值合法性由命令层先拦过。
+    pub delivery_mode: u8,
+    /// 内容类型；`None` 用 `DEFAULT_CONTENT_TYPE`。
+    pub content_type: Option<&'a str>,
+    /// 内容编码；`None` 表示不带这个属性（不是「空编码」）。
+    pub content_encoding: Option<&'a str>,
+    pub headers: &'a [MessageHeader],
+}
+
+impl MessageProperties<'_> {
+    fn to_basic(&self) -> BasicProperties {
+        let mut properties = BasicProperties::default()
+            .with_content_type(
+                self.content_type
+                    .unwrap_or(crate::domain::message::DEFAULT_CONTENT_TYPE)
+                    .to_owned()
+                    .into(),
+            )
+            .with_delivery_mode(self.delivery_mode)
+            .with_headers(field_table_from_headers(
+                &self
+                    .headers
+                    .iter()
+                    .map(|header| (header.key.clone(), header.value.clone()))
+                    .collect::<Vec<_>>(),
+            ));
+        // `None` 与 `Some("")` 在 AMQP 里是两种状态，这里只负责「带不带」，
+        // 至于空串要不要变成不带，是命令层判断过的。
+        if let Some(encoding) = self.content_encoding {
+            properties = properties.with_content_encoding(encoding.to_owned().into());
+        }
+        properties
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::message::DEFAULT_CONTENT_TYPE;
+
+    /// 没填内容类型时保持旧行为：换默认值等于让所有没填这一格的消息在下游换条路走。
+    #[test]
+    fn missing_content_type_falls_back_to_plain_text() {
+        let properties = MessageProperties {
+            delivery_mode: 1,
+            content_type: None,
+            content_encoding: None,
+            headers: &[],
+        }
+        .to_basic();
+
+        assert_eq!(
+            properties
+                .content_type()
+                .as_ref()
+                .map(|value| value.as_str()),
+            Some(DEFAULT_CONTENT_TYPE)
+        );
+    }
+
+    #[test]
+    fn content_type_is_carried_through() {
+        let properties = MessageProperties {
+            delivery_mode: 2,
+            content_type: Some("application/json"),
+            content_encoding: Some("gzip"),
+            headers: &[],
+        }
+        .to_basic();
+
+        assert_eq!(
+            properties
+                .content_type()
+                .as_ref()
+                .map(|value| value.as_str()),
+            Some("application/json")
+        );
+        assert_eq!(
+            properties
+                .content_encoding()
+                .as_ref()
+                .map(|value| value.as_str()),
+            Some("gzip")
+        );
+        assert_eq!(properties.delivery_mode(), &Some(2));
+    }
+
+    /// `content_encoding` 不填就不带这个属性 —— AMQP 里「没有」和「有且为空」是两回事。
+    #[test]
+    fn empty_content_encoding_is_omitted() {
+        let properties = MessageProperties {
+            delivery_mode: 1,
+            content_type: None,
+            content_encoding: None,
+            headers: &[],
+        }
+        .to_basic();
+
+        assert_eq!(properties.content_encoding().as_ref(), None);
+    }
 }

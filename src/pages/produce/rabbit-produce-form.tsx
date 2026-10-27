@@ -16,8 +16,11 @@ import { messageService } from "@/services";
 import { useSessionStore } from "@/stores";
 import { errorMessage } from "@/lib/errors";
 import {
+  CONTENT_TYPES,
+  DEFAULT_CONTENT_TYPE,
   DEFAULT_DELIVERY_MODE,
   DELIVERY_MODES,
+  contentField,
   exchangeName,
   sendBlockers,
   toHeaders,
@@ -27,12 +30,13 @@ import {
 import type { ConnectionSummary } from "@/types";
 
 /**
- * RabbitMQ 发送表单：exchange + routing key + 投递模式 + headers + payload。
+ * RabbitMQ 发送表单：exchange + routing key + 投递模式 + 内容类型 + headers + payload。
  *
  * 这几格都不是「附赠」：
  * - 不给 exchange 就等于默认交换机，消息按 routing key 直投同名队列，
  *   而绑定到某个 fanout / topic 交换机上的队列一条都收不到；
  * - 投递模式决定消息能不能活过 broker 重启，以前被硬编码成非持久化；
+ * - 内容类型决定下游怎么理解这段字节，以前被硬编码成 `text/plain`；
  * - headers 是 trace-id 这类链路信息唯一的去处，以前这一页根本没有入口。
  */
 export function RabbitProduceForm({
@@ -50,6 +54,8 @@ export function RabbitProduceForm({
   const [exchange, setExchange] = useState("");
   const [routingKey, setRoutingKey] = useState(presetTarget ?? "");
   const [deliveryMode, setDeliveryMode] = useState<DeliveryMode>(DEFAULT_DELIVERY_MODE);
+  const [contentType, setContentType] = useState(DEFAULT_CONTENT_TYPE);
+  const [contentEncoding, setContentEncoding] = useState("");
   const [rows, setRows] = useState<HeaderRow[]>([]);
   const [payload, setPayload] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -73,7 +79,14 @@ export function RabbitProduceForm({
     [topology, exchange],
   );
 
-  const blocked = sendBlockers({ kind: "rabbitMq", exchange, routingKey, payload });
+  const blocked = sendBlockers({
+    kind: "rabbitMq",
+    exchange,
+    routingKey,
+    contentType,
+    contentEncoding,
+    payload,
+  });
 
   const send = async () => {
     setSubmitting(true);
@@ -85,6 +98,8 @@ export function RabbitProduceForm({
         exchange: exchangeName(exchange),
         routingKey: routingKey.trim(),
         deliveryMode,
+        contentType: contentField(contentType),
+        contentEncoding: contentField(contentEncoding),
         headers: toHeaders(rows),
         payload,
       });
@@ -149,7 +164,30 @@ export function RabbitProduceForm({
                 ))}
               </Select>
             </Field>
+            <Field
+              label="内容类型"
+              hint={CONTENT_TYPES.find((item) => item.value === contentType)?.hint ?? "自定义值：下游按它决定怎么解析"}
+            >
+              <ComboInput
+                value={contentType}
+                choices={CONTENT_TYPES.map((item) => ({ value: item.value, hint: item.hint }))}
+                onValueChange={setContentType}
+                placeholder={DEFAULT_CONTENT_TYPE}
+              />
+            </Field>
           </div>
+
+          <Field
+            label="内容编码（可选）"
+            hint="压缩过的内容才需要填，例如 gzip；留空表示未编码"
+          >
+            <Input
+              value={contentEncoding}
+              onChange={(event) => setContentEncoding(event.currentTarget.value)}
+              placeholder="(未编码)"
+              className="font-mono"
+            />
+          </Field>
 
           <Field label="Headers（可选）" hint="trace-id 这类链路信息放这里；key 空着的行不会发送">
             <div className="flex flex-col gap-2">

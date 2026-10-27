@@ -198,6 +198,23 @@ pub enum SendRequest {
         /// AMQP 的投递模式：`1` 非持久化、`2` 持久化。默认非持久化。
         #[serde(default = "default_delivery_mode", rename = "deliveryMode")]
         delivery_mode: u8,
+        /// 内容类型，例如 `application/json`。缺省 `text/plain`。
+        ///
+        /// 这一格看着像装饰，实际是下游路由依据：按类型分派的消费者
+        /// 收到 `text/plain` 的 JSON 会走错分支，而且不会有任何报错。
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            rename = "contentType"
+        )]
+        content_type: Option<String>,
+        /// 内容编码，例如 `gzip` / `utf-8`。缺省不带（AMQP 视为未编码）。
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            rename = "contentEncoding"
+        )]
+        content_encoding: Option<String>,
         #[serde(default)]
         headers: Vec<MessageHeader>,
     },
@@ -220,6 +237,27 @@ pub mod delivery_mode {
     pub fn is_valid(value: u8) -> bool {
         value == TRANSIENT || value == PERSISTENT
     }
+}
+
+/// 默认内容类型：发消息时这一格没填就用它。
+///
+/// 保持与修复前一致 —— 老行为不是「对的」，但至少是已知的；
+/// 顺手换一个默认值会让所有没填这一格的人的消息在下游换一条路走。
+pub const DEFAULT_CONTENT_TYPE: &str = "text/plain";
+
+/// AMQP 的 content_type / content_encoding 是不是能原样交给 broker。
+///
+/// 两者都是 AMQP 的 `shortstr`（最长 255 字节），超了在 `basic_publish`
+/// 里会被截断或拒收，而这发生在消息已经组装好之后。长度检查放在这里，
+/// 报错的时候用户还能看见自己填的是什么。
+pub fn content_type_problem(value: &str) -> Option<String> {
+    if value.len() > 255 {
+        return Some(format!("内容类型最长 255 字节，收到 {} 字节", value.len()));
+    }
+    if value.contains(char::is_whitespace) {
+        return Some("内容类型里不能有空格".to_owned());
+    }
+    None
 }
 
 /// 发送结果。
@@ -272,11 +310,16 @@ mod tests {
                 delivery_mode,
                 headers,
                 routing_key,
+                content_type,
+                content_encoding,
                 ..
             } => {
                 assert_eq!(delivery_mode, delivery_mode::PERSISTENT);
                 assert_eq!(routing_key, "order.created");
                 assert_eq!(headers.len(), 1);
+                // 没传就是「没说」，不是空串 —— 空串会让后端以为用户想发一个空类型。
+                assert_eq!(content_type, None);
+                assert_eq!(content_encoding, None);
             }
             _ => panic!("应解析为 RabbitMQ 请求"),
         }
@@ -300,6 +343,57 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn rabbit_request_carries_content_type() {
+        // 线上字段名是 camelCase；写错一个字母就等于「没填」，静默回落到 text/plain。
+        let request: SendRequest = serde_json::from_value(serde_json::json!({
+            "kind": "rabbitMq",
+            "connectionId": "id",
+            "routingKey": "q",
+            "payload": "{}",
+            "contentType": "application/json",
+            "contentEncoding": "gzip"
+        }))
+        .expect("反序列化失败");
+
+        match request {
+            SendRequest::RabbitMq {
+                content_type,
+                content_encoding,
+                ..
+            } => {
+                assert_eq!(content_type.as_deref(), Some("application/json"));
+                assert_eq!(content_encoding.as_deref(), Some("gzip"));
+            }
+            _ => panic!("应解析为 RabbitMQ 请求"),
+        }
+    }
+
+    #[test]
+    fn unset_content_type_is_not_serialized() {
+        // 序列化时不带空字段：前端据此区分「没填」与「填了空串」。
+        let request = SendRequest::RabbitMq {
+            connection_id: "id".to_owned(),
+            exchange: String::new(),
+            routing_key: "q".to_owned(),
+            payload: "x".to_owned(),
+            delivery_mode: delivery_mode::TRANSIENT,
+            content_type: None,
+            content_encoding: None,
+            headers: Vec::new(),
+        };
+        let json = serde_json::to_value(&request).expect("序列化失败");
+        assert!(json.get("contentType").is_none());
+        assert!(json.get("contentEncoding").is_none());
+    }
+
+    #[test]
+    fn content_type_must_be_a_single_token() {
+        assert_eq!(content_type_problem("application/json"), None);
+        assert!(content_type_problem("application / json").is_some());
+        assert!(content_type_problem(&"a".repeat(256)).is_some());
     }
 
     #[test]
