@@ -3,8 +3,11 @@
 pub mod dto;
 pub mod redeliver;
 
+use lapin::BasicProperties;
+
 use crate::broker::rabbitmq::RabbitMqClient;
-use crate::domain::{MessageDetail, MessagePage, MessageQuery, SendRequest};
+use crate::broker::rabbitmq::dto::field_table_from_headers;
+use crate::domain::{MessageDetail, MessageHeader, MessagePage, MessageQuery};
 use crate::error::{AppError, AppResult};
 
 /// 拉取队列消息。
@@ -76,20 +79,29 @@ pub async fn detail(client: &RabbitMqClient, id: &str) -> AppResult<MessageDetai
 }
 
 /// 发送消息。
-pub async fn send(client: &RabbitMqClient, request: SendRequest) -> AppResult<String> {
-    let exchange = request.exchange.as_deref().unwrap_or("");
-    let headers: Vec<(String, String)> = request
-        .headers
-        .iter()
-        .map(|header| (header.key.clone(), header.value.clone()))
-        .collect();
+///
+/// AMQP 侧的参数比 Kafka 多：exchange + routing key 决定路由，headers 是业务链路信息，
+/// 投递模式决定消息能不能活过 broker 重启。上一版走 `publish`，属性里硬编码了
+/// `text/plain` 与非持久化 —— 于是「发一条持久化消息看看」这种最常见的验证根本做不了。
+pub async fn send(
+    client: &RabbitMqClient,
+    exchange: &str,
+    routing_key: &str,
+    payload: &[u8],
+    delivery_mode: u8,
+    headers: &[MessageHeader],
+) -> AppResult<String> {
+    let properties = BasicProperties::default()
+        .with_content_type("text/plain".into())
+        .with_delivery_mode(delivery_mode)
+        .with_headers(field_table_from_headers(
+            &headers
+                .iter()
+                .map(|header| (header.key.clone(), header.value.clone()))
+                .collect::<Vec<_>>(),
+        ));
 
     client
-        .publish(
-            exchange,
-            &request.target,
-            request.payload.as_bytes(),
-            &headers,
-        )
+        .publish_with(exchange, routing_key, payload, properties)
         .await
 }

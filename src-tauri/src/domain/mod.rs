@@ -54,7 +54,7 @@ pub use consumer_link::{
 pub use health::{CheckStatus, HealthCheck, HealthReport, WRITE_ACCESS_KEY};
 pub use message::{
     MessageDetail, MessageHeader, MessageLocate, MessagePage, MessageQuery, MessageSearch,
-    MessageSummary, SendOutcome, SendRequest,
+    MessageSummary, SendOutcome, SendRequest, delivery_mode,
 };
 pub use migration_runbook::{
     MigrationRunbook, Precondition, PreconditionState, RunbookRequest, VerifyLine, VerifyState,

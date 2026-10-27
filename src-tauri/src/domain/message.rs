@@ -159,21 +159,67 @@ pub struct MessageSearch {
     pub content_budget: Option<String>,
 }
 
-/// 发送消息请求。
+/// 发送消息请求：Kafka 与 RabbitMQ 各一个变体。
+///
+/// 原来是一个扁平结构：`target` 一会儿是 topic 一会儿是 routing key，
+/// `exchange` 在 Kafka 下永远为空，`key` 在 RabbitMQ 下永远为空。
+/// 那种「填了也没用」的字段是最坏的接口——它不出错，只是默默不生效，
+/// 等到有人给 RabbitMQ 消息设了 key 才发现根本没发出去。
+///
+/// 现在按中间件分叉，字段各归各的：AMQP 补上了投递模式与 headers，
+/// Kafka 的 `key` 是实打实的分区依据。协议层面本来就不是一回事，
+/// 硬塞进一个结构只会把差异藏起来。
+///
+/// 字段名逐个标注 `rename` 而不用 `rename_all`：与 `tag` 同时出现时
+/// `rename_all` 只作用于变体名，不会递归到变体里的字段 —— 那样前端传
+/// `connectionId` 会静默对不上，报的错还是「missing field connection_id」。
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SendRequest {
-    pub connection_id: String,
-    /// Kafka 为 topic，RabbitMQ 为 routing key。
-    pub target: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub key: Option<String>,
-    pub payload: String,
-    #[serde(default)]
-    pub headers: Vec<MessageHeader>,
-    /// RabbitMQ 需要指定交换机；Kafka 忽略该字段。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub exchange: Option<String>,
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum SendRequest {
+    /// 投到 topic；`key` 决定分区落点。
+    Kafka {
+        #[serde(rename = "connectionId")]
+        connection_id: String,
+        topic: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        key: Option<String>,
+        payload: String,
+    },
+    /// 投到 exchange + routing key；是否需要 headers / 持久化只有 AMQP 有。
+    RabbitMq {
+        #[serde(rename = "connectionId")]
+        connection_id: String,
+        /// 空串表示默认交换机。
+        #[serde(default)]
+        exchange: String,
+        #[serde(rename = "routingKey")]
+        routing_key: String,
+        payload: String,
+        /// AMQP 的投递模式：`1` 非持久化、`2` 持久化。默认非持久化。
+        #[serde(default = "default_delivery_mode", rename = "deliveryMode")]
+        delivery_mode: u8,
+        #[serde(default)]
+        headers: Vec<MessageHeader>,
+    },
+}
+
+/// 默认非持久化：发一条测试消息却让它写进磁盘，是把调试成本转移到磁盘上。
+fn default_delivery_mode() -> u8 {
+    delivery_mode::TRANSIENT
+}
+
+/// AMQP 投递模式的取值与含义。
+pub mod delivery_mode {
+    /// 非持久化：broker 重启后消息不保证还在。
+    pub const TRANSIENT: u8 = 1;
+    /// 持久化：broker 重启后消息仍在（队列本身也得是持久的才有意义）。
+    pub const PERSISTENT: u8 = 2;
+
+    /// 是不是能交给 broker 的值。其他数字由 `basic_properties` 悄悄忽略，
+    /// 与其发出去了才发现没生效，不如在入口拦下。
+    pub fn is_valid(value: u8) -> bool {
+        value == TRANSIENT || value == PERSISTENT
+    }
 }
 
 /// 发送结果。
@@ -183,4 +229,88 @@ pub struct SendOutcome {
     pub kind: BrokerKind,
     /// 中间件返回的确认信息，例如 Kafka 的 partition/offset。
     pub detail: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 线上格式由前后端共同遵守，这里钉住字段名与分叉标记：
+    /// 前端 `SendRequest` 是同一个联合类型，`kind` 拼错就会静默落成「不认识的变体」。
+    #[test]
+    fn kafka_request_has_no_amqp_fields() {
+        let request = SendRequest::Kafka {
+            connection_id: "id".to_owned(),
+            topic: "orders".to_owned(),
+            key: Some("k".to_owned()),
+            payload: "{}".to_owned(),
+        };
+        let json = serde_json::to_value(&request).expect("序列化失败");
+        assert_eq!(json["kind"], "kafka");
+        assert_eq!(json["topic"], "orders");
+        assert_eq!(json["connectionId"], "id");
+        assert!(json.get("exchange").is_none());
+        assert!(json.get("routingKey").is_none());
+        assert!(json.get("headers").is_none());
+    }
+
+    #[test]
+    fn rabbit_request_carries_amqp_specifics() {
+        let request: SendRequest = serde_json::from_value(serde_json::json!({
+            "kind": "rabbitMq",
+            "connectionId": "id",
+            "exchange": "orders.exchange",
+            "routingKey": "order.created",
+            "payload": "{}",
+            "deliveryMode": 2,
+            "headers": [{ "key": "trace-id", "value": "abc" }]
+        }))
+        .expect("反序列化失败");
+
+        match request {
+            SendRequest::RabbitMq {
+                delivery_mode,
+                headers,
+                routing_key,
+                ..
+            } => {
+                assert_eq!(delivery_mode, delivery_mode::PERSISTENT);
+                assert_eq!(routing_key, "order.created");
+                assert_eq!(headers.len(), 1);
+            }
+            _ => panic!("应解析为 RabbitMQ 请求"),
+        }
+    }
+
+    #[test]
+    fn rabbit_request_defaults_to_transient() {
+        // 少传投递模式时默认非持久化：测试消息不该顺手写进磁盘。
+        let request: SendRequest = serde_json::from_value(serde_json::json!({
+            "kind": "rabbitMq",
+            "connectionId": "id",
+            "routingKey": "q",
+            "payload": "x"
+        }))
+        .expect("反序列化失败");
+
+        assert!(matches!(
+            request,
+            SendRequest::RabbitMq {
+                delivery_mode: delivery_mode::TRANSIENT,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn unknown_kind_is_rejected() {
+        // 拼错中间件名不能退化成某个默认分支：宁可报错，也不要发到不该去的地方。
+        let parsed = serde_json::from_value::<SendRequest>(serde_json::json!({
+            "kind": "rabbitmq",
+            "connectionId": "id",
+            "routingKey": "q",
+            "payload": "x"
+        }));
+        assert!(parsed.is_err());
+    }
 }

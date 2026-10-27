@@ -87,15 +87,39 @@ export interface MessageSearch {
   contentBudget?: string;
 }
 
-export interface SendRequest {
+/**
+ * 发送请求：两种中间件各说各的，不是一张表单。
+ *
+ * 原来是一个扁平的 `{ target, key, exchange }`，字段按中间件互相忽略 ——
+ * `exchange` 在 Kafka 下永远传 undefined，`key` 在 RabbitMQ 下永远是空。
+ * 看起来只是多两个字段，实际是把「填了没用」写进了类型里：新加一种中间件时，
+ * 没人知道哪些字段是它的。现在按 kind 分叉，缺字段是编译错误，不是运行时静默忽略。
+ */
+export type SendRequest = KafkaSendRequest | RabbitMqSendRequest;
+
+/** Kafka：投到 topic，`key` 决定分区落点。 */
+export interface KafkaSendRequest {
+  kind: "kafka";
   connectionId: string;
-  /** Kafka 为 topic，RabbitMQ 为 routing key。 */
-  target: string;
+  /** 目标 topic。 */
+  topic: string;
+  /** 消息 key；空着则由 partitioner 轮询选分区。 */
   key?: string;
   payload: string;
+}
+
+/** RabbitMQ：投到 exchange + routing key，由交换机决定去哪些队列。 */
+export interface RabbitMqSendRequest {
+  kind: "rabbitMq";
+  connectionId: string;
+  /** 目标交换机；空串表示默认交换机（按 routing key 直投同名队列）。 */
+  exchange: string;
+  /** routing key。 */
+  routingKey: string;
+  payload: string;
+  /** 投递模式：持久化消息（`2`）在 broker 重启后仍在，非持久化（`1`）不在。 */
+  deliveryMode: number;
   headers: MessageHeader[];
-  /** RabbitMQ 交换机；Kafka 忽略。 */
-  exchange?: string;
 }
 
 export interface SendOutcome {

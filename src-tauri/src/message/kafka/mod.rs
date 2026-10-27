@@ -23,7 +23,7 @@ use rdkafka::error::KafkaError;
 use rdkafka::util::Timeout;
 
 use crate::broker::kafka::KafkaClient;
-use crate::domain::{MessageDetail, MessagePage, MessageQuery, MessageSummary, SendRequest};
+use crate::domain::{MessageDetail, MessagePage, MessageQuery, MessageSummary};
 use crate::error::{AppError, AppResult};
 
 use self::dto::summary_from_message;
@@ -295,21 +295,17 @@ pub async fn detail(client: &KafkaClient, id: &str) -> AppResult<MessageDetail> 
 }
 
 /// 发送消息。
-pub async fn send(client: &KafkaClient, request: SendRequest) -> AppResult<String> {
-    let headers: Vec<(String, String)> = request
-        .headers
-        .iter()
-        .map(|header| (header.key.clone(), header.value.clone()))
-        .collect();
-
-    client
-        .send(
-            &request.target,
-            request.key.as_deref(),
-            request.payload.as_bytes(),
-            &headers,
-        )
-        .await
+///
+/// Kafka 侧只有三样东西：topic、key、payload。没有交换机、没有投递模式，
+/// record headers 也和 AMQP 的 headers 不是一套东西 —— 所以签名里干脆不给这些参数，
+/// 而不是收一个宽请求再从中挑几项用（那正是上一版「填了不生效」的来源）。
+pub async fn send(
+    client: &KafkaClient,
+    topic: &str,
+    key: Option<&str>,
+    payload: &[u8],
+) -> AppResult<String> {
+    client.send(topic, key, payload, &[]).await
 }
 
 #[cfg(test)]

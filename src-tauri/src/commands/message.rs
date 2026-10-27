@@ -303,23 +303,68 @@ pub async fn get_message(
 }
 
 /// 发送消息。
+///
+/// 参数按中间件分成两个入口：Kafka 只认 topic / key / payload，RabbitMQ 认
+/// exchange / routing key / delivery mode / headers。合成一条路径的代价是
+/// 「填了但没生效」——那是最难自查的一类问题，所以这里宁可多一个 match 分支。
 #[tauri::command]
 pub async fn send_message(
     state: State<'_, AppState>,
     request: SendRequest,
 ) -> AppResult<SendOutcome> {
-    ensure_payload(&request)?;
-
-    let id = ConnectionId(request.connection_id.clone());
-    let connection = state.connections.get(&id).await?;
-
-    let kind = connection.kind();
-    let detail = match kind {
-        BrokerKind::Kafka => message::kafka::send(connection.as_kafka()?, request).await?,
-        BrokerKind::RabbitMq => message::rabbitmq::send(connection.as_rabbitmq()?, request).await?,
-    };
-
-    Ok(SendOutcome { kind, detail })
+    match &request {
+        SendRequest::Kafka {
+            connection_id,
+            topic,
+            key,
+            payload,
+        } => {
+            ensure_payload(payload)?;
+            let connection = state
+                .connections
+                .get(&ConnectionId(connection_id.clone()))
+                .await?;
+            let detail = message::kafka::send(
+                connection.as_kafka()?,
+                topic,
+                key.as_deref(),
+                payload.as_bytes(),
+            )
+            .await?;
+            Ok(SendOutcome {
+                kind: BrokerKind::Kafka,
+                detail,
+            })
+        }
+        SendRequest::RabbitMq {
+            connection_id,
+            exchange,
+            routing_key,
+            payload,
+            delivery_mode,
+            headers,
+        } => {
+            ensure_payload(payload)?;
+            ensure_delivery_mode(*delivery_mode)?;
+            let connection = state
+                .connections
+                .get(&ConnectionId(connection_id.clone()))
+                .await?;
+            let detail = message::rabbitmq::send(
+                connection.as_rabbitmq()?,
+                exchange,
+                routing_key,
+                payload.as_bytes(),
+                *delivery_mode,
+                headers,
+            )
+            .await?;
+            Ok(SendOutcome {
+                kind: BrokerKind::RabbitMq,
+                detail,
+            })
+        }
+    }
 }
 
 /// 单条消息的处置能力：能不能重投、能不能进死信，以及不能的原因。
@@ -412,11 +457,24 @@ pub async fn resend_message(
 }
 
 /// 当请求体为空时统一给出可读错误，避免向下层传空 payload。
-fn ensure_payload(request: &SendRequest) -> AppResult<()> {
-    if request.payload.is_empty() {
+fn ensure_payload(payload: &str) -> AppResult<()> {
+    if payload.is_empty() {
         return Err(AppError::Invalid("消息内容不能为空".to_owned()));
     }
     Ok(())
+}
+
+/// 投递模式只接受 1 / 2。
+///
+/// lapin 的 `with_delivery_mode` 收到别的数字不会报错，只是当没设过 ——
+/// 于是「我勾了持久化」和「我以为自己勾了持久化」在界面上长得一模一样。
+fn ensure_delivery_mode(mode: u8) -> AppResult<()> {
+    if crate::domain::delivery_mode::is_valid(mode) {
+        return Ok(());
+    }
+    Err(AppError::Invalid(format!(
+        "投递模式只能是 1（非持久化）或 2（持久化），收到 {mode}"
+    )))
 }
 
 #[cfg(test)]
@@ -425,14 +483,16 @@ mod tests {
 
     #[test]
     fn empty_payload_is_rejected() {
-        let request = SendRequest {
-            connection_id: "id".to_owned(),
-            target: "topic".to_owned(),
-            key: None,
-            payload: String::new(),
-            headers: Vec::new(),
-            exchange: None,
-        };
-        assert!(ensure_payload(&request).is_err());
+        assert!(ensure_payload("").is_err());
+        assert!(ensure_payload(" ").is_ok());
+    }
+
+    #[test]
+    fn delivery_mode_only_accepts_broker_values() {
+        assert!(ensure_delivery_mode(1).is_ok());
+        assert!(ensure_delivery_mode(2).is_ok());
+        // 0 是「没设过」，3 是别处的枚举值，两者都不该被悄悄忽略。
+        assert!(ensure_delivery_mode(0).is_err());
+        assert!(ensure_delivery_mode(3).is_err());
     }
 }
