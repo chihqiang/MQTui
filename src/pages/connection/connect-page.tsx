@@ -2,25 +2,23 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { ArrowRight, Plug, Server, Trash2 } from "lucide-react";
 
-import { Button, Card, Field, Input, Modal } from "@/components/ui";
+import { Button, Card } from "@/components/ui";
 import { useOpenConnection } from "@/hooks/use-connections";
 import { usePluginKinds } from "@/hooks/use-plugin-kinds";
 import { cn } from "@/lib/cn";
 import { BROKER_LABEL } from "@/lib/nav";
 import {
-  clearDraft,
   deleteSavedConnection,
   getSavedConnection,
   listSavedConnections,
   type SavedConnection,
 } from "@/lib/session-storage";
-import type { BrokerKind, ConnectionConfig, SaslMechanism, TlsMode } from "@/types";
+import type { BrokerKind, SaslMechanism, TlsMode } from "@/types";
 
-import { ConnectionFormKafka } from "./forms/kafka-form";
-import { ConnectionFormRabbitMq } from "./forms/rabbitmq-form";
+import { ConnectWizard } from "./connect-wizard";
 
 /**
- * 首页：选一种中间件，弹窗里填连接信息。
+ * 首页：选一种中间件，弹窗里两步建连接。
  *
  * 形态上刻意**不**做「连接记录 / 新建连接」两个页签：
  *
@@ -30,6 +28,8 @@ import { ConnectionFormRabbitMq } from "./forms/rabbitmq-form";
  *
  * 现在版面只回答一个问题：连哪种？点卡片 → 弹窗 → 填完就连。
  * 连过的环境仍然留在同一页下方，但它是「历史」，不再和新建抢视觉重量。
+ *
+ * 顶栏的「＋」走的是同一个向导（`/`「?new=1`），所以两条入口长得一样。
  */
 
 /** 每种中间件一句人话 + 默认端口。文案属于界面，不进后端清单。 */
@@ -38,12 +38,11 @@ const KIND_HINT: Record<BrokerKind, { summary: string; port: string }> = {
   rabbitMq: { summary: "队列、交换机、绑定与消息处置", port: "15672（管理 API）" },
 };
 
-/** 弹窗当前要连的目标；`saved` 非空表示从连接记录里打开的（带原名与预填配置）。 */
+/** 向导当前要连的目标；`saved` 非空表示从连接记录里打开的（带原名与预填配置）。 */
 type Target = {
-  kind: BrokerKind;
+  /** 为空表示停在第一步，让用户自己选中间件。 */
+  kind: BrokerKind | null;
   saved?: SavedConnection;
-  /** 从「重连/补口令」进来时直接开弹窗，里面已填好那一条。 */
-  name: string;
 };
 
 export function ConnectPage() {
@@ -52,7 +51,6 @@ export function ConnectPage() {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [target, setTarget] = useState<Target | null>(null);
-  const [save, setSave] = useState(false);
   // 已保存列表是 localStorage 而非服务端数据，用一次读取 + 手动刷新保持简单。
   const [saved, setSaved] = useState<SavedConnection[]>(() => listSavedConnections());
   const openConnection = useOpenConnection();
@@ -68,29 +66,7 @@ export function ConnectPage() {
     if (!openConnection.isPending) setPendingId(null);
   }, [openConnection.isPending]);
 
-  const closeDialog = useCallback(() => {
-    if (openConnection.isPending) return;
-    setTarget(null);
-  }, [openConnection.isPending]);
-
-  const submit = (config: ConnectionConfig) => {
-    const name = target?.name || defaultName(config);
-    openConnection.mutate(
-      { name, config, save },
-      {
-        onSuccess: (summary) => {
-          // 连上了就说明配置有效，草稿没用了，清掉免得下次残留半成品。
-          clearDraft(config.kind);
-          setSave(false);
-          setTarget(null);
-          setSaved(listSavedConnections());
-          // 弹窗开着连上之后自动落进工作区：用户填完信息是为了看数据，
-          // 不是为了回到这页看到一句「已连接」。
-          navigate(`/connections/${summary.id}`);
-        },
-      },
-    );
-  };
+  const closeWizard = useCallback(() => setTarget(null), []);
 
   /** 记录行上的「重连」：直接连，不弹窗、不用重填。 */
   const reconnect = useCallback(
@@ -110,13 +86,24 @@ export function ConnectPage() {
    * 弹窗里带着那一条的原名与原配置 —— 同名同类型会覆盖保存，所以改完直接落回同一条记录。
    */
   const editSaved = useCallback((entry: SavedConnection) => {
-    setTarget({ kind: entry.config.kind, saved: entry, name: entry.name });
+    setTarget({ kind: entry.config.kind, saved: entry });
   }, []);
 
   const removeSaved = useCallback((entry: SavedConnection) => {
     deleteSavedConnection(entry.id);
     setSaved(listSavedConnections());
   }, []);
+
+  /**
+   * `?new=1` 是顶栏「＋」的入口：它落在首页而不是弹一个独立弹窗，
+   * 这样从任何页面点「＋」都会回到同一处，关掉向导也不会把用户留在空页面上。
+   */
+  const wantsNew = searchParams.get("new") === "1";
+  useEffect(() => {
+    if (!wantsNew) return;
+    setSearchParams({}, { replace: true });
+    setTarget({ kind: null });
+  }, [wantsNew, setSearchParams]);
 
   // `?resume=<id>` 来自「连接不存在」页的重连按钮：自动带上已保存的配置再连一次。
   const resumeId = searchParams.get("resume");
@@ -142,7 +129,7 @@ export function ConnectPage() {
           开始使用
         </h1>
         <p className="mt-1 text-(length:--text-app-body) leading-relaxed text-slate-500">
-          选择要连接的中间件，在弹出的窗口里填连接信息
+          选择要连接的中间件，下一步填连接信息
         </p>
 
         <div className="mt-5 grid gap-2 sm:grid-cols-2">
@@ -151,7 +138,7 @@ export function ConnectPage() {
               key={plugin.kind}
               kind={plugin.kind}
               displayName={plugin.displayName}
-              onPick={() => setTarget({ kind: plugin.kind, name: "" })}
+              onPick={() => setTarget({ kind: plugin.kind })}
             />
           ))}
         </div>
@@ -184,106 +171,22 @@ export function ConnectPage() {
         </div>
       </div>
 
-      {/* 弹窗按 key 重建：换一条记录 / 换一种中间件时表单状态必须整套换掉，
-          否则会看到上一条的地址留在输入框里。 */}
+      {/* 向导自己管步骤；这里只在关掉时刷新记录列表 —— 勾了「保存」之后，
+          首页下方那一段应该立刻多一条。 */}
       {target ? (
-        <ConnectDialog
-          key={`${target.kind}:${target.saved?.id ?? "new"}`}
-          target={target}
-          submitting={openConnection.isPending}
-          save={save}
-          onSaveChange={setSave}
-          onSubmit={submit}
-          onClose={closeDialog}
+        <ConnectWizard
+          open
+          initialKind={target.kind}
+          initialSaved={target.saved ?? null}
+          onClose={() => {
+            closeWizard();
+            setSaved(listSavedConnections());
+          }}
         />
       ) : null}
     </div>
   );
 }
-
-/**
- * 填连接信息的弹窗。
- *
- * 抽出来是为了 `key` 能重建它 —— 表单的初值来自草稿或已保存记录，
- * 只在挂载时读一次。
- */
-function ConnectDialog({
-  target,
-  submitting,
-  save,
-  onSaveChange,
-  onSubmit,
-  onClose,
-}: {
-  target: Target;
-  submitting: boolean;
-  save: boolean;
-  onSaveChange: (next: boolean) => void;
-  onSubmit: (config: ConnectionConfig) => void;
-  onClose: () => void;
-}) {
-  const [name, setName] = useState(target.name);
-  const hint = KIND_HINT[target.kind];
-  const editing = Boolean(target.saved);
-
-  return (
-    <Modal
-      open
-      size="sm"
-      title={`连接 ${BROKER_LABEL[target.kind]}`}
-      onClose={onClose}
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose} disabled={submitting}>
-            取消
-          </Button>
-          {/* 表单本体在滚动区里，提交按钮放在页脚才不会随字段增减跑掉。
-              靠 form 属性把页脚按钮接回弹窗里的 <form>。 */}
-          <Button type="submit" form={FORM_ID} loading={submitting}>
-            连接
-          </Button>
-        </>
-      }
-    >
-      <div className="flex flex-col gap-4">
-        <p className="text-(length:--text-app-meta) leading-relaxed text-meta">
-          {hint.summary}
-          {editing ? " · 改完保存会覆盖同名同类型的记录" : ""}
-        </p>
-
-        <Field label="连接名称（可选）" hint="同名同类型会覆盖已保存的连接">
-          <Input
-            value={name}
-            onChange={(event) => setName(event.currentTarget.value)}
-            placeholder={target.kind === "kafka" ? "例如：本地 Kafka" : "例如：本地 RabbitMQ"}
-            autoFocus
-          />
-        </Field>
-
-        {target.kind === "kafka" ? (
-          <ConnectionFormKafka
-            formId={FORM_ID}
-            onSubmit={onSubmit}
-            save={save}
-            onSaveChange={onSaveChange}
-            initialConfig={target.saved?.config.kind === "kafka" ? target.saved.config : null}
-          />
-        ) : (
-          <ConnectionFormRabbitMq
-            formId={FORM_ID}
-            onSubmit={onSubmit}
-            save={save}
-            onSaveChange={onSaveChange}
-            initialConfig={target.saved?.config.kind === "rabbitMq" ? target.saved.config : null}
-          />
-        )}
-      </div>
-    </Modal>
-  );
-}
-
-/** 弹窗里表单的 id：页脚按钮靠它提交滚动区里的表单。 */
-const FORM_ID = "connect-form";
 
 /** 一张中间件卡片：整张可点，点下去就开弹窗。 */
 function KindCard({
@@ -428,11 +331,6 @@ function EmptySaved() {
       </div>
     </div>
   );
-}
-
-/** 没填名字时的默认名。只用中间件名：端点已经单列在记录行第二行，名字里再重复一遍只会让一行读两遍同样的地址。 */
-function defaultName(config: ConnectionConfig): string {
-  return config.kind === "kafka" ? "Kafka" : "RabbitMQ";
 }
 
 /** 表单公共的提交区：保存开关。提交按钮在弹窗页脚上。 */

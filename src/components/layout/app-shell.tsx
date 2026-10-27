@@ -53,7 +53,9 @@ export function AppShell() {
 
   return (
     <div
-      className="flex h-screen flex-col overflow-hidden bg-slate-50 text-slate-800"
+      // `animate-fade-in` 带上 `both` 填充模式：首帧就从透明开始，而不是先闪一帧
+      // 不透明再淡入 —— 后者正是「黑一下 / 白一下」观感的来源。
+      className="animate-fade-in flex h-screen flex-col overflow-hidden bg-slate-50 text-slate-800 [animation-fill-mode:both]"
       // 次级字号只有一个来源：`--text-app-meta` 原先写死在 `@theme` 里，
       // 组件全用 `text-(length:--text-app-meta)`，所以在这里覆盖一次就全站生效，
       // 不需要每个组件各读一遍偏好。

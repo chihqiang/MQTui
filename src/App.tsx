@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { Outlet, RouterProvider } from "react-router";
 
 import { CommandPalette } from "./components/layout/command-palette";
@@ -34,6 +34,12 @@ export default function App() {
  * 而不是在 `App` 里和 `RouterProvider` 并排。
  */
 export function RootLayout({ children }: { children?: ReactNode }) {
+  // 首帧挂上了：`index.html` 里那条占位进度条只该活到 React 接管为止，
+  // 留着它会一直贴在窗口顶上。
+  useEffect(() => {
+    document.querySelector(".boot-bar")?.remove();
+  }, []);
+
   return (
     <>
       {children ?? <Outlet />}

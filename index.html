@@ -4,10 +4,51 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Tauri + React + Typescript</title>
+    <!-- 窗口底色跟着浅色主题走：Tauri 的 webview 在 CSS 解析完之前是白的（深色系统上
+         甚至会是黑的），首帧那一闪就是这个底色。这里顺带把 --color-slate-50 写进
+         html，让背板从窗口创建起就是应用自己的颜色。 -->
+    <meta name="color-scheme" content="light" />
+    <title>MQTui</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background-color: #f8fafc;
+      }
+      #root {
+        height: 100%;
+      }
+      /* 启动占位：主包解析完之前先画一条细的靛蓝进度条，而不是整片空背板。
+         进度条本身不改布局（fixed），React 挂载后整体被 root 覆盖掉。 */
+      .boot-bar {
+        position: fixed;
+        inset: 0 0 auto 0;
+        height: 2px;
+        overflow: hidden;
+        background-color: #e2e8f0;
+      }
+      .boot-bar::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        width: 40%;
+        background-color: #4f46e5;
+        animation: boot-slide 1s ease-in-out infinite;
+      }
+      @keyframes boot-slide {
+        from {
+          transform: translateX(-100%);
+        }
+        to {
+          transform: translateX(250%);
+        }
+      }
+    </style>
   </head>
 
   <body>
+    <div class="boot-bar"></div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

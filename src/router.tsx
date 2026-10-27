@@ -1,4 +1,4 @@
-import { Suspense } from "react";
+import { Suspense, lazy, type ComponentType } from "react";
 import { Outlet, createBrowserRouter } from "react-router";
 
 import { RootLayout } from "@/App";
@@ -6,7 +6,6 @@ import { AppShell } from "@/components/layout/app-shell";
 import { PageLoading } from "@/components/ui";
 import {
   ClusterPage,
-  ConnectPage,
   ConsumerGraphPage,
   ConsumersPage,
   ConsumerGroupsPage,
@@ -27,6 +26,22 @@ import {
   TopologyPage,
   WorkspacePage,
 } from "@/pages";
+
+/**
+ * 首页（选中间件 + 连接记录）也拆包，但**同步预载**。
+ *
+ * 只把它写进 `lazy` 的话，首帧会先画外壳、再等一个 chunk，中间空一帧；
+ * 干脆放进主包又会让每次改首页都动到主 chunk。折中：`lazy` 保留分包，
+ * 但模块一被解析就用同一个 import 把 chunk 预热掉 —— 等路由真要渲染它时，
+ * promise 已经 resolve，`Suspense` 的 fallback 一次都不会出现。
+ */
+const loadConnectPage = () => import("./pages/connection/connect-page");
+const ConnectPage = lazy(async () => {
+  const module = await loadConnectPage();
+  return { default: module.ConnectPage as ComponentType };
+});
+// 冷启动预热：不 await，失败也无关紧要（真的失败时路由会再 import 一次并报错）。
+void loadConnectPage();
 
 /**
  * 路由表。

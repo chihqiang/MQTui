@@ -96,8 +96,10 @@ export function TopBar({
             <span>{connections?.length} 个连接</span>
           </NavLink>
         ) : null}
+        {/* 新建连接：进首页并用 `?new=1` 唤起向导（先选中间件、下一步填参数）。
+            以前这里只是一条回首页的链接，点下去看到的是「开始使用」而不是弹窗。 */}
         <NavLink
-          to="/"
+          to="/?new=1"
           title="新建连接"
           aria-label="新建连接"
           className="flex size-7 items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900"
