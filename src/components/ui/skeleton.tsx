@@ -7,6 +7,11 @@ import { cn } from "@/lib/cn";
  *
  * 比「加载中…」多给一点信息：占位的形状就是内容将来的形状，数据到位时
  * 页面不会整体跳动。最后一行刻意收窄，视觉上有收尾，不像被截断。
+ *
+ * 底色必须是**浅色**。这里原来是 `slate-800 → slate-700` 的深色渐变，是深色主题
+ * 时期的遗留：浅色界面上每一个骨架块都变成一条深灰杠，整屏看下去像玻璃碎了一地，
+ * 而且只要哪一页还在等数据，这一页就长得像坏了。用 slate-200 ↔ slate-100
+ * 的微光代替 —— 占位应该安静，不该比内容更响。
  */
 export function Skeleton({ className, style }: { className?: string; style?: CSSProperties }) {
   return (
@@ -14,7 +19,7 @@ export function Skeleton({ className, style }: { className?: string; style?: CSS
       aria-hidden
       style={style}
       className={cn(
-        "animate-shimmer rounded bg-linear-to-r from-slate-800 via-slate-700/60 to-slate-800",
+        "animate-shimmer rounded bg-linear-to-r from-slate-200 via-slate-100 to-slate-200",
         "bg-[length:200%_100%]",
         className,
       )}

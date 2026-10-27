@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
-import { ArrowRight, Plug, Server, Trash2 } from "lucide-react";
+import { ArrowRight, Plug, Plus, Server, Trash2 } from "lucide-react";
+
+import { IconClose } from "@/lib/icons";
 
 import { Button, Card } from "@/components/ui";
 import { useOpenConnection } from "@/hooks/use-connections";
 import { usePluginKinds } from "@/hooks/use-plugin-kinds";
 import { cn } from "@/lib/cn";
 import { BROKER_LABEL } from "@/lib/nav";
+import { canReconnect, reconnectLabel } from "@/lib/reconnect";
 import {
   deleteSavedConnection,
   getSavedConnection,
@@ -18,7 +21,7 @@ import type { BrokerKind, SaslMechanism, TlsMode } from "@/types";
 import { ConnectWizard } from "./connect-wizard";
 
 /**
- * 首页：选一种中间件，弹窗里两步建连接。
+ * 首页：一条记录都没有时问「连哪种」，有记录时先摆记录。
  *
  * 形态上刻意**不**做「连接记录 / 新建连接」两个页签：
  *
@@ -26,10 +29,13 @@ import { ConnectWizard } from "./connect-wizard";
  *   用户得先看懂这一页有几块内容，才知道从哪开始；
  * - 而选中间件本质上只有两三个选项，是一次选择、不是一段状态。
  *
- * 现在版面只回答一个问题：连哪种？点卡片 → 弹窗 → 填完就连。
- * 连过的环境仍然留在同一页下方，但它是「历史」，不再和新建抢视觉重量。
+ * 两套版面的分界是 `saved.length`：空的时候这一页的任务是「教会你连一个」，
+ * 有记录之后任务是「把上次那台接回来」。所以有记录时标题、顺序都跟着换 ——
+ * 记录在最上面，新建收成一行。让每天要点的东西排在一年点两次的东西后面，
+ * 是这一页最早犯的错。
  *
- * 顶栏的「＋」走的是同一个向导（`/`「?new=1`），所以两条入口长得一样。
+ * 顶栏的「＋」走的是同一个向导（`/?new=1`），所以两条入口长得一样 ——
+ * 早先它只是一条回首页的链接，点下去看到的是这页本身，观感就是「点了没反应」。
  */
 
 /** 每种中间件一句人话 + 默认端口。文案属于界面，不进后端清单。 */
@@ -51,6 +57,12 @@ export function ConnectPage() {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [target, setTarget] = useState<Target | null>(null);
+  /**
+   * 顶栏「＋」是唯一一个「跳转 + 立刻弹窗」的入口：页面会在脚下换掉，
+   * 再盖一层弹窗，用户很容易以为刚才那下点空了。这里留一条可关闭的提示，
+   * 把「你现在停在哪一步」写出来。
+   */
+  const [justArrived, setJustArrived] = useState(false);
   // 已保存列表是 localStorage 而非服务端数据，用一次读取 + 手动刷新保持简单。
   const [saved, setSaved] = useState<SavedConnection[]>(() => listSavedConnections());
   const openConnection = useOpenConnection();
@@ -86,6 +98,7 @@ export function ConnectPage() {
    * 弹窗里带着那一条的原名与原配置 —— 同名同类型会覆盖保存，所以改完直接落回同一条记录。
    */
   const editSaved = useCallback((entry: SavedConnection) => {
+    setJustArrived(false);
     setTarget({ kind: entry.config.kind, saved: entry });
   }, []);
 
@@ -103,6 +116,7 @@ export function ConnectPage() {
     if (!wantsNew) return;
     setSearchParams({}, { replace: true });
     setTarget({ kind: null });
+    setJustArrived(true);
   }, [wantsNew, setSearchParams]);
 
   // `?resume=<id>` 来自「连接不存在」页的重连按钮：自动带上已保存的配置再连一次。
@@ -117,6 +131,7 @@ export function ConnectPage() {
     );
   }, [pendingResume, openConnection, setSearchParams, navigate]);
 
+  const hasSaved = saved.length > 0;
   const pluginList = useMemo(
     () => plugins ?? [{ kind: "kafka" as BrokerKind, displayName: "Kafka", capabilities: [] }],
     [plugins],
@@ -125,36 +140,38 @@ export function ConnectPage() {
   return (
     <div className="h-full overflow-auto">
       <div className="mx-auto w-full max-w-2xl px-6 py-8">
-        <h1 className="text-(length:--text-app-display) font-semibold tracking-tight text-slate-900">
-          开始使用
-        </h1>
-        <p className="mt-1 text-(length:--text-app-body) leading-relaxed text-slate-500">
-          选择要连接的中间件，下一步填连接信息
-        </p>
-
-        <div className="mt-5 grid gap-2 sm:grid-cols-2">
-          {pluginList.map((plugin) => (
-            <KindCard
-              key={plugin.kind}
-              kind={plugin.kind}
-              displayName={plugin.displayName}
-              onPick={() => setTarget({ kind: plugin.kind })}
-            />
-          ))}
-        </div>
-
-        <div className="mt-7">
-          <div className="mb-2 flex items-baseline justify-between gap-2">
-            <h2 className="text-(length:--text-app-body) font-semibold text-slate-800">连接记录</h2>
-            <span className="text-(length:--text-app-meta) text-meta">
-              {saved.length > 0 ? "点「重连」直接接回去" : "连过一次之后会留在这里"}
+        {/* 从别的页面点「＋」进来时说明一句。它只在本次跳转后出现，
+            刷新或手动关掉都不会再来 —— 常态页面不该常驻一条指南。 */}
+        {justArrived ? (
+          <div
+            role="status"
+            className="animate-fade-in mb-4 flex items-start gap-2 rounded-lg border border-indigo-100 bg-indigo-50/70 px-3 py-2 text-(length:--text-app-meta) text-slate-600"
+          >
+            <span className="min-w-0 flex-1 leading-relaxed">
+              已打开新建向导：<span className="font-medium text-slate-800">先选中间件</span>，下一步填连接地址与凭据。
             </span>
+            <button
+              type="button"
+              onClick={() => setJustArrived(false)}
+              aria-label="关闭提示"
+              className="shrink-0 rounded p-0.5 text-meta transition-colors hover:text-slate-900"
+            >
+              <IconClose size={12} />
+            </button>
           </div>
+        ) : null}
+        {/* 有记录之后，这一页的主角是记录：每天要点的是它，选中间件一辈子点几次。
+            所以标题、顺序、视觉重量都跟着状态换一次，而不是让「开始使用」常驻在最上面。 */}
+        {hasSaved ? (
+          <>
+            <h1 className="text-(length:--text-app-display) font-semibold tracking-tight text-slate-900">
+              连接记录
+            </h1>
+            <p className="mt-1 text-(length:--text-app-body) leading-relaxed text-slate-500">
+              点「重连」直接接回去；换地址或口令走「编辑连接」
+            </p>
 
-          {saved.length === 0 ? (
-            <EmptySaved />
-          ) : (
-            <ul className="flex flex-col gap-2">
+            <ul className="mt-5 flex flex-col gap-2">
               {saved.map((entry) => (
                 <li key={entry.id}>
                   <SavedRow
@@ -167,8 +184,43 @@ export function ConnectPage() {
                 </li>
               ))}
             </ul>
-          )}
-        </div>
+
+            <NewConnectionRow
+              kinds={pluginList}
+              onPick={(kind) => {
+                setJustArrived(false);
+                setTarget({ kind });
+              }}
+            />
+          </>
+        ) : (
+          <>
+            <h1 className="text-(length:--text-app-display) font-semibold tracking-tight text-slate-900">
+              开始使用
+            </h1>
+            <p className="mt-1 text-(length:--text-app-body) leading-relaxed text-slate-500">
+              选择要连接的中间件，下一步填连接信息
+            </p>
+
+            <div className="mt-5 grid gap-2 sm:grid-cols-2">
+              {pluginList.map((plugin) => (
+                <KindCard
+                  key={plugin.kind}
+                  kind={plugin.kind}
+                  displayName={plugin.displayName}
+                  onPick={() => {
+                    setJustArrived(false);
+                    setTarget({ kind: plugin.kind });
+                  }}
+                />
+              ))}
+            </div>
+
+            <p className="mt-3 text-(length:--text-app-meta) text-meta">
+              连过一次之后会留在这里，下次点一下就回来
+            </p>
+          </>
+        )}
       </div>
 
       {/* 向导自己管步骤；这里只在关掉时刷新记录列表 —— 勾了「保存」之后，
@@ -184,6 +236,36 @@ export function ConnectPage() {
           }}
         />
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * 有记录时，「新建」收成一行。
+ *
+ * 之前两块都是卡片：上面两张选类型的大卡、下面一列记录。等记录攒到五条，
+ * 每天要点的东西被两张每年点一次的卡挤到了下面 —— 层级是按「第一次使用」排的。
+ * 现在新建只用一行说明 + 两个小按钮，位置在记录之后，点完还是同一个向导。
+ */
+function NewConnectionRow({
+  kinds,
+  onPick,
+}: {
+  kinds: { kind: BrokerKind; displayName: string }[];
+  onPick: (kind: BrokerKind) => void;
+}) {
+  return (
+    <div className="mt-6 flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-slate-300 px-3 py-2.5">
+      <Plus className="size-3.5 shrink-0 text-meta" />
+      <span className="text-(length:--text-app-meta) text-secondary">新建连接</span>
+      {kinds.map((item) => (
+        <Button key={item.kind} size="sm" variant="ghost" onClick={() => onPick(item.kind)}>
+          {item.displayName}
+        </Button>
+      ))}
+      <span className="ml-auto text-(length:--text-app-micro) text-meta">
+        也可以按顶部「＋」，从第一步选起
+      </span>
     </div>
   );
 }
@@ -256,7 +338,8 @@ function SavedRow({
   const user = config.auth.username?.trim();
   // 存下来的凭据缺口令时，「重连」一定失败。与其让人点了收到一句报错，
   // 不如在行上直接标出来，并把主动作换成「补口令」。
-  const missingSecret = Boolean(user) && !config.auth.password;
+  // 判据放在 `lib/reconnect.ts`：命令面板里的「重连」读的是同一份规则。
+  const missingSecret = !canReconnect(entry);
 
   return (
     <Card className="flex items-center gap-3 px-3 py-2 transition-colors hover:ring-slate-300">
@@ -298,8 +381,9 @@ function SavedRow({
         variant={missingSecret ? "secondary" : "primary"}
         loading={busy}
         onClick={onReconnect}
+        title={busy ? `正在连接 ${entry.name}` : `重新连接 ${entry.name}`}
       >
-        重连
+        {reconnectLabel(entry.name, busy)}
       </Button>
       <button
         type="button"
@@ -310,26 +394,6 @@ function SavedRow({
         <Trash2 className="size-3.5" />
       </button>
     </Card>
-  );
-}
-
-function EmptySaved() {
-  return (
-    // 空态是**引导**而不是一块占位：一句标题 + 一句说明即可，
-    // 上面的中间件卡片本来就是下一步能点的东西，这里不再放第二个按钮。
-    <div className="flex items-center gap-3 rounded-xl bg-white px-3 py-3 ring-1 ring-slate-200">
-      <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-slate-100 text-secondary">
-        <Plug className="size-3.5" />
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="text-(length:--text-app-body) font-medium text-slate-800">
-          还没有连过的环境
-        </p>
-        <p className="text-(length:--text-app-meta) text-meta">
-          连上一次之后，这里会留下地址与用户名，下次点一下就回来
-        </p>
-      </div>
-    </div>
   );
 }
 

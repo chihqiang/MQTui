@@ -1,5 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { connectFailureLine } from "@/lib/connect-failure";
+import { toAppError } from "@/lib/errors";
 import { rememberConnection, saveConnection } from "@/lib/session-storage";
 import { brokerService, queryKeys } from "@/services";
 import { useSessionStore } from "@/stores";
@@ -52,8 +54,19 @@ export function useOpenConnection() {
       pushToast("success", `已连接 ${input.name}`);
       void queryClient.invalidateQueries({ queryKey: queryKeys.connections() });
     },
-    onError: (error: { message: string }) => pushToast("error", error.message),
+    onError: (error, input) => {
+      const payload = toAppError(error);
+      // 失败时不在 toast 里念后端原文：连不上的时候人要听的是「该改哪一处」。
+      // 完整的错误仍然留在向导里（`ConnectWizard` 的表单上方），可展开看原文。
+      pushToast("error", connectFailureLine(payload, endpointOf(input)));
+    },
   });
+}
+
+/** 错误摘要里用来指认「连的是哪儿」的那一段地址。 */
+function endpointOf(input: OpenConnectionInput): string {
+  const config = input.config;
+  return config.kind === "kafka" ? config.brokers.join(", ") : `${config.host}:${config.port}`;
 }
 
 /** 关闭连接。 */
