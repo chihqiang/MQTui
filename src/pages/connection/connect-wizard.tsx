@@ -8,9 +8,10 @@ import { isTypingTarget } from "@/lib/command-palette";
 import { connectFailure, focusField, type ConnectFailure } from "@/lib/connect-failure";
 import { toAppError } from "@/lib/errors";
 import { BROKER_LABEL } from "@/lib/nav";
-import { clearDraft, type SavedConnection } from "@/lib/session-storage";
+import { clearDraft, readDraft, type SavedConnection } from "@/lib/session-storage";
 import type { BrokerKind, ConnectionConfig } from "@/types";
 
+import { FORM_DEFAULTS } from "./connect-page";
 import { ConnectionFormKafka } from "./forms/kafka-form";
 import { ConnectionFormRabbitMq } from "./forms/rabbitmq-form";
 
@@ -33,6 +34,12 @@ type Builder = {
   /** 非空表示从连接记录里「编辑」，此时带原名、原配置。 */
   saved?: SavedConnection;
   name: string;
+  /**
+   * 只有地址的历史（`recent-connections` 存不下口令）预填用。
+   *
+   * 它不是「配置」—— 配置缺失的字段仍走表单默认值与草稿，这里只覆盖地址那一格。
+   */
+  endpoint?: string | null;
 };
 
 export function ConnectWizard({
@@ -41,6 +48,11 @@ export function ConnectWizard({
   initialKind,
   /** 初始要编辑的记录；有值时跳过第一步，直接进表单。 */
   initialSaved,
+  /**
+   * 只记得地址的历史（`recent-connections` 没有口令）：
+   * 有值时进表单，并把地址预填进去 —— 用户只需要补口令。
+   */
+  initialEndpoint,
   onClose,
 }: {
   open: boolean;
@@ -54,12 +66,17 @@ export function ConnectWizard({
   initialKind?: BrokerKind | null;
   /** 初始要编辑的记录；带原名、原配置，跳过第一步。 */
   initialSaved?: SavedConnection | null;
+  /** 历史里只留下的地址：进表单并预填，口令由用户补。 */
+  initialEndpoint?: string | null;
   onClose: () => void;
 }) {
   const openConnection = useOpenConnection();
   const [save, setSave] = useState(false);
   /** 打开时的初始形态：编辑记录优先，其次入口指定的类型，都没有就停在第一步。 */
-  const [draft, setDraft] = useState<Builder>(() => initialDraft(initialSaved, initialKind));
+  const [draft, setDraft] = useState<Builder>(() => ({
+    ...initialDraft(initialSaved, initialKind),
+    endpoint: initialEndpoint ?? null,
+  }));
 
   const busy = openConnection.isPending;
 
@@ -241,6 +258,7 @@ export function ConnectWizard({
             onSaveChange={setSave}
             onSubmit={submit}
             initialSaved={initialSaved ?? null}
+            initialEndpoint={draft.endpoint ?? initialEndpoint ?? null}
             onNameChange={(name) => setDraft((prev) => ({ ...prev, name }))}
             // 表单上方的「换一种中间件」：编辑记录时也能用（换类型 = 转成新建）。
             onChangeKind={busy ? undefined : backToKind}
@@ -340,6 +358,7 @@ function FormStep({
   onSaveChange,
   onSubmit,
   initialSaved,
+  initialEndpoint,
   onNameChange,
   onChangeKind,
   failure,
@@ -350,6 +369,8 @@ function FormStep({
   onSaveChange: (next: boolean) => void;
   onSubmit: (config: ConnectionConfig) => void;
   initialSaved: SavedConnection | null;
+  /** 只有地址的历史：预填地址那一格，其余仍走草稿。 */
+  initialEndpoint: string | null;
   onNameChange: (name: string) => void;
   /** 回到第一步换类型；`undefined` 表示正在提交，先别动。 */
   onChangeKind?: () => void;
@@ -357,8 +378,15 @@ function FormStep({
 }) {
   const saved = draft.saved ?? initialSaved;
   const editing = Boolean(saved);
-  // 表单初值：优先用那一条记录，其次交给表单自己读草稿 / 默认值。
-  const initialConfig = saved ? saved.config : null;
+  /**
+   * 表单初值：优先用那一条记录；其次若是「只记得地址」的历史，就用草稿 / 默认值
+   * 拼一份配置、只把地址那格换掉 —— 口令依旧空着，属于用户要补的东西。
+   */
+  const initialConfig = saved
+    ? saved.config
+    : initialEndpoint
+      ? withEndpoint(kind, initialEndpoint)
+      : null;
 
   return (
     <div className="flex flex-col gap-4">
@@ -452,9 +480,57 @@ function FailureNotice({ failure }: { failure: ConnectFailure }) {
 /** 报错摘要里指认「刚才连的是哪儿」的那一段地址。 */
 function endpointOf(draft: Builder, saved: SavedConnection | null): string | undefined {
   const source = draft.saved ?? saved;
-  if (!source) return undefined;
+  if (!source) return draft.endpoint ?? undefined;
   const config = source.config;
   return config.kind === "kafka" ? config.brokers.join(", ") : `${config.host}:${config.port}`;
+}
+
+/** 表单默认值 → 完整配置（`ConnectionConfig` 是邻接标签，`kind` 得自己补上）。 */
+function defaultsFor(kind: "kafka"): Extract<ConnectionConfig, { kind: "kafka" }>;
+function defaultsFor(kind: "rabbitMq"): Extract<ConnectionConfig, { kind: "rabbitMq" }>;
+function defaultsFor(kind: BrokerKind): ConnectionConfig {
+  if (kind === "kafka") {
+    return {
+      kind: "kafka",
+      brokers: [FORM_DEFAULTS.kafka.brokers],
+      tls: FORM_DEFAULTS.kafka.tls,
+      auth: { mechanism: FORM_DEFAULTS.kafka.mechanism, username: "", password: "" },
+      options: {},
+    };
+  }
+  return {
+    kind: "rabbitMq",
+    host: FORM_DEFAULTS.rabbitMq.host,
+    port: FORM_DEFAULTS.rabbitMq.port,
+    tls: FORM_DEFAULTS.rabbitMq.tls,
+    auth: {
+      username: FORM_DEFAULTS.rabbitMq.username,
+      password: FORM_DEFAULTS.rabbitMq.password,
+      vhost: FORM_DEFAULTS.rabbitMq.vhost,
+    },
+  };
+}
+
+/**
+ * 「只记得地址」→ 一份可提交的配置初值。
+ *
+ * 拿草稿（没有就用默认值）当底，只替换地址那一格：历史里没存口令，
+ * 别的字段也都没存过 —— 编造出来的值会让用户以为那是他上次填的。
+ */
+function withEndpoint(kind: BrokerKind, endpoint: string): ConnectionConfig {
+  const draft = readDraft(kind);
+  if (kind === "kafka") {
+    const base: Extract<ConnectionConfig, { kind: "kafka" }> =
+      (draft?.kind === "kafka" ? draft : null) ?? defaultsFor("kafka");
+    return { ...base, brokers: endpoint.split(",").map((item) => item.trim()).filter(Boolean) };
+  }
+  const base: Extract<ConnectionConfig, { kind: "rabbitMq" }> =
+    (draft?.kind === "rabbitMq" ? draft : null) ?? defaultsFor("rabbitMq");
+  // 历史里存的是 `host:port`，按最后一个冒号拆 —— 主机名可能带冒号的场景（IPv6）不在这里硬猜。
+  const index = endpoint.lastIndexOf(":");
+  const host = index > 0 ? endpoint.slice(0, index) : endpoint;
+  const port = index > 0 ? Number(endpoint.slice(index + 1)) : base.port;
+  return { ...base, host, port: Number.isFinite(port) ? port : base.port };
 }
 
 /** 一条保存过的记录 → 向导第二步的形态（带原名与原配置）。 */

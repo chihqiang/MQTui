@@ -13,15 +13,23 @@ import { Button, Card } from "@/components/ui";
 import { useOpenConnection } from "@/hooks/use-connections";
 import { usePluginKinds } from "@/hooks/use-plugin-kinds";
 import { cn } from "@/lib/cn";
+import {
+  mergeHistory,
+  needsSecret,
+  previewOf,
+  type ConnectionHistoryItem,
+} from "@/lib/connection-history";
 import { BROKER_LABEL } from "@/lib/nav";
-import { canReconnect, reconnectLabel } from "@/lib/reconnect";
+import { reconnectLabel } from "@/lib/reconnect";
 import {
   deleteSavedConnection,
+  forgetConnection,
   getSavedConnection,
+  listRecentConnections,
   listSavedConnections,
   type SavedConnection,
 } from "@/lib/session-storage";
-import type { BrokerKind, SaslMechanism, TlsMode } from "@/types";
+import type { BrokerKind, ConnectionConfig, SaslMechanism, TlsMode } from "@/types";
 
 import { ConnectWizard } from "./connect-wizard";
 
@@ -53,6 +61,29 @@ const KIND_HINT: Record<BrokerKind, { summary: string; port: string }> = {
   rabbitMq: { summary: "队列、交换机、绑定与消息处置", port: "15672（管理 API）" },
 };
 
+/** 一条连接配置 → 人认得出的地址。历史与报错摘要共用同一份措辞。 */
+function endpointOf(config: ConnectionConfig): string {
+  return config.kind === "kafka"
+    ? config.brokers.join(", ")
+    : `${config.host}:${config.port}`;
+}
+
+/** 首页的历史 = 保存过的记录 + 连成功过的地址（只有名字与地址，没有口令）。 */
+function readHistory() {
+  const savedList = listSavedConnections();
+  const recentList = listRecentConnections();
+  return mergeHistory(
+    savedList.map((entry) => ({
+      id: entry.id,
+      name: entry.name,
+      kind: entry.config.kind,
+      endpoint: endpointOf(entry.config),
+      savedAt: entry.savedAt,
+    })),
+    recentList,
+  );
+}
+
 /**
  * 向导当前要连的目标。
  *
@@ -62,6 +93,8 @@ const KIND_HINT: Record<BrokerKind, { summary: string; port: string }> = {
 type Target = {
   kind: BrokerKind | null;
   saved?: SavedConnection;
+  /** 从「连过 · 未保存」的历史进来时带上地址：参数不在本机，能填的先填上。 */
+  endpoint?: string;
 };
 
 export function ConnectPage() {
@@ -78,6 +111,14 @@ export function ConnectPage() {
   const [justArrived, setJustArrived] = useState(false);
   // 已保存列表是 localStorage 而非服务端数据，用一次读取 + 手动刷新保持简单。
   const [saved, setSaved] = useState<SavedConnection[]>(() => listSavedConnections());
+  /**
+   * 「连过」的历史：保存过的记录 + 没保存但连成功过的地址。
+   *
+   * 以前这一页只认 `saved-connections`，没勾「保存此连接」的人连成功之后
+   * 首页什么都不会留下 —— 界面上那句「连过一次之后会留在这里」就成了空头承诺。
+   * 现在两份本地数据合成一条时间线，空态也把最近连过的几台摆出来。
+   */
+  const [history, setHistory] = useState(() => readHistory());
   const openConnection = useOpenConnection();
 
   /**
@@ -116,8 +157,17 @@ export function ConnectPage() {
   }, []);
 
   const removeSaved = useCallback((entry: SavedConnection) => {
+    // 删记录只删「保存过的配置」，`recent-connections` 里那台机器还在 —— 两者是
+    // 两件事（「存了参数」vs「连过」），所以首页上它会退回成一条不可重连的历史。
     deleteSavedConnection(entry.id);
     setSaved(listSavedConnections());
+    setHistory(readHistory());
+  }, []);
+
+  /** 从历史里删掉一条「只是连过」的地址：它没有配置可删，删的是这条记忆。 */
+  const forgetRecent = useCallback((kind: BrokerKind, endpoint: string) => {
+    forgetConnection({ kind, endpoint });
+    setHistory(readHistory());
   }, []);
 
   /**
@@ -144,7 +194,23 @@ export function ConnectPage() {
     );
   }, [pendingResume, openConnection, setSearchParams, navigate]);
 
-  const hasSaved = saved.length > 0;
+  /**
+   * 版面分界看的是「有没有历史」，不只是「有没有保存过的记录」。
+   *
+   * 以前这里判 `saved.length`：没勾保存的人连过一次之后首页照旧是「开始使用」，
+   * 连成功这件事在界面上完全没发生。现在只要留下过痕迹（保存的或连过的），
+   * 这一页就换成记录形态 —— 名字在前、入口在后。
+   */
+  const hasHistory = history.length > 0;
+  const savedCount = saved.length;
+  /**
+   * 记录形态里，保存过的记录用完整行，只是连过的收成一列小行。
+   *
+   * 一条都没保存时，上面那截是空的，于是这一段就充当主体 —— 这时候按预览上限
+   * 只摆三条，再往下才是新建入口，免得历史把「怎么连」压到屏幕外面。
+   */
+  const unsavedHistory = history.filter((item) => item.savedId === null);
+  const shownUnsaved = savedCount > 0 ? unsavedHistory : previewOf(unsavedHistory);
   const pluginList = useMemo(
     () => plugins ?? [{ kind: "kafka" as BrokerKind, displayName: "Kafka", capabilities: [] }],
     [plugins],
@@ -175,7 +241,7 @@ export function ConnectPage() {
         ) : null}
         {/* 有记录之后，这一页的主角是记录：每天要点的是它，选中间件一辈子点几次。
             所以标题、顺序、视觉重量都跟着状态换一次，而不是让「开始使用」常驻在最上面。 */}
-        {hasSaved ? (
+        {hasHistory ? (
           <>
             {/* ui-lint-allow: 首页展示级标题 */}
             <h1 className="text-[28px] leading-9 font-semibold tracking-tight text-slate-900">
@@ -185,19 +251,47 @@ export function ConnectPage() {
               点「重连」直接接回去；换地址或口令走「编辑连接」
             </p>
 
-            <ul className="mt-6 flex flex-col gap-2.5">
-              {saved.map((entry) => (
-                <li key={entry.id}>
-                  <SavedRow
-                    entry={entry}
-                    busy={pendingId === entry.id}
-                    onReconnect={() => reconnect(entry)}
-                    onEdit={() => editSaved(entry)}
-                    onRemove={() => removeSaved(entry)}
-                  />
-                </li>
-              ))}
-            </ul>
+            {savedCount > 0 ? (
+              <ul className="mt-6 flex flex-col gap-2.5">
+                {saved.map((entry) => (
+                  <li key={entry.id}>
+                    <SavedRow
+                      entry={entry}
+                      busy={pendingId === entry.id}
+                      onReconnect={() => reconnect(entry)}
+                      onEdit={() => editSaved(entry)}
+                      onRemove={() => removeSaved(entry)}
+                    />
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+
+            {/* 「连过但没保存」的机器：参数不在本机，所以给不了「重连」，
+                只把地址带进向导。它们排在能重连的记录之后，用更轻的行高。 */}
+            {shownUnsaved.length > 0 ? (
+              <section className={savedCount > 0 ? "mt-7" : "mt-6"}>
+                <p className="flex items-baseline gap-2 text-(length:--text-app-micro) font-semibold tracking-wider text-secondary uppercase">
+                  <span>连过 · 未保存</span>
+                  <span className="font-normal normal-case text-meta">
+                    参数不在本机，点一下重填地址
+                  </span>
+                </p>
+                <ul className="mt-2 flex flex-col gap-1.5">
+                  {shownUnsaved.map((item) => (
+                    <li key={item.key}>
+                      <RecentRow
+                        item={item}
+                        onResume={() =>
+                          setTarget({ kind: item.kind as BrokerKind, endpoint: item.endpoint })
+                        }
+                        onForget={() => forgetRecent(item.kind as BrokerKind, item.endpoint)}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
 
             <NewConnectionRow
               kinds={pluginList}
@@ -235,8 +329,10 @@ export function ConnectPage() {
               ))}
             </div>
 
-            <p className="mt-4 text-(length:--text-app-meta) text-meta">
-              连过一次之后会留在这里，下次点一下就回来
+            {/* 空态不等于白纸：连过但没勾「保存」的机器会走上面那段记录形态，
+                点一下把地址带回向导。这里只剩「为什么上面什么都没有」这一句。 */}
+            <p className="mt-4 text-(length:--text-app-meta) leading-relaxed text-meta">
+              勾选「保存此连接」才会留下可一键重连的记录；只连不保存的机器会留在「连过 · 未保存」里。
             </p>
           </>
         )}
@@ -249,9 +345,13 @@ export function ConnectPage() {
           open
           initialKind={target.kind}
           initialSaved={target.saved ?? null}
+          initialEndpoint={target.endpoint ?? null}
           onClose={() => {
             closeWizard();
+            // 关掉向导时重读两份本地数据：勾了保存就多一条记录，没勾也会多一条
+            // 「连过」的历史（`open_connection` 成功时写的 recent）。
             setSaved(listSavedConnections());
+            setHistory(readHistory());
           }}
         />
       ) : null}
@@ -335,6 +435,58 @@ function KindCard({
   );
 }
 
+/**
+ * 一条「连过但没保存」的历史。
+ *
+ * 这一行不能提供「重连」：`recent-connections` 里只有名字与地址，口令没落盘
+ * （用户当初没勾保存），点下去必定失败 —— 与其给一个会报错的按钮，不如把
+ * 地址带进向导，人只需要补口令。
+ */
+function RecentRow({
+  item,
+  onResume,
+  onForget,
+}: {
+  item: ConnectionHistoryItem;
+  onResume: () => void;
+  onForget: () => void;
+}) {
+  const kind = item.kind as BrokerKind;
+  return (
+    <div className="group/row flex items-center gap-3 rounded-xl bg-white/60 px-3 py-2 ring-1 ring-slate-200/70 transition-colors hover:bg-white hover:ring-slate-300">
+      <span
+        className={cn(
+          "flex size-7 shrink-0 items-center justify-center rounded-lg",
+          kind === "kafka" ? "bg-amber-50 text-broker-kafka" : "bg-violet-50 text-broker-rabbitmq",
+        )}
+      >
+        <IconPlug className="size-3.5" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="flex items-baseline gap-2 truncate text-(length:--text-app-meta) font-medium text-slate-800">
+          <span className="truncate">{item.name}</span>
+          <span className="shrink-0 text-(length:--text-app-micro) font-normal text-meta">
+            {BROKER_LABEL[kind] ?? item.kind}
+          </span>
+        </p>
+        <p className="truncate font-mono text-(length:--text-app-micro) text-meta">{item.endpoint}</p>
+      </div>
+      <Button size="sm" variant="ghost" onClick={onResume} title={`重新填写 ${item.name} 的连接信息`}>
+        重新连接…
+      </Button>
+      <button
+        type="button"
+        onClick={onForget}
+        aria-label={`从历史里移除 ${item.name}`}
+        title={`从历史里移除 ${item.name}`}
+        className="shrink-0 rounded-md p-1.5 text-meta opacity-0 transition-opacity group-hover/row:opacity-100 hover:bg-rose-50 hover:text-rose-600 group-focus-within/row:opacity-100"
+      >
+        <IconTrash className="size-3.5" />
+      </button>
+    </div>
+  );
+}
+
 /** 一条连接记录。地址、用户名、是否存了密码都在行上，不用点开才知道。 */
 function SavedRow({
   entry,
@@ -357,8 +509,8 @@ function SavedRow({
   const user = config.auth.username?.trim();
   // 存下来的凭据缺口令时，「重连」一定失败。与其让人点了收到一句报错，
   // 不如在行上直接标出来，并把主动作换成「补口令」。
-  // 判据放在 `lib/reconnect.ts`：命令面板里的「重连」读的是同一份规则。
-  const missingSecret = !canReconnect(entry);
+  // 判据放在 `lib/connection-history.ts`：它同时决定这条记录算不算「能重连」。
+  const missingSecret = needsSecret(entry);
 
   return (
     <Card className="flex items-center gap-3.5 px-4 py-3 transition-colors hover:ring-slate-300">
@@ -435,7 +587,15 @@ export function SubmitRow({
       <span>
         保存此连接（连同密码写入本机 localStorage）
         <br />
-        <span className="text-meta">不勾选则仅在本次运行期间有效</span>
+        {/*
+          这里原来写的是「不勾选则仅在本次运行期间有效」—— 那句话还带着旧语义：
+          早期确实只有保存过的连接才会出现在首页，没勾的人连成功也什么都不剩。
+          现在连成功会留下一条「连过」的历史（只有名字与地址），文案必须跟着改，
+          否则用户会以为不勾就等于白连一次。
+        */}
+        <span className="text-meta">
+          不勾选也能连，只是不留口令：下次从「连过 · 未保存」里点回来重填即可
+        </span>
       </span>
     </label>
   );
