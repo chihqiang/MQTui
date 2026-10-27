@@ -6,14 +6,19 @@
 
 use std::time::Duration;
 
+use base64::Engine;
 use serde::Deserialize;
 
 use crate::domain::topology::{
     BindingDestination, BindingInfo, BindingKey, BindingSpec, ExchangeInfo, ExchangeKind,
     ExchangeSpec, QueueDetail,
 };
+use crate::domain::topology_insight::QueueMetrics;
 use crate::domain::{
-    CheckStatus, HealthCheck, KeyValue, QueueInfo, RabbitMqConfig, TlsMode, WRITE_ACCESS_KEY,
+    CheckStatus, ConsumerLinks, DefinitionEntry, HealthCheck, KeyValue, OperatorPolicyInfo,
+    ParameterComponent, ParameterError, ParameterInfo, ParameterSnapshot, PolicyApplyTo,
+    PolicyInfo, PolicySnapshot, PolicySpec, QueueConsumer, QueueInfo, RabbitMqConfig, TlsMode,
+    WRITE_ACCESS_KEY, summarize_consumers,
 };
 use crate::error::{AppError, AppResult};
 
@@ -32,6 +37,21 @@ struct QueuePayload {
 }
 
 /// `GET /api/exchanges` 返回的交换机信息。
+/// `GET /api/queues` 带速率时的队列信息。
+///
+/// 与 `QueuePayload` 分开定义：路由估算要的是「消息进得来、出得去」的速率，
+/// 和队列列表只关心条数是两件事，混在一个结构里会让字段语义含糊。
+#[derive(Debug, Deserialize)]
+struct QueueMetricsPayload {
+    name: String,
+    #[serde(default)]
+    consumers: u32,
+    #[serde(default)]
+    messages: u64,
+    #[serde(default)]
+    message_stats: Option<QueueStats>,
+}
+
 #[derive(Debug, Deserialize)]
 struct ExchangePayload {
     name: String,
@@ -109,6 +129,55 @@ struct PermissionPayload {
     configure: String,
 }
 
+/// `GET /api/consumers` 返回的一条消费者记录。
+///
+/// 管理 API 把每一行摊平成一个消费者，队列名在 `queue.name` 里。
+#[derive(Debug, Deserialize)]
+struct ConsumerPayload {
+    #[serde(default)]
+    queue: ConsumerQueueRef,
+    #[serde(default)]
+    consumer_tag: String,
+    #[serde(default)]
+    channel_details: Option<ConsumerChannel>,
+    #[serde(default)]
+    ack_required: bool,
+    #[serde(default)]
+    prefetch_count: u32,
+    #[serde(default)]
+    messages_unacknowledged: u64,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct ConsumerQueueRef {
+    #[serde(default)]
+    name: String,
+}
+
+/// 消费者所属的连接与 channel。老版本管理 API 只给 `channel` 字符串，全字段可选。
+#[derive(Debug, Deserialize)]
+struct ConsumerChannel {
+    #[serde(default)]
+    connection_name: Option<String>,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    user: Option<String>,
+}
+
+/// `GET /api/queues` 里消费者连线需要的三列。
+///
+/// 与 `QueuePayload` 分开：那个服务于队列列表，这里只要「待投递 / 未确认」这两个数，
+/// 多拉字段在队列上万的集群上是白花的解析开销。
+#[derive(Debug, Deserialize)]
+struct QueueConsumptionPayload {
+    name: String,
+    #[serde(default)]
+    messages_ready: u64,
+    #[serde(default)]
+    messages_unacknowledged: u64,
+}
+
 /// `GET /api/bindings` 返回的一条绑定。
 #[derive(Debug, Deserialize)]
 struct BindingPayload {
@@ -121,6 +190,66 @@ struct BindingPayload {
 }
 
 /// 管理 API 客户端。
+/// `GET /api/policies[/{vhost}]` 返回的策略。
+#[derive(Debug, Deserialize)]
+struct PolicyPayload {
+    name: String,
+    vhost: String,
+    #[serde(default)]
+    pattern: String,
+    #[serde(default)]
+    priority: i32,
+    #[serde(rename = "apply-to", default = "default_apply_to")]
+    apply_to: String,
+    #[serde(default)]
+    definition: serde_json::Map<String, serde_json::Value>,
+}
+
+/// 操作员策略的响应结构。和普通策略同形，但语义不同，因此单独定义。
+#[derive(Debug, Deserialize)]
+struct OperatorPolicyPayload {
+    name: String,
+    vhost: String,
+    #[serde(default)]
+    pattern: String,
+    #[serde(default)]
+    priority: i32,
+    #[serde(rename = "apply-to", default = "default_apply_to")]
+    apply_to: String,
+    #[serde(default)]
+    definition: serde_json::Map<String, serde_json::Value>,
+}
+
+fn default_apply_to() -> String {
+    "all".to_owned()
+}
+
+/// `GET /api/parameters/{component}[/{vhost}]` 返回的参数。
+///
+/// `value` 保持原始 JSON：federation / shovel / runtime 三类结构完全不同，
+/// 本地建成强类型等于给每个版本都挖一个坑。
+#[derive(Debug, Deserialize)]
+struct ParameterPayload {
+    #[serde(default)]
+    component: String,
+    #[serde(default)]
+    vhost: String,
+    name: String,
+    #[serde(default)]
+    value: serde_json::Value,
+}
+
+impl From<ParameterPayload> for ParameterInfo {
+    fn from(payload: ParameterPayload) -> Self {
+        Self {
+            component: payload.component,
+            vhost: payload.vhost,
+            name: payload.name,
+            value: payload.value,
+        }
+    }
+}
+
 pub struct ManagementClient {
     /// 管理 API 根地址，例如 `http://localhost:15672`。
     base_url: String,
@@ -185,6 +314,40 @@ impl ManagementClient {
             .collect())
     }
 
+    /// 队列的进出速率。
+    ///
+    /// 只取路由估算需要的三个数字：投递速率、入队速率、消费者数。
+    /// 与 `queues()` 复用同一个接口，但用途不同，因此单独成型而不是给 `QueueInfo` 加字段——
+    /// 队列列表页不需要速率，多拉两列不会有人感激。
+    pub async fn queue_metrics(&self, config: &RabbitMqConfig) -> AppResult<Vec<QueueMetrics>> {
+        let payload: Vec<QueueMetricsPayload> = self
+            .get_json(
+                &self.vhost_path("/api/queues", &config.auth.vhost),
+                &config.auth.username,
+                &config.auth.password,
+            )
+            .await?;
+
+        Ok(payload
+            .into_iter()
+            .map(|queue| QueueMetrics {
+                name: queue.name,
+                messages: queue.messages,
+                consumers: queue.consumers,
+                incoming_rate: queue
+                    .message_stats
+                    .as_ref()
+                    .and_then(|stats| stats.publish_details.as_ref())
+                    .map_or(0.0, |details| details.rate),
+                deliver_rate: queue
+                    .message_stats
+                    .as_ref()
+                    .and_then(|stats| stats.deliver_get_details.as_ref())
+                    .map_or(0.0, |details| details.rate),
+            })
+            .collect())
+    }
+
     /// 列出交换机。
     pub async fn exchanges(&self, config: &RabbitMqConfig) -> AppResult<Vec<ExchangeInfo>> {
         let payload: Vec<ExchangePayload> = self
@@ -236,6 +399,68 @@ impl ManagementClient {
                         .map(|(key, value)| KeyValue::new(key, render_json(&value)))
                         .collect(),
                 })
+            })
+            .collect())
+    }
+
+    /// 拉取消费者连线：队列侧堆积量 + 全部消费者。
+    ///
+    /// 队列与消费者是两次请求：`/api/consumers` 不会带上「没人消费的队列」，
+    /// 而「这个队列零消费者」恰恰是排查时最想看到的结论，所以必须从队列侧补齐。
+    pub async fn consumer_links(&self, config: &RabbitMqConfig) -> AppResult<ConsumerLinks> {
+        let queues: Vec<QueueConsumptionPayload> = self
+            .get_json(
+                &self.vhost_path("/api/queues", &config.auth.vhost),
+                &config.auth.username,
+                &config.auth.password,
+            )
+            .await?;
+
+        // 消费者列表在权限受限的账号上可能返回 403；此时仍然给出「哪些队列没人消费」
+        // 这个结论——它比整个页面报错有用得多。
+        let consumers = self.consumers(config).await.unwrap_or_default();
+
+        let queue_rows: Vec<(String, u64, u64)> = queues
+            .into_iter()
+            .map(|queue| {
+                (
+                    queue.name,
+                    queue.messages_ready,
+                    queue.messages_unacknowledged,
+                )
+            })
+            .collect();
+
+        Ok(summarize_consumers(&queue_rows, &consumers))
+    }
+
+    /// 拉取全部消费者明细（`GET /api/consumers`）。
+    pub async fn consumers(&self, config: &RabbitMqConfig) -> AppResult<Vec<QueueConsumer>> {
+        let payload: Vec<ConsumerPayload> = self
+            .get_json(
+                &self.vhost_path("/api/consumers", &config.auth.vhost),
+                &config.auth.username,
+                &config.auth.password,
+            )
+            .await?;
+
+        Ok(payload
+            .into_iter()
+            .map(|item| {
+                let channel = item.channel_details;
+                QueueConsumer {
+                    queue: item.queue.name,
+                    consumer_tag: item.consumer_tag,
+                    connection_name: channel
+                        .as_ref()
+                        .and_then(|details| details.connection_name.clone())
+                        .filter(|name| !name.is_empty()),
+                    channel: channel.as_ref().and_then(|details| details.name.clone()),
+                    username: channel.and_then(|details| details.user).unwrap_or_default(),
+                    ack_required: item.ack_required,
+                    prefetch_count: item.prefetch_count,
+                    messages_unacknowledged: item.messages_unacknowledged,
+                }
             })
             .collect())
     }
@@ -398,6 +623,197 @@ impl ManagementClient {
             .await
     }
 
+    /// 断开一个消费者（`DELETE /api/consumers/{vhost}/{consumer_tag}`）。
+    ///
+    /// 这是 AMQP 里唯一可行的入口：协议层的 `basic.cancel` 只能由持有该 channel 的
+    /// 客户端发出，面板作为第三方连接没法替对端取消消费。管理 API 的做法是直接关闭
+    /// 该 consumer 所在的 channel，对端会收到 channel 关闭错误。
+    ///
+    /// 正因为它「替别人动手」，安全判定全部放在调用方（`domain::consumer_disconnect`），
+    /// 这里只负责发请求并把服务端的 `reason` 透出来。
+    pub async fn disconnect_consumer(
+        &self,
+        config: &RabbitMqConfig,
+        consumer_tag: &str,
+    ) -> AppResult<()> {
+        let path = format!(
+            "{}/{}",
+            self.vhost_path("/api/consumers", &config.auth.vhost),
+            percent_encode(consumer_tag)
+        );
+        self.delete(&path, &config.auth.username, &config.auth.password)
+            .await
+    }
+
+    /// 拉取策略快照：普通策略 + 操作员策略。
+    ///
+    /// 两者分两次请求：操作员策略接口在老版本 RabbitMQ 上不存在（3.8 之前），
+    /// 拉不到时只记录 `operator_error`，不影响普通策略的展示。
+    pub async fn policies(&self, config: &RabbitMqConfig) -> AppResult<PolicySnapshot> {
+        let payload: Vec<PolicyPayload> = self
+            .get_json(
+                &self.vhost_path("/api/policies", &config.auth.vhost),
+                &config.auth.username,
+                &config.auth.password,
+            )
+            .await?;
+
+        let policies = payload.into_iter().map(PolicyInfo::from).collect();
+
+        // 操作员策略是可选信息，失败时降级为「无」并把原因带回去。
+        let (operator_policies, operator_error) = match self.operator_policies(config).await {
+            Ok(list) => (list, None),
+            Err(error) => (Vec::new(), Some(error.to_string())),
+        };
+
+        Ok(PolicySnapshot {
+            policies,
+            operator_policies,
+            operator_error,
+        })
+    }
+
+    /// 操作员策略列表。接口不存在或权限不足时返回错误，由 `policies` 降级处理。
+    pub async fn operator_policies(
+        &self,
+        config: &RabbitMqConfig,
+    ) -> AppResult<Vec<OperatorPolicyInfo>> {
+        let payload: Vec<OperatorPolicyPayload> = self
+            .get_json(
+                &self.vhost_path("/api/operator-policies", &config.auth.vhost),
+                &config.auth.username,
+                &config.auth.password,
+            )
+            .await?;
+
+        Ok(payload.into_iter().map(OperatorPolicyInfo::from).collect())
+    }
+
+    /// 新建或修改策略。
+    ///
+    /// 管理 API 用 PUT 做幂等写：同名策略已存在时是「替换」，不存在时是「新建」。
+    /// 这一点值得在界面上说清楚——「保存」在不存在的名字上等于新建，
+    /// 而拼错一个名字会静默多出一条策略，原策略继续生效。
+    pub async fn put_policy(
+        &self,
+        config: &RabbitMqConfig,
+        spec: &PolicySpec,
+        name: &str,
+    ) -> AppResult<()> {
+        let path = format!(
+            "{}/{}",
+            self.vhost_path("/api/policies", &config.auth.vhost),
+            percent_encode(name)
+        );
+        let body = policy_body(spec);
+        self.put_json(&path, &config.auth.username, &config.auth.password, &body)
+            .await
+    }
+
+    /// 删除策略。策略删除只是停止下发，不会动已有消息，因此不带任何守卫参数。
+    pub async fn delete_policy(&self, config: &RabbitMqConfig, name: &str) -> AppResult<()> {
+        let path = format!(
+            "{}/{}",
+            self.vhost_path("/api/policies", &config.auth.vhost),
+            percent_encode(name)
+        );
+        self.delete(&path, &config.auth.username, &config.auth.password)
+            .await
+    }
+
+    /// 拉取参数快照：逐个组件拉，某一类失败只影响它自己。
+    ///
+    /// 不一次拉 `/api/parameters` 全量：三类的读权限常常不同（`runtime` 通常只有管理员能看），
+    /// 全量接口一处 401 就整页空掉，而用户其实只想看联邦。
+    pub async fn parameters(&self, config: &RabbitMqConfig) -> AppResult<ParameterSnapshot> {
+        let mut parameters = Vec::new();
+        let mut errors = Vec::new();
+
+        for component in ParameterComponent::ALL {
+            match self
+                .parameters_of(config, component, &config.auth.vhost)
+                .await
+            {
+                Ok(list) => parameters.extend(list),
+                Err(error) => errors.push(ParameterError {
+                    component: component.component().to_owned(),
+                    message: error.to_string(),
+                }),
+            }
+        }
+
+        // 老版本管理 API 不认识 `{component}` 段，第一个组件就会失败；
+        // 这时界面上要说清「不是没配，是这个版本不支持」，而不是展示一堆红字。
+        let component_filter_supported = errors.len() < ParameterComponent::ALL.len();
+
+        Ok(ParameterSnapshot {
+            parameters,
+            errors,
+            component_filter_supported,
+        })
+    }
+
+    /// 某一类组件在某个 vhost 下的参数列表。
+    pub async fn parameters_of(
+        &self,
+        config: &RabbitMqConfig,
+        component: ParameterComponent,
+        vhost: &str,
+    ) -> AppResult<Vec<ParameterInfo>> {
+        let base = self.vhost_path(&format!("/api/parameters/{}", component.component()), vhost);
+        let payload: Vec<ParameterPayload> = self
+            .get_json(&base, &config.auth.username, &config.auth.password)
+            .await?;
+        Ok(payload.into_iter().map(ParameterInfo::from).collect())
+    }
+
+    /// 新建或修改参数。管理 API 用 PUT 做幂等写：同名即替换。
+    pub async fn put_parameter(
+        &self,
+        config: &RabbitMqConfig,
+        component: ParameterComponent,
+        vhost: &str,
+        name: &str,
+        value: &serde_json::Value,
+    ) -> AppResult<()> {
+        let path = format!(
+            "{}/{}",
+            self.parameter_base(component, vhost),
+            percent_encode(name)
+        );
+        self.put_json(&path, &config.auth.username, &config.auth.password, value)
+            .await
+    }
+
+    /// 删除参数。
+    pub async fn delete_parameter(
+        &self,
+        config: &RabbitMqConfig,
+        component: ParameterComponent,
+        vhost: &str,
+        name: &str,
+    ) -> AppResult<()> {
+        let path = format!(
+            "{}/{}",
+            self.parameter_base(component, vhost),
+            percent_encode(name)
+        );
+        self.delete(&path, &config.auth.username, &config.auth.password)
+            .await
+    }
+
+    /// 参数集合路径：`/api/parameters/{component}/{vhost}`。
+    ///
+    /// `runtime` 参数的 vhost 段必须是 `/`——服务端对这一点是强制的，
+    /// 传业务 vhost 会 404，而不是「静默忽略」。
+    fn parameter_base(&self, component: ParameterComponent, vhost: &str) -> String {
+        let vhost = match component.vhost_scope() {
+            crate::domain::VhostScope::DefaultOnly => "/",
+            crate::domain::VhostScope::PerVhost => vhost,
+        };
+        self.vhost_path(&format!("/api/parameters/{}", component.component()), vhost)
+    }
+
     /// 交换机资源路径。
     fn exchange_path(&self, config: &RabbitMqConfig, name: &str) -> String {
         format!(
@@ -504,14 +920,14 @@ impl ManagementClient {
     ///
     /// 管理 API 对默认 vhost 同时接受 `/api/queues` 与 `/api/queues/%2F`，
     /// 统一走裸接口可以少一次转义。
-    fn vhost_path(&self, base: &str, vhost: &str) -> String {
+    pub(super) fn vhost_path(&self, base: &str, vhost: &str) -> String {
         match vhost {
             "/" | "" => base.to_owned(),
             vhost => format!("{base}/{}", percent_encode(vhost)),
         }
     }
 
-    async fn get_json<T: for<'de> Deserialize<'de>>(
+    pub(super) async fn get_json<T: for<'de> Deserialize<'de>>(
         &self,
         path: &str,
         username: &str,
@@ -585,9 +1001,27 @@ impl ManagementClient {
         ensure_success(response, &url).await
     }
 
+    /// 投递一条消息到队列。
+    ///
+    /// 这条路径只给批量处置用：批量时消息已经在手上（从队列里取出来的原文 + properties），
+    /// 走 AMQP 重发一遍反而要开新通道、重新拼装 properties。
+    /// 走 HTTP 则可以把原文与 properties 原样递给服务端，由服务端负责路由。
+    pub async fn publish_to_queue(
+        &self,
+        config: &RabbitMqConfig,
+        queue: &str,
+        payload: &[u8],
+        properties: &serde_json::Value,
+    ) -> AppResult<()> {
+        let path = format!("{}/publish", self.queue_path(config, queue));
+        let body = publish_body(queue, payload, properties);
+        self.post_json(&path, &config.auth.username, &config.auth.password, &body)
+            .await
+    }
+
     /// DELETE 有两个语义：清空返回 204，删除返回 204，
     /// 「队列非空」「资源不存在」则返回 4xx，由 `ensure_success` 转成可读错误。
-    async fn delete(&self, path: &str, username: &str, password: &str) -> AppResult<()> {
+    pub(super) async fn delete(&self, path: &str, username: &str, password: &str) -> AppResult<()> {
         let url = format!("{}{path}", self.base_url);
         let response = self
             .http
@@ -600,6 +1034,33 @@ impl ManagementClient {
             })?;
         ensure_success(response, &url).await
     }
+}
+
+/// 拼管理 API 的 `publish` 请求体。
+///
+/// 关键在于 `payload_encoding`：`string` 表示 payload 是原文字符串，
+/// 服务端按 UTF-8 重新编码成字节 —— 二进制消息（图片、protobuf、压缩块）
+/// 经过 `from_utf8_lossy` 之后，每个非法字节都变成 U+FFFD，
+/// 投递「成功」了，可到的是一条彻底损坏的消息，而且没有任何一处会报错。
+///
+/// 所以判定要按「能不能无歧义地往返」来，而不是「看着像不像文本」：
+/// 只要是合法 UTF-8 就走 `string`（服务端收到再编码回来，字节不变），
+/// 否则一律 `base64` —— 那是管理 API 唯一能无损表达任意字节的方式。
+fn publish_body(queue: &str, payload: &[u8], properties: &serde_json::Value) -> serde_json::Value {
+    let (encoded, encoding) = match std::str::from_utf8(payload) {
+        Ok(text) => (text.to_owned(), "string"),
+        Err(_) => (
+            base64::engine::general_purpose::STANDARD.encode(payload),
+            "base64",
+        ),
+    };
+
+    serde_json::json!({
+        "properties": properties,
+        "routing_key": queue,
+        "payload": encoded,
+        "payload_encoding": encoding,
+    })
 }
 
 /// 把非 2xx 响应转换成可读错误。
@@ -638,12 +1099,113 @@ fn render_json(value: &serde_json::Value) -> String {
     }
 }
 
+impl From<PolicyPayload> for PolicyInfo {
+    fn from(payload: PolicyPayload) -> Self {
+        Self {
+            name: payload.name,
+            vhost: payload.vhost,
+            pattern: payload.pattern,
+            priority: payload.priority,
+            apply_to: parse_apply_to(&payload.apply_to),
+            definition: definition_entries(payload.definition),
+        }
+    }
+}
+
+impl From<OperatorPolicyPayload> for OperatorPolicyInfo {
+    fn from(payload: OperatorPolicyPayload) -> Self {
+        Self {
+            name: payload.name,
+            vhost: payload.vhost,
+            pattern: payload.pattern,
+            priority: payload.priority,
+            apply_to: parse_apply_to(&payload.apply_to),
+            definition: definition_entries(payload.definition),
+        }
+    }
+}
+
+/// 未知的 `apply-to` 值按「全部」处理：宁可少生效也不要让界面上一个策略消失。
+fn parse_apply_to(raw: &str) -> PolicyApplyTo {
+    PolicyApplyTo::parse(raw).unwrap_or(PolicyApplyTo::All)
+}
+
+/// 把 `definition` 的 JSON 值渲染成可编辑的字符串。
+///
+/// 数组（例如 `ha-params: ["a@host"]`）按 JSON 原样展示——它是合法的可回填格式，
+/// 转成逗号串再还原会把「一个元素的数组」和「一个字符串」搞混。
+fn definition_entries(
+    definition: serde_json::Map<String, serde_json::Value>,
+) -> Vec<DefinitionEntry> {
+    definition
+        .into_iter()
+        .map(|(key, value)| DefinitionEntry {
+            key,
+            value: render_json(&value),
+        })
+        .collect()
+}
+
+/// 把领域层的定义项还原成管理 API 认识的 JSON。
+///
+/// 已知的整型 / 布尔键要还原成真正的数字与布尔——服务端对 `x-message-ttl: "60000"`
+/// 这种字符串会直接 400。其余键保持字符串。
+fn policy_body(spec: &PolicySpec) -> serde_json::Value {
+    let mut definition = serde_json::Map::new();
+    for entry in &spec.definition {
+        definition.insert(entry.key.clone(), typed_value(&entry.key, &entry.value));
+    }
+
+    serde_json::json!({
+        "pattern": spec.pattern,
+        "priority": spec.priority,
+        "apply-to": spec.apply_to.as_str(),
+        "definition": definition,
+    })
+}
+
+/// 按 `definition_value_kind` 把字符串值转成 JSON 类型。
+fn typed_value(key: &str, raw: &str) -> serde_json::Value {
+    let value = raw.trim();
+    if matches!(
+        key,
+        "x-max-priority"
+            | "max-priority"
+            | "x-message-ttl"
+            | "x-expires"
+            | "x-max-length"
+            | "x-delivery-limit"
+            | "message-ttl"
+            | "expires"
+            | "max-length"
+            | "delivery-limit"
+    ) && let Ok(number) = value.parse::<i64>()
+    {
+        return serde_json::Value::from(number);
+    }
+
+    if matches!(key, "x-single-active-consumer" | "x-queue-master-locator")
+        && let Ok(flag) = value.parse::<bool>()
+    {
+        return serde_json::Value::from(flag);
+    }
+
+    // 已经是 JSON 的结构（数组 / 对象）原样回填，例如镜像的 `ha-params`。
+    if (value.starts_with('[') || value.starts_with('{'))
+        && let Ok(parsed) = serde_json::from_str::<serde_json::Value>(value)
+    {
+        return parsed;
+    }
+
+    serde_json::Value::String(value.to_owned())
+}
+
 /// 管理插件默认的 HTTP / HTTPS 端口。
 const DEFAULT_HTTP_PORT: u16 = 15672;
 const DEFAULT_HTTPS_PORT: u16 = 15671;
 
 /// 仅保留 RFC 3986 unreserved 字符的百分号编码，用于 vhost 等路径片段。
-fn percent_encode(raw: &str) -> String {
+pub(super) fn percent_encode(raw: &str) -> String {
     let mut out = String::with_capacity(raw.len());
     for byte in raw.bytes() {
         match byte {
@@ -846,6 +1408,142 @@ mod tests {
             client.exchange_path(&config(TlsMode::Disabled, None), "orders.out"),
             "/api/exchanges/orders.out"
         );
+    }
+
+    fn client() -> ManagementClient {
+        ManagementClient::from_config(&config(TlsMode::Disabled, Some("http://localhost:15672")))
+            .expect("构造失败")
+            .expect("客户端缺失")
+    }
+
+    #[test]
+    fn policy_body_types_known_keys() {
+        let spec = PolicySpec {
+            name: "ttl".to_owned(),
+            pattern: "orders.*".to_owned(),
+            priority: 3,
+            apply_to: PolicyApplyTo::Queues,
+            definition: vec![
+                DefinitionEntry {
+                    key: "x-message-ttl".to_owned(),
+                    value: "60000".to_owned(),
+                },
+                DefinitionEntry {
+                    key: "x-single-active-consumer".to_owned(),
+                    value: "true".to_owned(),
+                },
+                // 未知键保持字符串：插件自己能识别。
+                DefinitionEntry {
+                    key: "x-custom".to_owned(),
+                    value: "abc".to_owned(),
+                },
+            ],
+        };
+
+        let body = policy_body(&spec);
+        assert_eq!(body["apply-to"], "queues");
+        assert_eq!(body["priority"], 3);
+        // 整数必须发成数字，服务端对字符串形式会 400。
+        assert_eq!(body["definition"]["x-message-ttl"], 60000);
+        assert_eq!(body["definition"]["x-single-active-consumer"], true);
+        assert_eq!(body["definition"]["x-custom"], "abc");
+    }
+
+    #[test]
+    fn policy_body_keeps_json_structures() {
+        // 镜像的 ha-params 是数组，原样回填；转成逗号串再还原会改变语义。
+        let spec = PolicySpec {
+            name: "ha".to_owned(),
+            pattern: ".*".to_owned(),
+            priority: 0,
+            apply_to: PolicyApplyTo::All,
+            definition: vec![DefinitionEntry {
+                key: "ha-params".to_owned(),
+                value: r#"["rabbit@node1"]"#.to_owned(),
+            }],
+        };
+        assert_eq!(
+            policy_body(&spec)["definition"]["ha-params"],
+            serde_json::json!(["rabbit@node1"])
+        );
+    }
+
+    #[test]
+    fn policy_definition_round_trips_through_entries() {
+        let mut definition = serde_json::Map::new();
+        definition.insert("x-max-length".to_owned(), serde_json::json!(100));
+        definition.insert("alternate-exchange".to_owned(), serde_json::json!("ae"));
+
+        let entries = definition_entries(definition);
+        // 顺序取决于 Map 实现，按 key 找而不是按下标断言。
+        let find = |key: &str| {
+            entries
+                .iter()
+                .find(|entry| entry.key == key)
+                .map(|entry| entry.value.clone())
+                .expect("缺少定义项")
+        };
+        assert_eq!(find("x-max-length"), "100");
+        // 字符串值去引号，直接可编辑。
+        assert_eq!(find("alternate-exchange"), "ae");
+    }
+
+    #[test]
+    fn unknown_apply_to_falls_back_to_all() {
+        // 让策略从界面上消失比「范围判错」更难排查，因此兜底到 all。
+        assert_eq!(parse_apply_to("queues"), PolicyApplyTo::Queues);
+        assert_eq!(parse_apply_to("nodes"), PolicyApplyTo::All);
+    }
+
+    #[test]
+    fn policy_paths_are_encoded() {
+        let client = client();
+        assert_eq!(client.vhost_path("/api/policies", "/"), "/api/policies");
+        assert_eq!(
+            client.vhost_path("/api/policies", "team a"),
+            "/api/policies/team%20a"
+        );
+        // 策略名可能带空格，拼进路径前必须转义。
+        assert_eq!(percent_encode("ha all"), "ha%20all");
+    }
+
+    #[test]
+    fn publish_body_keeps_text_as_string() {
+        let body = publish_body("orders", "中文".as_bytes(), &serde_json::json!({}));
+        assert_eq!(body["payload_encoding"], "string");
+        assert_eq!(body["routing_key"], "orders");
+        assert_eq!(body["payload"], "中文");
+    }
+
+    #[test]
+    fn publish_body_encodes_binary_as_base64() {
+        // 关键回归：这几段字节过不了 UTF-8。按 `string` 走会被 `from_utf8_lossy`
+        // 换成 U+FFFD，投递「成功」但消息已经彻底损坏，而且没有任何一处会报错。
+        let payload = [0xff_u8, 0xfe, 0x00, 0x80];
+        let body = publish_body(
+            "blobs",
+            &payload,
+            &serde_json::json!({"content_type": "image/png"}),
+        );
+        assert_eq!(body["payload_encoding"], "base64");
+        let encoded = body["payload"].as_str().expect("payload 应是字符串");
+        assert_eq!(
+            base64::engine::general_purpose::STANDARD
+                .decode(encoded)
+                .expect("base64 解不开"),
+            payload
+        );
+        // properties 原样透传，不能因为改了 payload 编码就丢掉。
+        assert_eq!(body["properties"]["content_type"], "image/png");
+    }
+
+    #[test]
+    fn publish_body_keeps_empty_payload_as_string() {
+        // 空消息在 RabbitMQ 里是合法的（纯信号）。空字节同时是合法 UTF-8，
+        // 因此走 `string` 且 payload 为空串，而不是 base64 的 `""` 语义模糊。
+        let body = publish_body("signals", &[], &serde_json::json!({}));
+        assert_eq!(body["payload_encoding"], "string");
+        assert_eq!(body["payload"], "");
     }
 
     #[test]

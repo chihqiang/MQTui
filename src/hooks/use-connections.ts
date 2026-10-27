@@ -5,11 +5,22 @@ import { brokerService, queryKeys } from "@/services";
 import { useSessionStore } from "@/stores";
 import type { ConnectionConfig } from "@/types";
 
-/** 已建立的连接列表。 */
+/**
+ * 已建立的连接列表。
+ *
+ * 这份数据被三处同时订阅：一级连接列表、二级菜单、命令面板。默认的 `staleTime`
+ * 只有 10 秒，于是只要隔一会儿再点一下侧边栏，`useQuery` 就判定过期、重新拉一次，
+ * `isLoading` 期间连接列表整块换成「加载中…」—— 列表在有数据的情况下消失再出现，
+ * 是最典型的「不跟手」。连接的增删都由本文件的 mutation 显式失效，
+ * 这里给一个长窗口即可：读的是本地状态，不存在过期的说法。
+ */
 export function useConnections() {
   return useQuery({
     queryKey: queryKeys.connections(),
     queryFn: brokerService.listConnections,
+    staleTime: Infinity,
+    // 切走再切回来不重新加载，侧边栏因此不会闪一下「加载中」。
+    gcTime: Infinity,
   });
 }
 

@@ -5,7 +5,13 @@
 
 pub mod consumer_groups;
 pub mod dto;
+pub mod hotspots;
+pub mod locate;
+pub mod locate_cursor;
+pub mod migrations;
 pub mod orphans;
+pub mod resend;
+pub mod topics;
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -98,7 +104,7 @@ pub async fn list(client: &KafkaClient, query: MessageQuery) -> AppResult<Messag
     let worker = Arc::new(consumer);
 
     let task_topic = topic.clone();
-    let (items, starts) = tokio::task::spawn_blocking(move || -> AppResult<_> {
+    let (items, starts, floors) = tokio::task::spawn_blocking(move || -> AppResult<_> {
         let partitions = worker
             .fetch_metadata(Some(&task_topic), Timeout::After(FETCH_TIMEOUT))
             .map_err(AppError::from)?
@@ -111,6 +117,9 @@ pub async fn list(client: &KafkaClient, query: MessageQuery) -> AppResult<Messag
             return Err(AppError::NotFound(format!("主题 {task_topic}")));
         }
 
+        // 每个分区的最早可读位点：既是首次读取的起点下界，也是判断
+        // 「是不是已经翻到日志头」的依据（见 `build_page`）。
+        let mut floors: BTreeMap<i32, i64> = BTreeMap::new();
         let mut starts = match resume {
             Some(starts) => starts,
             None => {
@@ -120,6 +129,7 @@ pub async fn list(client: &KafkaClient, query: MessageQuery) -> AppResult<Messag
                 let mut starts = BTreeMap::new();
                 for partition in 0..partitions as i32 {
                     let (low, high) = watermarks(&worker, &task_topic, partition)?;
+                    floors.insert(partition, low);
                     starts.insert(partition, (high - batch).max(low));
                 }
                 starts
@@ -136,10 +146,17 @@ pub async fn list(client: &KafkaClient, query: MessageQuery) -> AppResult<Messag
             }
             worker.assign(&assignments).map_err(AppError::from)?;
 
+            // 本轮读到了消息没有。一个分区读空就 `break` 会让别的分区再无机会：
+            // 多分区主题下「最近消息」恰恰分布在各个分区的中段，队头那个分区读完
+            // 就收工，等于只给了第一个分区的数据，而游标还写着其它分区的进度，
+            // 「加载更多」拿到的是一份自相矛盾的结果。所以这里只在**一条都没读到**
+            // （或时间预算耗尽）时才停，读到过消息就重新分配、接着读。
             let deadline = Instant::now() + FETCH_TIMEOUT;
+            let mut progressed = false;
             while collected.len() < limit && Instant::now() < deadline {
                 match worker.poll(FETCH_TIMEOUT) {
                     Some(Ok(message)) => {
+                        progressed = true;
                         // poll 之后位点已经前进：无论本条是否收下，游标都要往后推，
                         // 否则“加载更多”会把同一条消息再取一遍。
                         starts.insert(message.partition(), message.offset() + 1);
@@ -151,17 +168,20 @@ pub async fn list(client: &KafkaClient, query: MessageQuery) -> AppResult<Messag
                     None => break,
                 }
             }
+            if !progressed {
+                break;
+            }
         }
 
         // 列表从新到旧更符合排查习惯：同一页内按时间倒序。
         collected.sort_by_key(|item| std::cmp::Reverse(item.timestamp));
 
-        Ok((collected, starts))
+        Ok((collected, starts, floors))
     })
     .await
     .map_err(|error| AppError::Internal(format!("Kafka 拉取任务失败: {error}")))??;
 
-    Ok(build_page(topic, items, starts))
+    Ok(build_page(topic, items, starts, &floors))
 }
 
 /// 查询单个分区的水位。
@@ -201,14 +221,21 @@ fn plan(
 ///
 /// `has_more` 与 `cursor` 必须同进退：游标是「还能不能往下读」的唯一凭证，
 /// 只给 has_more 不给 cursor 会让前端的「加载更多」点成空转。
-/// 因此这里只在确实读到了消息时才认为还有更旧的（下一次总会往前推一格），
-/// 读到空页说明所有分区都追上了水位，翻页到此为止。
+///
+/// 但「这一页有消息」不等于「还有更旧的」：一页刚好把日志读到底时，本来也会
+/// 给出游标，于是「加载更多」拿到一个必然为空的下一页 —— 按钮亮着，点了什么都没有。
+/// 所以这里按游标里的分区进度判断：所有分区都退到各自最早位点，才是真的读完了。
 fn build_page(
     topic: String,
     items: Vec<MessageSummary>,
     starts: BTreeMap<i32, i64>,
+    floors: &BTreeMap<i32, i64>,
 ) -> MessagePage {
-    let cursor = (!items.is_empty())
+    let exhausted = !starts.is_empty()
+        && starts
+            .iter()
+            .all(|(partition, next)| floors.get(partition).is_some_and(|low| next <= low));
+    let cursor = (!items.is_empty() && !exhausted)
         .then(|| encode_cursor(&topic, &starts))
         .filter(|cursor| !cursor.is_empty());
     let has_more = cursor.is_some();
@@ -323,15 +350,77 @@ mod tests {
             size: Some(2),
             payload: None,
         };
-        let page = build_page("orders".to_owned(), vec![item], BTreeMap::from([(0, 8)]));
+        // 0 号分区还剩 7 之前的消息（最早位点 1、游标 8），所以确实还能往下翻。
+        let page = build_page(
+            "orders".to_owned(),
+            vec![item],
+            BTreeMap::from([(0, 8)]),
+            &BTreeMap::from([(0, 1)]),
+        );
         assert_eq!(page.has_more, page.cursor.is_some());
+        assert!(page.has_more);
     }
 
     #[test]
     fn empty_page_has_no_cursor() {
-        let page = build_page("orders".to_owned(), Vec::new(), BTreeMap::from([(0, 7)]));
+        let page = build_page(
+            "orders".to_owned(),
+            Vec::new(),
+            BTreeMap::from([(0, 7)]),
+            &BTreeMap::from([(0, 1)]),
+        );
         assert!(!page.has_more);
         assert!(page.cursor.is_none());
+    }
+
+    #[test]
+    fn page_at_log_head_reports_no_more() {
+        // 回归：一页刚好把日志读到底时，曾经照样给出游标，
+        // 于是「加载更多」永远亮着，点下去拿到一个必然为空的下一页。
+        let item = MessageSummary {
+            id: "orders:0:0".to_owned(),
+            key: None,
+            topic: Some("orders".to_owned()),
+            partition: Some(0),
+            offset: Some(0),
+            timestamp: None,
+            preview: "hi".to_owned(),
+            size: Some(2),
+            payload: None,
+        };
+        let page = build_page(
+            "orders".to_owned(),
+            vec![item],
+            // 两个分区都退到了各自最早位点。
+            BTreeMap::from([(0, 0), (1, 5)]),
+            &BTreeMap::from([(0, 0), (1, 5)]),
+        );
+        assert!(!page.has_more, "已经翻到日志头，不该再给游标");
+        assert!(page.cursor.is_none());
+    }
+
+    #[test]
+    fn one_partition_left_keeps_paging() {
+        // 只要还有一个分区没读完，就还能往下翻。
+        let item = MessageSummary {
+            id: "orders:0:0".to_owned(),
+            key: None,
+            topic: Some("orders".to_owned()),
+            partition: Some(0),
+            offset: Some(0),
+            timestamp: None,
+            preview: "hi".to_owned(),
+            size: Some(2),
+            payload: None,
+        };
+        let page = build_page(
+            "orders".to_owned(),
+            vec![item],
+            BTreeMap::from([(0, 0), (1, 9)]),
+            &BTreeMap::from([(0, 0), (1, 5)]),
+        );
+        assert!(page.has_more);
+        assert_eq!(page.cursor.as_deref(), Some("orders@0:0,1:9"));
     }
 
     #[test]
@@ -351,6 +440,7 @@ mod tests {
             "orders".to_owned(),
             vec![item],
             BTreeMap::from([(0, 8), (1, 3)]),
+            &BTreeMap::from([(0, 1), (1, 1)]),
         );
         assert!(page.has_more);
         assert_eq!(page.cursor.as_deref(), Some("orders@0:8,1:3"));

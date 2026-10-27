@@ -1,5 +1,10 @@
 export { brokerService } from "./broker-service";
+export { clusterService } from "./cluster-service";
 export { consumerService } from "./consumer-service";
 export { messageService } from "./message-service";
+export { parameterService } from "./parameter-service";
+export { policyService } from "./policy-service";
 export { queryKeys } from "./query-keys";
+export { resetService } from "./reset-service";
+export { topicService } from "./topic-service";
 export { call } from "./ipc";

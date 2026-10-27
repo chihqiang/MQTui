@@ -43,6 +43,43 @@ export interface MessagePage {
   source: string;
 }
 
+/** 定位条件：Kafka 日志里按 key / 时间区间找消息。 */
+export interface MessageLocate {
+  connectionId: string;
+  target: string;
+  /** 精确匹配的 key；空串视为不按 key 过滤。 */
+  key?: string;
+  /**
+   * 内容片段，包含匹配、不区分大小写。
+   * 必须与时间区间一起用：内容匹配要逐条解码消息体，没有区间就是全量扫日志。
+   */
+  content?: string;
+  /** 时间区间起点（毫秒，含）。 */
+  after?: number;
+  /** 时间区间终点（毫秒，含）。 */
+  before?: number;
+  limit?: number;
+  /** 上一页返回的续扫游标，原样回传表示「接着上次停下的位置继续」。 */
+  cursor?: string;
+}
+
+/** 定位结果。 */
+export interface MessageSearch {
+  items: MessageSummary[];
+  /** 实际解码过的条数（含未命中），用于说明这次扫描的代价。 */
+  scanned: number;
+  /** 是否因扫描上限/时间预算提前结束。 */
+  truncated: boolean;
+  /** 扫描范围的人话说明。 */
+  note: string;
+  /** 续扫游标。缺失表示已经扫到日志尽头，没有更多可读。 */
+  cursor?: string;
+  /** 本次扫描起点说明（首次扫描 / 续扫 N 个分区 / 条件变化后从头扫）。 */
+  resumedFrom?: string;
+  /** 内容扫描的条数预算说明；只在按内容查找时出现。 */
+  contentBudget?: string;
+}
+
 export interface SendRequest {
   connectionId: string;
   /** Kafka 为 topic，RabbitMQ 为 routing key。 */

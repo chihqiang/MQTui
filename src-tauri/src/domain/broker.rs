@@ -26,6 +26,7 @@ impl BrokerKind {
         match self {
             Self::Kafka => &[
                 BrokerCapability::Overview,
+                BrokerCapability::Cluster,
                 BrokerCapability::Topics,
                 BrokerCapability::ConsumerGroups,
                 BrokerCapability::OrphanTopics,
@@ -34,8 +35,16 @@ impl BrokerKind {
             ],
             Self::RabbitMq => &[
                 BrokerCapability::Overview,
+                BrokerCapability::Cluster,
+                BrokerCapability::Runtime,
                 BrokerCapability::Queues,
+                BrokerCapability::Policies,
+                BrokerCapability::Parameters,
                 BrokerCapability::Exchanges,
+                BrokerCapability::Consumers,
+                BrokerCapability::Routing,
+                BrokerCapability::TopologyGraph,
+                BrokerCapability::ConsumerGraph,
                 BrokerCapability::Messages,
                 BrokerCapability::Produce,
             ],
@@ -49,6 +58,10 @@ impl BrokerKind {
 pub enum BrokerCapability {
     /// 概览信息（集群、节点、版本等）。
     Overview,
+    /// 集群视图：节点列表、存活状态与一致性报警。Kafka 与 RabbitMQ 都提供。
+    Cluster,
+    /// RabbitMQ 运行时：套接字连接、通道与队列位置。
+    Runtime,
     /// Kafka 主题列表。
     Topics,
     /// Kafka 消费组列表与滞后量。
@@ -57,8 +70,20 @@ pub enum BrokerCapability {
     OrphanTopics,
     /// RabbitMQ 队列列表。
     Queues,
+    /// RabbitMQ 策略与操作员策略：TTL、死信、长度上限、镜像。
+    Policies,
+    /// RabbitMQ 参数：联邦（federation）、铲子（shovel）与运行时参数。
+    Parameters,
     /// RabbitMQ 交换机与绑定关系（依赖管理 HTTP API）。
     Exchanges,
+    /// RabbitMQ 消费者连线：每个队列被谁消费、预取与未确认情况。
+    Consumers,
+    /// RabbitMQ 路由估算：交换机到队列的可达性与死路排查。
+    Routing,
+    /// RabbitMQ 拓扑图：交换机与队列的分层布局。
+    TopologyGraph,
+    /// RabbitMQ 消费者连线图：交换机 → 队列 → 消费者连接的整条链路。
+    ConsumerGraph,
     /// 消息浏览与详情。
     Messages,
     /// 消息发送。
@@ -252,7 +277,7 @@ pub struct Overview {
 }
 
 /// 通用的键值对。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct KeyValue {
     pub key: String,
@@ -276,6 +301,9 @@ pub struct TopicInfo {
     pub partitions: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub replication_factor: Option<usize>,
+    /// 内部主题（`__consumer_offsets` 等）。界面上不该给删除 / 扩容入口。
+    #[serde(default)]
+    pub internal: bool,
 }
 
 /// RabbitMQ 队列信息。
@@ -317,6 +345,30 @@ mod tests {
             BrokerKind::Kafka
                 .capabilities()
                 .contains(&BrokerCapability::OrphanTopics)
+        );
+    }
+
+    #[test]
+    fn both_kinds_expose_a_cluster_page() {
+        for kind in [BrokerKind::Kafka, BrokerKind::RabbitMq] {
+            assert!(
+                kind.capabilities().contains(&BrokerCapability::Cluster),
+                "{kind:?} 缺少集群页"
+            );
+        }
+    }
+
+    #[test]
+    fn runtime_page_is_rabbitmq_only() {
+        assert!(
+            BrokerKind::RabbitMq
+                .capabilities()
+                .contains(&BrokerCapability::Runtime)
+        );
+        assert!(
+            !BrokerKind::Kafka
+                .capabilities()
+                .contains(&BrokerCapability::Runtime)
         );
     }
 

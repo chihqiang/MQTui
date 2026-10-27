@@ -3,5 +3,6 @@
 pub mod client;
 pub mod dto;
 pub mod management;
+pub mod runtime;
 
 pub use client::RabbitMqClient;

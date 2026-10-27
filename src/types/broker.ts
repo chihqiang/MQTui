@@ -8,11 +8,20 @@ export type BrokerKind = "kafka" | "rabbitMq";
 /** 面板能力：前端据此拼装菜单，不按中间件写死菜单。 */
 export type BrokerCapability =
   | "overview"
+  | "cluster"
+  | "runtime"
   | "topics"
   | "consumerGroups"
+  | "offsetReset"
   | "orphanTopics"
   | "queues"
+  | "policies"
+  | "parameters"
   | "exchanges"
+  | "consumers"
+  | "routing"
+  | "topologyGraph"
+  | "consumerGraph"
   | "messages"
   | "produce";
 
@@ -82,6 +91,8 @@ export interface TopicInfo {
   name: string;
   partitions: number;
   replicationFactor?: number;
+  /** 内部主题（`__consumer_offsets` 等）：删除与扩容都没有意义。 */
+  internal?: boolean;
 }
 
 export interface QueueInfo {

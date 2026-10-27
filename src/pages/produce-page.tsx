@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { Button, Card, CardBody, CardHeader, Field, Input, Textarea } from "@/components/ui";
+import { PageBody, PageHeader } from "@/components/layout/page-header";
 import { useSessionStore } from "@/stores";
 import { errorMessage } from "@/lib/errors";
 import { messageService } from "@/services";
@@ -37,7 +38,12 @@ export function ProducePage() {
   };
 
   return (
-    <div className="h-full overflow-auto p-6">
+    <PageBody>
+      <PageHeader
+        title="发送消息"
+        description="投递一条消息用于验证；payload 原样发送，不做格式化"
+      />
+
       <Card>
         <CardHeader title="发送消息" />
         <CardBody>
@@ -71,13 +77,13 @@ export function ProducePage() {
             </Field>
 
             <div className="flex justify-end">
-              <Button type="submit" disabled={submitting}>
-                {submitting ? "发送中…" : "发送"}
+              <Button type="submit" loading={submitting}>
+                发送
               </Button>
             </div>
           </form>
         </CardBody>
       </Card>
-    </div>
+    </PageBody>
   );
 }

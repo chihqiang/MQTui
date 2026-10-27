@@ -90,6 +90,25 @@ pub fn page(items: Vec<OrphanTopic>, limit: usize, offset: usize) -> OrphanTopic
     }
 }
 
+/// 把扫描结果拼成返回给前端的一页。
+///
+/// 分页只切 `items`，扫描元信息必须在这里补回去：`page()` 返回的是
+/// `Default::default()` 的骨架，如果调用方用结构体更新语法写在前面，
+/// 会被它整个覆盖 ——「扫了多少个主题」「哪些主题不存在」两条提示就此消失，
+/// 而界面上看不出来，只觉得「怎么少了几个主题」无从解释。
+pub fn page_of(
+    items: Vec<OrphanTopic>,
+    missing: Vec<String>,
+    limit: usize,
+    offset: usize,
+) -> OrphanTopicPage {
+    let scanned_topics = items.len();
+    let mut result = page(items, limit, offset);
+    result.scanned_topics = scanned_topics;
+    result.missing_topics = missing;
+    result
+}
+
 /// 从元数据里筛出可扫描的主题名：跳过内部主题，按范围过滤。
 pub fn pick_topics(available: &[String], scope: &OrphanScanScope) -> Vec<String> {
     let candidates = available
@@ -175,15 +194,12 @@ pub async fn query(
         .await
         .map_err(|error| AppError::Internal(format!("无消费组主题查询失败: {error}")))??;
 
-    Ok(OrphanTopicPage {
-        scanned_topics: collected.entries.len(),
-        missing_topics: collected.missing,
-        ..page(
-            assemble(collected.entries),
-            clamp_limit(limit),
-            offset.unwrap_or(0),
-        )
-    })
+    Ok(page_of(
+        assemble(collected.entries),
+        collected.missing,
+        clamp_limit(limit),
+        offset.unwrap_or(0),
+    ))
 }
 
 /// `collect` 的返回：扫描结果 + 用户点名却不存在的主题。
@@ -339,6 +355,30 @@ mod tests {
         let result = page(Vec::new(), 10, 99);
         assert!(result.items.is_empty());
         assert!(!result.has_more);
+    }
+
+    #[test]
+    fn page_keeps_scan_metadata() {
+        // 回归：`page()` 返回的是 Default 骨架，谁用结构体更新语法拼结果，
+        // scannedTopics / missingTopics 就会被静默抹掉。
+        let items: Vec<OrphanTopic> = (0..3)
+            .map(|index| evaluate(&format!("t{index}"), &[fact(0, 1, false)]).expect("非空"))
+            .collect();
+        let page = page_of(items, vec!["gone".to_owned()], 2, 0);
+
+        // 扫描数是「扫了几个主题」，不是「这一页有几条」。
+        assert_eq!(page.scanned_topics, 3);
+        assert_eq!(page.missing_topics, vec!["gone".to_owned()]);
+        assert_eq!(page.items.len(), 2);
+        assert!(page.has_more);
+    }
+
+    #[test]
+    fn page_metadata_survives_empty_result() {
+        let page = page_of(Vec::new(), Vec::new(), 10, 0);
+        assert_eq!(page.scanned_topics, 0);
+        assert!(page.missing_topics.is_empty());
+        assert!(page.items.is_empty());
     }
 
     #[test]

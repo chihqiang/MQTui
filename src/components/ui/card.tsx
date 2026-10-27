@@ -13,9 +13,9 @@ export function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
 
 export function CardHeader({ title, extra }: { title: ReactNode; extra?: ReactNode }) {
   return (
-    <div className="flex items-center justify-between border-b border-slate-800 px-4 py-2.5">
-      <h2 className="text-sm font-medium text-slate-200">{title}</h2>
-      {extra}
+    <div className="flex items-center justify-between gap-3 border-b border-slate-800 px-4 py-2.5">
+      <h2 className="min-w-0 truncate text-sm font-medium text-slate-200">{title}</h2>
+      {extra ? <div className="flex shrink-0 items-center gap-2">{extra}</div> : null}
     </div>
   );
 }

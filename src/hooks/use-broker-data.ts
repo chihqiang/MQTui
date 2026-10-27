@@ -28,6 +28,9 @@ export function useQueues(id: string | undefined, enabled: boolean) {
     queryKey: queryKeys.queues(id ?? ""),
     queryFn: () => messageService.listQueues(id as string),
     enabled: enabled && Boolean(id),
+    // 队列、拓扑、消费者连线三份数据都在管理 API 上一次拉全，本身不便宜。
+    // 窗口给 30 秒：切页面回来看的还是这一份，写操作会显式失效。
+    staleTime: 30_000,
   });
 }
 
@@ -36,6 +39,35 @@ export function useTopology(id: string | undefined, enabled: boolean) {
   return useQuery({
     queryKey: queryKeys.topology(id ?? ""),
     queryFn: () => messageService.loadTopology(id as string),
+    enabled: enabled && Boolean(id),
+    // 管理 API 全量快照，代价不小；页面间来回切不该各拉一次。
+    staleTime: 30_000,
+  });
+}
+
+/** RabbitMQ 拓扑图：分层布局 + 连线。布局在后端算好，前端只画。 */
+export function useTopologyGraph(id: string | undefined, enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.topologyGraph(id ?? ""),
+    queryFn: () => messageService.loadTopologyGraph(id as string),
+    enabled: enabled && Boolean(id),
+  });
+}
+
+/** 消费者连线图：交换机 → 队列 → 消费者连接。三份数据由后端一次取齐。 */
+export function useConsumerGraph(id: string | undefined, enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.consumerGraph(id ?? ""),
+    queryFn: () => messageService.loadConsumerGraph(id as string),
+    enabled: enabled && Boolean(id),
+  });
+}
+
+/** 交换机到队列的路由估算。依赖管理 API，需要 RabbitMQ 连接。 */
+export function useTopologyInsight(id: string | undefined, enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.topologyInsight(id ?? ""),
+    queryFn: () => messageService.loadTopologyInsight(id as string),
     enabled: enabled && Boolean(id),
   });
 }

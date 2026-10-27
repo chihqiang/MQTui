@@ -4,6 +4,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use rdkafka::ClientConfig;
+use rdkafka::admin::AdminClient;
+use rdkafka::client::DefaultClientContext;
+use rdkafka::config::FromClientConfig;
 use rdkafka::consumer::{BaseConsumer, Consumer};
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::util::Timeout;
@@ -16,7 +19,7 @@ use crate::error::{AppError, AppResult};
 use super::dto::client_config;
 
 /// 元数据请求超时。
-const META_TIMEOUT: Duration = Duration::from_secs(10);
+pub(super) const META_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Kafka 客户端。
 ///
@@ -62,25 +65,14 @@ impl KafkaClient {
 
     /// 概览信息。
     pub async fn overview(&self) -> AppResult<Overview> {
-        let admin = Arc::clone(&self.admin);
-        let metadata = tokio::task::spawn_blocking(move || {
-            admin.fetch_metadata(None, Timeout::After(META_TIMEOUT))
-        })
-        .await
-        .map_err(|error| AppError::Internal(format!("Kafka 元数据任务失败: {error}")))?
-        .map_err(AppError::from)?;
-
-        let items = vec![
-            KeyValue::new("Brokers", self.bootstrap.clone()),
-            KeyValue::new("集群 ID", metadata.orig_broker_id().to_string()),
-            KeyValue::new("节点数", metadata.brokers().len().to_string()),
-            KeyValue::new("主题数", metadata.topics().len().to_string()),
-        ];
-
-        Ok(Overview {
-            title: "Kafka 集群".to_owned(),
-            items,
-        })
+        // 概览与集群页共用同一份聚合结果，避免「概览说 3 个 broker、集群页说 2 个」
+        // 这种同屏矛盾 —— 两处都来自一次元数据请求是唯一能保证一致的做法。
+        let raw = self.cluster_raw().await?;
+        let mut overview = super::cluster::overview_items(&raw);
+        overview
+            .items
+            .insert(0, KeyValue::new("Brokers", self.bootstrap.clone()));
+        Ok(overview)
     }
 
     /// 订阅主题列表。
@@ -99,11 +91,17 @@ impl KafkaClient {
             .map(|topic| TopicInfo {
                 name: topic.name().to_owned(),
                 partitions: topic.partitions().len(),
-                // 取第一个分区的副本数作为主题副本因子，服务端重启期间可能缺失。
+                // 副本因子取「各分区里最大的那个」，而不是第一个分区的。
+                // 元数据是按 broker 视角拼出来的：某个主题在这个 broker 上可能
+                // 只认得部分分区，`first()` 拿到的恰好是残缺的那一条时，
+                // 列表里会写出一个比真实值小的副本数。取最大值才是安全的方向 ——
+                // 「副本比你以为的多」不会让人做错决定，「比你以为的少」会。
                 replication_factor: topic
                     .partitions()
-                    .first()
-                    .map(|partition| partition.replicas().len()),
+                    .iter()
+                    .map(|partition| partition.replicas().len())
+                    .max(),
+                internal: is_internal_topic(topic.name()),
             })
             .collect())
     }
@@ -121,16 +119,7 @@ impl KafkaClient {
             record = record.key(key);
         }
 
-        let owned_headers = headers.iter().fold(
-            rdkafka::message::OwnedHeaders::new(),
-            |headers, (name, value)| {
-                headers.insert(rdkafka::message::Header {
-                    key: name.as_str(),
-                    value: Some(value.as_bytes()),
-                })
-            },
-        );
-        record = record.headers(owned_headers);
+        record = record.headers(owned_headers(headers));
 
         let delivery = self
             .producer
@@ -142,6 +131,40 @@ impl KafkaClient {
             "partition={} offset={}",
             delivery.partition, delivery.offset
         ))
+    }
+
+    /// 发送一条消息并返回落点。
+    ///
+    /// 与 `send` 的差别只在返回值：重发需要知道分区号才能判断
+    /// 「同一条 key 有没有落到原来那个分区」，拼成字符串再解析回来很蠢。
+    ///
+    /// 走独立的 producer 实例，`enable.idempotence` 只在新建实例时生效，
+    /// 共用的那个早已创建，改配置等于改了个没人读的字段。
+    /// 代价是每次重发多一个 producer 的握手——重发是低频人工动作，值得。
+    pub async fn deliver(
+        &self,
+        topic: &str,
+        key: Option<&str>,
+        payload: &[u8],
+        headers: &[(String, String)],
+    ) -> AppResult<DeliveryReceipt> {
+        let producer = self.resend_producer()?;
+
+        let mut record = FutureRecord::<str, [u8]>::to(topic).payload(payload);
+        if let Some(key) = key {
+            record = record.key(key);
+        }
+        record = record.headers(owned_headers(headers));
+
+        let delivery = producer
+            .send(record, Timeout::After(META_TIMEOUT))
+            .await
+            .map_err(|(error, _)| AppError::from(error))?;
+
+        Ok(DeliveryReceipt {
+            partition: delivery.partition,
+            offset: delivery.offset,
+        })
     }
 
     /// 健康检查：bootstrap 可达 + 元数据可取。
@@ -178,6 +201,22 @@ impl KafkaClient {
         })
     }
 
+    /// 建一个开启幂等性的 producer，供「重发一条已有消息」使用。
+    ///
+    /// 重发是人工排查动作，重复写入的代价比一次失败更难收拾：幂等 producer
+    /// 让重试不会在日志里留下同一份消息的多个副本。
+    fn resend_producer(&self) -> AppResult<FutureProducer> {
+        let mut config = self.config.clone();
+        config
+            .set("enable.idempotence", "true")
+            // acks=all 是幂等的前提，显式写出来免得被环境配置覆盖。
+            .set("acks", "all")
+            .set("max.in.flight.requests.per.connection", "5");
+        config
+            .create()
+            .map_err(|error| AppError::Broker(format!("创建 Kafka 发送客户端失败: {error}")))
+    }
+
     /// 供上层构造 consumer 使用的基础配置。
     pub fn consumer_config(&self, group_id: &str) -> ClientConfig {
         let mut config = self.config.clone();
@@ -188,10 +227,64 @@ impl KafkaClient {
         config
     }
 
+    /// 集群版本，形如 `3.7.0`。拿不到时返回 `None`。
+    ///
+    /// Kafka 的 `ApiVersions` 里没有「集群版本」这个字段，能拿到的只有每个 broker
+    /// 支持的 API 版本区间，不同发行版（自建 / Confluent / 各家云）又不一致。
+    /// 所以这里不去猜：读不到就返回 `None`，上层按「版本未知」处理 ——
+    /// 只说明，不拦。猜出来的版本会变成一条错误的安全感。
+    pub async fn version(&self) -> Option<String> {
+        let admin = Arc::clone(&self.admin);
+        let metadata = tokio::task::spawn_blocking(move || {
+            admin.fetch_metadata(None, Timeout::After(META_TIMEOUT))
+        })
+        .await
+        .ok()?
+        .ok()?;
+
+        // 元数据里唯一可能带版本信息的是 topic 的错误串之外的东西，这里没有可靠来源。
+        // 保留这次调用是为了将来 rdkafka 暴露 broker 版本时不必改上层签名。
+        let _ = metadata.brokers().len();
+        None
+    }
+
     /// bootstrap 地址，用于错误提示。
     pub fn bootstrap(&self) -> &str {
         &self.bootstrap
     }
+
+    /// 建一个一次性的管理客户端。
+    ///
+    /// 写操作（建/扩/删主题、读配置）走 AdminClient，与只读消息用的
+    /// `BaseConsumer` 是两条驱动路径。管理句柄用完即弃：面板的写操作是低频动作，
+    /// 常驻连接只会让连接数在界面上看起来莫名其妙。
+    pub fn admin(&self) -> AppResult<AdminClient<DefaultClientContext>> {
+        let mut config = self.config.clone();
+        config.set("group.id", "mqtui-admin");
+        AdminClient::from_config(&config)
+            .map_err(|error| AppError::Broker(format!("创建 Kafka 管理客户端失败: {error}")))
+    }
+
+    /// 建一个只读的查询 consumer。
+    ///
+    /// 与 `consumer_config` 配合使用：调用方决定 group.id，
+    /// 这里只负责把建客户端的错误收敛成统一类型。
+    pub fn inspection_consumer(&self, group_id: &str) -> AppResult<BaseConsumer> {
+        self.consumer_config(group_id)
+            .create()
+            .map_err(AppError::from)
+    }
+}
+
+/// 是否为 Kafka 自己维护的内部主题。
+///
+/// 唯一可靠的判据是 `__` 前缀：`PartitionMetadata::error()` 返回的
+/// `UnknownTopicOrPartition` 只是「这个 broker 当前不认这个主题」——
+/// 自动建主题关闭时的正常写入、集群重启期间未成为 leader 的分区都会走到这个分支，
+/// 那类主题在别的 broker 上明明有数据，元数据里的分区数是空的。
+/// 把它当成「不存在」或「0 个分区」，列表上就会出现一批看似空壳的主题。
+fn is_internal_topic(name: &str) -> bool {
+    name.starts_with("__")
 }
 
 /// 毫秒时间戳，与 RabbitMQ 侧保持同一种时间刻度。
@@ -199,4 +292,24 @@ fn now_millis() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |duration| duration.as_millis() as i64)
+}
+
+/// 一条消息的投递回执。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DeliveryReceipt {
+    pub partition: i32,
+    pub offset: i64,
+}
+
+/// 把成对的头转换成 rdkafka 的 owned headers。
+fn owned_headers(headers: &[(String, String)]) -> rdkafka::message::OwnedHeaders {
+    headers.iter().fold(
+        rdkafka::message::OwnedHeaders::new(),
+        |headers, (name, value)| {
+            headers.insert(rdkafka::message::Header {
+                key: name.as_str(),
+                value: Some(value.as_bytes()),
+            })
+        },
+    )
 }

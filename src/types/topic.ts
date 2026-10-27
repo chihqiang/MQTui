@@ -1,0 +1,84 @@
+/** 与 `src-tauri/src/domain/topic.rs` 一一对应的领域类型。 */
+
+/** 单个分区的布局：副本分布 + 水位。 */
+export interface TopicPartitionInfo {
+  partition: number;
+  /** 当前 leader；集群选主期间可能缺失。 */
+  leader?: number;
+  /** 全部副本所在节点，顺序即副本顺序。 */
+  replicas: number[];
+  /** 已同步副本。比 `replicas` 少说明有副本掉队。 */
+  inSyncReplicas: number[];
+  /** 起始位点。 */
+  low: number;
+  /** 末尾位点。 */
+  high: number;
+}
+
+export interface TopicDetail {
+  name: string;
+  partitions: TopicPartitionInfo[];
+  /** 非默认配置项（默认值不返回，避免几百行的表把重点埋掉）。 */
+  configs?: { key: string; value: string }[];
+  /** 内部主题（`__` 前缀），不可删/扩容。 */
+  internal: boolean;
+}
+
+/** 新建主题请求，字段与后端 `TopicSpec` 对应。 */
+export interface TopicSpec {
+  name: string;
+  partitions: number;
+  /** 0 表示使用服务端默认副本因子。 */
+  replicationFactor: number;
+  configs?: { key: string; value: string }[];
+}
+
+/** 分区扩容请求。 */
+export interface PartitionExpansion {
+  topic: string;
+  partitions: number;
+}
+
+/** 主题运维能力：界面据此启停按钮，不重复实现后端的规则。 */
+export interface TopicCapabilities {
+  canCreate: boolean;
+  canDelete: boolean;
+  canExpand: boolean;
+  /** 不能操作的原因，`key` 是 delete / expand。 */
+  reasons?: { key: string; value: string }[];
+}
+
+/** 单个主题的分区分布（与 `domain/partition_hotspot.rs` 对应）。 */
+export interface PartitionSpread {
+  topic: string;
+  /** 分区总数。 */
+  partitions: number;
+  /** 全部消息总量。 */
+  messages: number;
+  /** 最热分区的消息数。 */
+  maxMessages: number;
+  /** 最热分区号；全空主题没有。 */
+  hottest?: number;
+  /** 空分区数量。 */
+  empty: number;
+  /** 是否判定为热点（少数分区扛住绝大部分流量）。 */
+  hotspot: boolean;
+  /** 判定说明。 */
+  note?: string;
+}
+
+/** 分区热点分析结果。 */
+export interface HotspotReport {
+  /** 全部分析过的主题，按主题名排序。 */
+  topics: PartitionSpread[];
+  /** 仅热点主题，按偏离均分的程度倒序。 */
+  hotspots: PartitionSpread[];
+  /** 点名却不存在的主题。 */
+  missing: string[];
+}
+
+export interface TopicOutcome {
+  kind: string;
+  topic: string;
+  detail: string;
+}

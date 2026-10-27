@@ -26,6 +26,8 @@ export const STORAGE_KEYS = {
   workspace: "workspace",
   /** 最近访问过的 topic / queue，按连接隔离。 */
   messageTargets: "message-targets",
+  /** 命令面板最近执行过的命令，用于把高频路径顶到前面。 */
+  recentCommands: "recent-commands",
 } as const;
 
 function fullKey(key: string): string {

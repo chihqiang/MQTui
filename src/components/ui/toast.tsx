@@ -1,21 +1,37 @@
 import { useEffect } from "react";
 
 import { cn } from "@/lib/cn";
+import { IconAlert, IconClose, IconInbox, IconSpinner } from "@/lib/icons";
 import { useSessionStore, type Toast as ToastItem } from "@/stores";
 
 const KIND_CLASS: Record<ToastItem["kind"], string> = {
-  success: "border-emerald-500/40 bg-emerald-500/10 text-emerald-200",
-  error: "border-rose-500/40 bg-rose-500/10 text-rose-200",
-  info: "border-sky-500/40 bg-sky-500/10 text-sky-200",
+  success: "border-success/40 bg-success/10 text-success",
+  error: "border-danger/40 bg-danger/10 text-danger",
+  info: "border-info/40 bg-info/10 text-info",
+  progress: "border-slate-600/60 bg-slate-800/90 text-slate-200",
 };
 
-/** 自动消失的 toast 容器。 */
+/** 报错多留一会儿：一行红字三秒半就消失，等于没说。 */
+const DURATION: Record<ToastItem["kind"], number> = {
+  success: 2500,
+  info: 3000,
+  error: 6000,
+  progress: Infinity,
+};
+
+/**
+ * Toast 容器：右下角堆叠，最多三条。
+ *
+ * 只保留最近三条不是为了省像素，而是报错连发时（比如批量处置逐条失败）
+ * 一次刷出十几条会把整个右下角糊满，反而一条都读不进去。
+ */
 export function ToastViewport() {
   const toasts = useSessionStore((state) => state.toasts);
+  const visible = toasts.slice(-3);
 
   return (
-    <div className="pointer-events-none fixed bottom-4 right-4 z-50 flex w-80 flex-col gap-2">
-      {toasts.map((toast) => (
+    <div className="pointer-events-none fixed right-4 bottom-4 z-50 flex w-80 flex-col items-end gap-2">
+      {visible.map((toast) => (
         <ToastCard key={toast.id} toast={toast} />
       ))}
     </div>
@@ -25,22 +41,39 @@ export function ToastViewport() {
 function ToastCard({ toast }: { toast: ToastItem }) {
   const dismiss = useSessionStore((state) => state.dismissToast);
 
-  // 3.5s 后自动关闭，期间用户可点击关闭。
   useEffect(() => {
-    const timer = window.setTimeout(() => dismiss(toast.id), 3500);
+    const duration = DURATION[toast.kind];
+    if (!Number.isFinite(duration)) return;
+    const timer = window.setTimeout(() => dismiss(toast.id), duration);
     return () => window.clearTimeout(timer);
-  }, [dismiss, toast.id]);
+  }, [dismiss, toast.id, toast.kind]);
 
   return (
-    <button
-      type="button"
-      onClick={() => dismiss(toast.id)}
+    <div
+      role="status"
       className={cn(
-        "pointer-events-auto rounded-md border px-3 py-2 text-left text-xs shadow-lg",
+        "animate-slide-up pointer-events-auto flex w-full items-start gap-2 rounded-md border px-3 py-2 text-xs shadow-lg",
         KIND_CLASS[toast.kind],
       )}
     >
-      {toast.message}
-    </button>
+      <span className="mt-px shrink-0">
+        {toast.kind === "error" ? (
+          <IconAlert />
+        ) : toast.kind === "progress" ? (
+          <IconSpinner className="animate-spin" />
+        ) : (
+          <IconInbox />
+        )}
+      </span>
+      <span className="selectable min-w-0 flex-1 break-words">{toast.message}</span>
+      <button
+        type="button"
+        onClick={() => dismiss(toast.id)}
+        aria-label="关闭提示"
+        className="shrink-0 rounded p-0.5 opacity-60 transition-opacity hover:opacity-100"
+      >
+        <IconClose size={12} />
+      </button>
+    </div>
   );
 }

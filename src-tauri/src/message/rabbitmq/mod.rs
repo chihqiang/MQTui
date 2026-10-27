@@ -1,6 +1,7 @@
 //! RabbitMQ 消息实现：按 queue 拉取，消息 ID 使用 `queue:deliveryTag`。
 
 pub mod dto;
+pub mod redeliver;
 
 use crate::broker::rabbitmq::RabbitMqClient;
 use crate::domain::{MessageDetail, MessagePage, MessageQuery, SendRequest};

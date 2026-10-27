@@ -1,9 +1,156 @@
 @import "tailwindcss";
 
-/* 全局基础样式：深色是面板类工具的默认选择，减少长时间盯屏的疲劳。 */
+/*
+ * 全局基础样式。
+ *
+ * 面板类工具会被长时间盯着，所以这里做三件事：
+ * 1. 深色是默认底色，减少长时间盯屏的疲劳；
+ * 2. 统一焦点环与过渡时长 —— 键盘操作要看得见、hover 要跟手；
+ * 3. 收掉系统默认控件的噪音（滚动条、选区、骨架屏微光）。
+ *
+ * 动效集中登记在 `@theme`：Tailwind 4 靠扫描类名生成样式，
+ * 手写 `@keyframes` 会因为「没有类名引用」被裁掉，登记之后
+ * `animate-fade-in` 这类工具类才会真正产出。
+ */
+@theme {
+  /* 时长与曲线：用户开了「减少动态效果」时会被整段压成 0（见下方媒体查询）。 */
+  --motion-fast: 120ms;
+  --motion-base: 160ms;
+  --motion-ease: cubic-bezier(0.2, 0, 0, 1);
+
+  /* 进/出场动画。名字即类名：`animate-fade-in` / `animate-pop-in` / `animate-slide-up`。 */
+  --animate-fade-in: mqtui-fade-in var(--motion-base) var(--motion-ease);
+  --animate-pop-in: mqtui-pop-in var(--motion-base) var(--motion-ease);
+  --animate-slide-up: mqtui-slide-up var(--motion-base) var(--motion-ease);
+  --animate-shimmer: mqtui-shimmer 1.4s linear infinite;
+
+  /*
+   * 字号五档。写在 `@theme` 里，Tailwind 会生成 `text-(length:--text-app-body)`
+   * 这样的工具类（见 `lib/visual.ts` 的映射），组件只写语义档位。
+   *
+   * `micro`（10px）是唯一允许「比 meta 还小」的一档，只给快捷键提示（`kbd`）、
+   * 分组小标题、画布坐标这类**不读、只认**的标记用。剩下的 10px 硬编码收在这里，
+   * 否则下一轮又会有人问「为什么这块是 10px 那块是 11px」。
+   *
+   * 关键的一档是 `display`：页头原来是 14px，和表头只差 3px、和正文差 2px，
+   * 视觉上不承担「你现在在哪」。16px 是「比正文大一级但不喧哗」的下限。
+   */
+  --text-app-micro: 10px;
+  --text-app-meta: 11px;
+  --text-app-body: 12px;
+  --text-app-title: 14px;
+  --text-app-display: 16px;
+
+  /*
+   * 语义色。命名按「用它做什么」而不是「它是什么颜色」—— 换品牌色只改这一处，
+   * 组件里不再出现裸色号。
+   *
+   * 上一轮只把 `accent` / `critical` 收了进来，`info` / `warning` / `success`
+   * 仍然以 `sky-500` / `amber-500` / `emerald-500` 的形式散在 badge、toast、
+   * 图表里：等于「三组语义色」只落地了一组。这一轮补齐五行，
+   * 顺带把 `ok` 改名成与 `Tone` 一致的 `success`。
+   *
+   * 身份色（`broker-*`）单独一组：它们不表达任何语义，既不借告警色，
+   * 也不借 `info`——否则「这是一台 Kafka」和「这是一条提示」同色。
+   */
+  --color-accent: var(--color-sky-600);
+  --color-accent-hover: var(--color-sky-500);
+  --color-accent-active: var(--color-sky-700);
+  --color-info: var(--color-sky-400);
+  --color-success: var(--color-emerald-400);
+  --color-warning: var(--color-amber-400);
+  --color-danger: var(--color-rose-400);
+  --color-ok: var(--color-emerald-600);
+  --color-ok-hover: var(--color-emerald-500);
+  --color-critical: var(--color-rose-600);
+  --color-critical-hover: var(--color-rose-500);
+  --color-critical-active: var(--color-rose-700);
+  --color-broker-kafka: var(--color-amber-300);
+  --color-broker-rabbitmq: var(--color-violet-300);
+
+  /*
+   * 状态色：贴着文字用的「点」和「条」（健康条、存活标记、水位条）。
+   *
+   * 和上面的语义色是两档明度：`info/success/warning/danger` 是浅色档（给文字），
+   * `*-fill` 是饱和档（给色块），在深色底上色块要够重才看得见，文字要够浅才读得清。
+   */
+  --color-info-fill: var(--color-sky-500);
+  --color-success-fill: var(--color-emerald-500);
+  --color-warning-fill: var(--color-amber-500);
+  --color-danger-fill: var(--color-rose-500);
+
+  /*
+   * 选中态的底色。
+   *
+   * 导航、命令面板、「当前候选」三处都在表达同一件事：**你现在在这里**。
+   * 它们曾经各用一套（`bg-sky-600/20`、`bg-slate-700`、`bg-sky-600/10`），
+   * 于是“选中”在不同页面看起来像三种不同的状态。
+   */
+  --color-selection: var(--color-sky-600);
+  --color-selection-quiet: var(--color-slate-700);
+
+  /*
+   * 次级信息的文字色。
+   *
+   * `text-slate-500` 在 slate-950 上约 4.3:1，勉强过线；时间戳、位点、端点
+   * 这类「要读」的元数据不该停在这条线上，统一提到 slate-400。
+   * slate-500 只留给「可读可不读」的说明文字。
+   */
+  --color-meta: var(--color-slate-400);
+  --color-meta-dim: var(--color-slate-500);
+}
+
+@keyframes mqtui-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes mqtui-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+}
+
+@keyframes mqtui-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@keyframes mqtui-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
 @layer base {
   :root {
     color-scheme: dark;
+    /* 焦点环：外圈压深一档，这样在浅色卡片上也分得清。 */
+    --focus-ring: 0 0 0 2px var(--color-slate-950), 0 0 0 4px var(--color-sky-500);
+  }
+
+  /* 系统要求减少动画时全部压成瞬时，避免前庭不适。 */
+  @media (prefers-reduced-motion: reduce) {
+    :root {
+      --motion-fast: 0ms;
+      --motion-base: 0ms;
+    }
+
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
   }
 
   html,
@@ -19,7 +166,18 @@
     font-family:
       ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC",
       "Microsoft YaHei", sans-serif;
+    font-size: var(--text-app-body);
     -webkit-font-smoothing: antialiased;
+    /* 桌面壳里不该到处能拖选文字；需要复制的地方由 `.selectable` 显现放开。 */
+    user-select: none;
+  }
+
+  .selectable,
+  input,
+  textarea,
+  pre,
+  code {
+    user-select: text;
   }
 
   /* 滚动条统一成细样式，避免默认滚动条破坏布局。 */
@@ -32,4 +190,42 @@
     border-radius: 4px;
     background-color: var(--color-slate-700);
   }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--color-slate-600);
+  }
+
+  ::-webkit-scrollbar-track {
+    background-color: transparent;
+  }
+
+  /*
+   * 焦点环统一用 box-shadow：默认的 outline 不跟圆角走，在胶囊按钮上会露直角。
+   * `:focus-visible` 已经把「鼠标点击」排除在外，不必再自己判断。
+   */
+  :focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
+  }
+
+  /* 位点、滞后量这类数字右对齐时等宽更易扫读。 */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/*
+ * 语义色别名。
+ *
+ * 放在 `@layer utilities` 而不是 `@theme`：Tailwind 4 会给 `--color-*` 生成
+ * `bg-meta` 这类工具类，但**不会**生成 `text-meta` —— 文字色和背景色共用一套
+ * 变量时，靠 `text-(--color-meta)` 写起来太吵，而 `text-slate-400` 又退回到裸色号。
+ * 这里显式登记三个真正被用到的文字色，覆盖上面两层缺的那一格。
+ */
+@utility text-meta {
+  color: var(--color-meta);
+}
+
+@utility text-meta-dim {
+  color: var(--color-meta-dim);
 }

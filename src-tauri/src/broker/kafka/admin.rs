@@ -222,18 +222,34 @@ fn fetch_committed_offsets(
         let (low, high) = worker
             .fetch_watermarks(element.topic(), element.partition(), GROUPS_TIMEOUT)
             .map_err(AppError::from)?;
-        // 位点可能已被 retention 清理，此时以 low 为准，滞后量不能为负。
-        let base = offset.max(low);
         offsets.push(ConsumerGroupOffset {
             topic: element.topic().to_owned(),
             partition: element.partition(),
             offset: Some(offset),
             high,
-            lag: (high - base).max(0),
+            lag: partition_lag(offset, low, high),
         });
     }
     offsets.sort_by(|a, b| a.topic.cmp(&b.topic).then(a.partition.cmp(&b.partition)));
     Ok(offsets)
+}
+
+/// 单分区滞后量。
+///
+/// 位点可能已被 retention 清理到 `low` 之前，也可能被写到了 `high` 之后
+/// （业务方手动改位点、或者干脆写错了一个巨大值）。两种情形下「末尾 - 位点」
+/// 都会算出错误的数字：
+///
+/// - 位点 < `low`：这些消息已经不在日志里了，正确读数是 `high - low`。
+///   直接减得出来的数是**虚高**的滞后，人会去查一个并不存在的堆积。
+/// - 位点 > `high`：消费者其实已经跳过了全部现存消息，滞后是 0。
+///   直接减出来是负数，界面上得靠 `.max(0)` 兜住 —— 兜是对的，但要把
+///   「位点越界」这件事在这里说清，否则下一个人会以为是取整问题。
+///
+/// 所以先把位点夹进 `[low, high]` 再减：结果永远落在真实的可能区间里。
+pub fn partition_lag(offset: i64, low: i64, high: i64) -> i64 {
+    let from = offset.clamp(low.min(high), high);
+    (high - from).max(0)
 }
 
 /// 把空字符串当 `None`：服务端对缺失字段返回空串而不是缺省。
@@ -306,6 +322,18 @@ mod tests {
         let all = names(&["a", "b"]);
         let refs: Vec<&str> = all.iter().map(String::as_str).collect();
         assert!(slice_by_name(&refs, Some("z"), 10).is_empty());
+    }
+
+    #[test]
+    fn lag_clamps_offset_into_retained_range() {
+        // 位点被 retention 清到 low 之前：堆积是第一段现存消息，不是「末尾 - 旧位点」。
+        assert_eq!(partition_lag(0, 100, 300), 200);
+        // 位点越界到末尾之后：消费者已经跳过全部现存消息，滞后就是 0。
+        assert_eq!(partition_lag(500, 100, 300), 0);
+        // 正常区间内照常相减。
+        assert_eq!(partition_lag(150, 100, 300), 150);
+        // 空分区（low == high）没有滞后可言。
+        assert_eq!(partition_lag(42, 7, 7), 0);
     }
 
     #[test]

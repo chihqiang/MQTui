@@ -1,0 +1,143 @@
+import {
+  Badge,
+  DataTable,
+  ErrorState,
+  Loading,
+  Modal,
+  SectionTitle,
+  StaleNotice,
+  TableCell,
+  TableRow,
+  type DataTableColumn,
+} from "@/components/ui";
+import { useConsumerGroup } from "@/hooks/use-consumer-groups";
+import { errorMessage } from "@/lib/errors";
+import { failureText } from "@/lib/failure";
+import { formatLag, groupState, lagTone } from "@/lib/consumer";
+import { formatNumber } from "@/lib/format";
+import type { ConsumerGroupInfo } from "@/types";
+
+const OFFSET_COLUMNS: DataTableColumn[] = [
+  { key: "topic", label: "topic" },
+  { key: "partition", label: "分区", width: "w-16", align: "right" },
+  { key: "offset", label: "已提交", width: "w-28", align: "right" },
+  { key: "high", label: "末尾", width: "w-28", align: "right" },
+  { key: "lag", label: "滞后", width: "w-24", align: "right" },
+];
+
+interface Props {
+  connectionId: string;
+  group: ConsumerGroupInfo;
+  onClose: () => void;
+}
+
+/**
+ * 消费组详情：成员列表 + 各分区滞后。
+ *
+ * 列表页只有组级信息，滞后量在这里按需计算 —— 打开时才去查水位，
+ * 避免几百个组一次性把集群问一遍。
+ */
+export function ConsumerGroupDialog({ connectionId, group, onClose }: Props) {
+  const { data, isLoading, error, refetch } = useConsumerGroup(
+    connectionId,
+    group.name,
+  );
+  const state = groupState(data?.group.state ?? group.state);
+
+  return (
+    <Modal open title={`消费组 · ${group.name}`} onClose={onClose}>
+      {/* 滞后量是这一页的全部价值，刷新失败时留着上一次算出来的数字，
+          比换成一个红叉有用：至少还知道三分钟前落后多少。 */}
+      {error && data ? (
+        <StaleNotice
+          message={failureText("刷新消费组", errorMessage(error), group.name)}
+          onRetry={() => void refetch()}
+        >
+          滞后量是上一次读取的结果
+        </StaleNotice>
+      ) : null}
+      {isLoading && !data ? <Loading label="读取消费组详情…" /> : null}
+      {error && !data ? (
+        <ErrorState
+          message={failureText("读取消费组", errorMessage(error), group.name)}
+          onRetry={() => void refetch()}
+        />
+      ) : null}
+      {data ? (
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
+            <Badge tone={state.tone}>{state.label}</Badge>
+            <span>成员 {formatNumber(data.group.members)}</span>
+            <span>
+              总滞后{" "}
+              <Badge tone={lagTone(data.group.totalLag)}>
+                {formatLag(data.group.totalLag)}
+              </Badge>
+            </span>
+          </div>
+
+          <section>
+            <SectionTitle extra={data.members.length ? `共 ${formatNumber(data.members.length)} 个` : undefined}>
+              成员
+            </SectionTitle>
+            {data.members.length ? (
+              <ul className="divide-y divide-slate-800 rounded border border-slate-800">
+                {data.members.map((member, index) => (
+                  <li
+                    key={member.memberId ?? `member-${index}`}
+                    className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2 text-xs"
+                  >
+                    <span className="font-mono text-slate-200">
+                      {member.clientId ?? "-"}
+                    </span>
+                    <span className="text-slate-500">
+                      {member.clientHost ?? "-"}
+                    </span>
+                    <span className="ml-auto truncate font-mono text-(length:--text-app-meta) text-slate-600">
+                      {member.memberId ?? "-"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-xs text-slate-500">
+                当前没有在线成员（组为空或消费者已下线）
+              </p>
+            )}
+          </section>
+
+          <section>
+            <SectionTitle extra={`共 ${formatNumber(data.offsets.length)} 个分区`}>分区进度</SectionTitle>
+            {data.offsets.length ? (
+              <div className="max-h-72 overflow-auto rounded border border-slate-800">
+                <DataTable columns={OFFSET_COLUMNS} className="text-xs">
+                  {data.offsets.map((offset) => (
+                    <TableRow key={`${offset.topic}-${offset.partition}`}>
+                      <TableCell mono className="text-slate-300">
+                        {offset.topic}
+                      </TableCell>
+                      <TableCell muted numeric>
+                        P{offset.partition}
+                      </TableCell>
+                      <TableCell muted numeric>
+                        {formatNumber(offset.offset)}
+                      </TableCell>
+                      <TableCell muted numeric>
+                        {formatNumber(offset.high)}
+                      </TableCell>
+                      <TableCell align="right">
+                        <Badge tone={lagTone(offset.lag)}>{formatLag(offset.lag)}</Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </DataTable>
+              </div>
+            ) : (
+              <p className="text-xs text-slate-500">该组尚未提交任何位点</p>
+            )}
+          </section>
+        </div>
+      ) : null}
+    </Modal>
+  );
+}
