@@ -185,7 +185,7 @@ function AddSelect({
   onSelect: (key: string) => void;
 }) {
   if (options.length === 0) {
-    return <span className="text-(length:--text-app-meta) text-slate-400">可配置项都已列出</span>;
+    return <span className="text-(length:--text-app-meta) text-meta">可配置项都已列出</span>;
   }
 
   return (

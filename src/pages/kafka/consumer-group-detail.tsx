@@ -93,7 +93,7 @@ export function ConsumerGroupDialog({ connectionId, group, onClose }: Props) {
                     <span className="text-slate-500">
                       {member.clientHost ?? "-"}
                     </span>
-                    <span className="ml-auto truncate font-mono text-(length:--text-app-meta) text-slate-400">
+                    <span className="ml-auto truncate font-mono text-(length:--text-app-meta) text-meta">
                       {member.memberId ?? "-"}
                     </span>
                   </li>

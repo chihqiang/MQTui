@@ -234,7 +234,7 @@ function ScriptBlock({
       <pre
         className={
           muted
-            ? "overflow-auto px-3 py-2 font-mono text-(length:--text-app-meta) text-slate-400"
+            ? "overflow-auto px-3 py-2 font-mono text-(length:--text-app-meta) text-meta"
             : "overflow-auto px-3 py-2 font-mono text-(length:--text-app-meta) text-slate-600"
         }
       >

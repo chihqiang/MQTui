@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 
 import { cn } from "@/lib/cn";
 
+import { Button } from "./button";
 import { Field, Input } from "./input";
 import { Modal } from "./modal";
 
@@ -53,29 +54,20 @@ export function ConfirmDialog({
       onClose={onClose}
       size="sm"
       footer={
+        // 复用 Button 而不是手写两个 <button>：确认框里的「处理中…」以前没有转圈，
+        // 提交后看起来像没反应，用户会再点一次 —— 而这恰好是危险操作。
         <>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md px-3 py-1.5 text-xs text-slate-300 transition-colors hover:bg-slate-100"
-          >
+          <Button variant="ghost" onClick={onClose} disabled={loading}>
             取消
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant={danger ? "danger" : "primary"}
             onClick={onConfirm}
-            disabled={!matched || loading}
-            aria-busy={loading || undefined}
-            className={cn(
-              "rounded-md px-3 py-1.5 text-xs font-medium text-white transition-colors",
-              "disabled:cursor-not-allowed disabled:opacity-50",
-              danger
-                ? "bg-critical text-white hover:bg-critical-hover"
-                : "bg-accent text-white hover:bg-accent-hover",
-            )}
+            disabled={!matched}
+            loading={loading}
           >
-            {loading ? "处理中…" : confirmLabel}
-          </button>
+            {confirmLabel}
+          </Button>
         </>
       }
     >
@@ -95,7 +87,7 @@ export function ConfirmDialog({
               autoFocus
               spellCheck={false}
               placeholder={requirePhrase}
-              className={cn("h-8 font-mono text-xs", matched ? undefined : "border-slate-300")}
+              className={cn("h-8 font-mono text-xs", matched || !phrase ? undefined : "border-rose-300")}
             />
           </Field>
         ) : null}

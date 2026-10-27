@@ -74,7 +74,8 @@ export function GraphCanvas({
                   y2={line.y2}
                   stroke="currentColor"
                   className={cn(
-                    "text-slate-300 transition-opacity",
+                    // 连线是结构不是信息：浅色底上用 slate-200 够了，再深会压过节点。
+                    "text-slate-200 transition-opacity",
                     related ? "opacity-100" : "opacity-25",
                   )}
                   strokeWidth={1.5}

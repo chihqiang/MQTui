@@ -56,7 +56,7 @@ export function Empty({
       <div className="mb-1 rounded-full border border-dashed border-slate-300 bg-white p-3 text-slate-500">
         {icon ?? <IconInbox size={18} />}
       </div>
-      <p className="text-(length:--text-app-title) font-medium text-slate-300">{title}</p>
+      <p className="text-(length:--text-app-title) font-medium text-slate-600">{title}</p>
       {description ? (
         <p className="max-w-md text-(length:--text-app-meta) text-slate-500">{description}</p>
       ) : null}

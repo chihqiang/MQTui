@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Field, Input, Select } from "@/components/ui";
 import { readDraft, writeDraft } from "@/lib/session-storage";
@@ -11,6 +11,13 @@ interface Props {
   onSubmit: (config: ConnectionConfig) => void;
   save: boolean;
   onSaveChange: (next: boolean) => void;
+  /**
+   * 要预填的配置（来自「连接记录」的「填入表单」）。
+   *
+   * 以前这里直接从草稿初始化一次，于是那条按钮点了只会切页签 —— 表单还是上一次的草稿。
+   * 外部配置每次变化都整体覆盖一次：用户此刻的意图是「把这条记录摊开给我改」。
+   */
+  initialConfig?: Extract<ConnectionConfig, { kind: "kafka" }> | null;
 }
 
 /** 读取上次的草稿作为初值，没有则用默认值。 */
@@ -28,9 +35,24 @@ function initial(): ConnectionConfig & { kind: "kafka" } {
 }
 
 /** Kafka 连接表单。字段变更即时写入 localStorage 草稿，误关页面不丢输入。 */
-export function ConnectionFormKafka({ submitting, onSubmit, save, onSaveChange }: Props) {
-  const [config, setConfig] = useState(initial);
-  const [brokers, setBrokers] = useState(config.brokers.join(","));
+export function ConnectionFormKafka({
+  submitting,
+  onSubmit,
+  save,
+  onSaveChange,
+  initialConfig,
+}: Props) {
+  const [config, setConfig] = useState(() => initialConfig ?? initial());
+  // 输入框里是原始字符串（允许中途敲出 `a,,b`），提交时才拆开 —— 所以单独存一份，
+  // 初值必须和 config 同源，否则草稿里的多地址会被渲染成默认值。
+  const [brokers, setBrokers] = useState(() => (initialConfig ?? initial()).brokers.join(","));
+
+  useEffect(() => {
+    if (!initialConfig) return;
+    setConfig(initialConfig);
+    setBrokers(initialConfig.brokers.join(","));
+    writeDraft(initialConfig);
+  }, [initialConfig]);
 
   const patch = (next: Partial<typeof config>) => {
     const merged = { ...config, ...next };

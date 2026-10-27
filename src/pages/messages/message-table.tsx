@@ -354,10 +354,10 @@ export function MessageTable({
               加载更多
             </Button>
           ) : (
-            <span className="text-slate-400">已到日志头部</span>
+            <span className="text-meta">已到日志头部</span>
           )}
           {/* 读消息是高频动作，「这屏数据是哪一刻的」比一个刷新按钮更有用。 */}
-          <span className="tabular text-(length:--text-app-meta) text-slate-400">{freshness}</span>
+          <span className="tabular text-(length:--text-app-meta) text-meta">{freshness}</span>
           <Button
             size="xs"
             variant="ghost"
@@ -550,7 +550,7 @@ const MessageRow = memo(function MessageRow({
           checked={checked}
           onChange={() => onToggle(message.id)}
           aria-label={`选择消息 ${message.id}`}
-          className="size-3.5 shrink-0 accent-sky-500"
+          className="size-3.5 shrink-0 accent-indigo-600"
         />
       ) : null}
       {/* 整行点击进详情用按钮包住文字区，操作按钮留在外面，避免嵌套 button。 */}
@@ -567,7 +567,7 @@ const MessageRow = memo(function MessageRow({
         </span>
         <span className="tabular w-20 shrink-0 text-meta">{formatNumber(message.offset)}</span>
         <span className="min-w-0 flex-1 truncate font-mono text-slate-800">
-          {message.preview || <span className="text-slate-400">(空消息)</span>}
+          {message.preview || <span className="text-meta">(空消息)</span>}
         </span>
         <span className="tabular w-14 shrink-0 text-right text-meta">
           {formatBytes(message.size)}

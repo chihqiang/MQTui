@@ -46,6 +46,8 @@ export function ConnectPage() {
   const [save, setSave] = useState(false);
   // 已保存列表是 localStorage 而非服务端数据，用一次读取 + 手动刷新保持简单。
   const [saved, setSaved] = useState<SavedConnection[]>(() => listSavedConnections());
+  // 「填入表单」要预填的那一条。null 表示当前表单是从草稿起来的。
+  const [prefill, setPrefill] = useState<SavedConnection | null>(null);
   const openConnection = useOpenConnection();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -64,6 +66,7 @@ export function ConnectPage() {
         onSuccess: () => {
           // 连上了就说明配置有效，草稿没用了，清掉免得下次残留半成品。
           clearDraft(config.kind);
+          setPrefill(null);
           setSaved(listSavedConnections());
         },
       },
@@ -80,10 +83,27 @@ export function ConnectPage() {
     [openConnection],
   );
 
-  /** 记录行上的「填入表单」：缺密码、想改端口时走这条路。 */
+  /**
+   * 正在连的那一条。
+   *
+   * `openConnection` 是全局一个 mutation，把 `isPending` 直接传给每一行，
+   * 点击时全部十条记录一起转圈 —— 看不出到底在连哪台。这里记住被点的那条。
+   */
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!openConnection.isPending) setPendingId(null);
+  }, [openConnection.isPending]);
+
+  /**
+   * 记录行上的「填入表单」：缺密码、想改端口时走这条路。
+   *
+   * 必须真把配置摊进表单 —— 以前只切了页签，表单还停在上一次的草稿上，
+   * 点了和没点一样，用户只能自己重打一遍地址。
+   */
   const fillForm = useCallback((entry: SavedConnection) => {
     setKind(entry.config.kind);
     setName(entry.name);
+    setPrefill(entry);
     setTab("new");
   }, []);
 
@@ -108,7 +128,9 @@ export function ConnectPage() {
 
   return (
     <div className="h-full overflow-auto">
-      <div className="mx-auto w-full max-w-3xl px-6 py-8">
+      {/* 表单页用 2xl 而不是 3xl：浅色主题下 768px 宽的空表单会让「名字」和「地址」
+          隔着半个屏幕，眼睛要在两行之间来回跑。 */}
+      <div className="mx-auto w-full max-w-2xl px-6 py-7">
         <h1 className="text-(length:--text-app-display) font-semibold tracking-tight text-slate-900">
           开始使用
         </h1>
@@ -122,7 +144,7 @@ export function ConnectPage() {
         <div
           role="tablist"
           aria-label="连接入口"
-          className="mt-6 mb-3 flex items-center gap-1 border-b border-slate-200"
+          className="mt-5 mb-3 flex items-center gap-1 border-b border-slate-200"
         >
           <TabButton
             active={tab === "saved"}
@@ -142,8 +164,11 @@ export function ConnectPage() {
                 <li key={entry.id}>
                   <SavedRow
                     entry={entry}
-                    busy={openConnection.isPending}
-                    onReconnect={() => reconnect(entry)}
+                    busy={pendingId === entry.id}
+                    onReconnect={() => {
+                      setPendingId(entry.id);
+                      reconnect(entry);
+                    }}
                     onFill={() => fillForm(entry)}
                     onRemove={() => removeSaved(entry)}
                   />
@@ -157,7 +182,7 @@ export function ConnectPage() {
               <CardHeader
                 title="选择中间件"
                 extra={
-                  <span className="text-(length:--text-app-micro) text-slate-400">
+                  <span className="text-(length:--text-app-micro) text-meta">
                     类型清单由后端下发
                   </span>
                 }
@@ -179,7 +204,7 @@ export function ConnectPage() {
               <CardHeader
                 title="连接信息"
                 extra={
-                  <span className="text-(length:--text-app-micro) text-slate-400">
+                  <span className="text-(length:--text-app-micro) text-meta">
                     {BROKER_LABEL[kind]}
                   </span>
                 }
@@ -199,6 +224,9 @@ export function ConnectPage() {
                     onSubmit={submit}
                     save={save}
                     onSaveChange={setSave}
+                    initialConfig={
+                      prefill?.config.kind === "kafka" ? prefill.config : null
+                    }
                   />
                 ) : (
                   <ConnectionFormRabbitMq
@@ -206,6 +234,9 @@ export function ConnectPage() {
                     onSubmit={submit}
                     save={save}
                     onSaveChange={setSave}
+                    initialConfig={
+                      prefill?.config.kind === "rabbitMq" ? prefill.config : null
+                    }
                   />
                 )}
               </CardBody>
@@ -235,10 +266,12 @@ function TabButton({
       aria-selected={active}
       onClick={onClick}
       className={cn(
-        "-mb-px border-b-2 px-3 py-2 text-xs font-medium transition-colors",
+        // 选中项靠 2px 主色下划线 + 深一档的字重说话，不再叠半透明底：
+        // 一段 24px 高的淡靛蓝方块比线更抢眼，而它表达的只是「当前页签」。
+        "-mb-px border-b-2 px-3 py-2 text-xs transition-colors",
         active
-          ? "border-indigo-600 text-indigo-700"
-          : "border-transparent text-slate-500 hover:text-slate-800",
+          ? "border-indigo-600 font-semibold text-slate-900"
+          : "border-transparent font-medium text-slate-500 hover:text-slate-800",
       )}
     >
       {label}
@@ -277,9 +310,11 @@ function KindCard({
       aria-pressed={active}
       className={cn(
         "group flex items-start gap-3 rounded-xl p-3 text-left transition-colors",
+        // 选中用「实线主色描边 + 白底 + 主色图标块」，未选中用中性描边。
+        // 选中态不再半透明铺底：浅色主题里那层 60% 的靛蓝落在白卡上会发灰。
         active
-          ? "bg-indigo-50/60 ring-1 ring-indigo-400"
-          : "bg-white ring-1 ring-slate-200 hover:bg-slate-50 hover:ring-slate-300",
+          ? "bg-white ring-1 ring-indigo-500"
+          : "bg-white ring-1 ring-slate-200 hover:ring-slate-300",
       )}
     >
       <span
@@ -293,7 +328,7 @@ function KindCard({
       <span className="min-w-0 flex-1">
         <span className="flex items-baseline gap-2">
           <span className="text-xs font-semibold text-slate-900">{displayName}</span>
-          <span className="text-(length:--text-app-micro) text-slate-400">
+          <span className="text-(length:--text-app-micro) text-meta">
             端口 {hint.port}
           </span>
         </span>
@@ -324,32 +359,61 @@ function SavedRow({
     config.kind === "kafka"
       ? config.brokers.join(", ")
       : `${config.host}:${config.port}${config.managementUrl ? ` · ${config.managementUrl}` : ""}`;
+  const user = config.auth.username?.trim();
+  // 存下来的凭据缺口令时，「重连」一定失败。与其让人点了收到一句报错，
+  // 不如在行上直接标出来，并把主动作换成「补口令」。
+  const missingSecret = Boolean(user) && !config.auth.password;
 
   return (
-    <Card className="flex items-center gap-3 px-3 py-2.5">
-      <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500">
-        <Plug className="size-4" />
+    <Card className="flex items-center gap-3 px-3 py-2 transition-colors hover:ring-slate-300">
+      <span
+        className={cn(
+          "flex size-7 shrink-0 items-center justify-center rounded-lg",
+          config.kind === "kafka"
+            ? "bg-amber-50 text-broker-kafka"
+            : "bg-violet-50 text-broker-rabbitmq",
+        )}
+      >
+        <Plug className="size-3.5" />
       </span>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-xs font-medium text-slate-900">
-          {entry.name}
-          <span className="ml-2 text-(length:--text-app-micro) font-normal text-slate-400">
+        {/* 第一行：名字 + 类型 + 用户；第二个行：端点。信息分两层，扫读先认名字。 */}
+        <p className="flex items-baseline gap-2 truncate text-xs font-medium text-slate-900">
+          <span className="truncate">{entry.name}</span>
+          <span className="shrink-0 text-(length:--text-app-micro) font-normal text-meta">
             {BROKER_LABEL[config.kind]}
           </span>
+          {user ? (
+            <span className="shrink-0 text-(length:--text-app-micro) font-normal text-meta">
+              · {user}
+            </span>
+          ) : null}
+          {missingSecret ? (
+            <span className="shrink-0 rounded bg-amber-50 px-1 text-(length:--text-app-micro) font-normal text-warning">
+              未存口令
+            </span>
+          ) : null}
         </p>
         <p className="truncate font-mono text-(length:--text-app-meta) text-meta">{endpoint}</p>
       </div>
+      {/* 一行里只留一个主色按钮：记录列表竖着排十行时，十个实心主色按钮
+          会连成一条比内容还显眼的色带。 */}
       <Button size="sm" variant="ghost" onClick={onFill}>
-        填入表单
+        {missingSecret ? "补口令" : "填入表单"}
       </Button>
-      <Button size="sm" variant="primary" loading={busy} onClick={onReconnect}>
+      <Button
+        size="sm"
+        variant={missingSecret ? "secondary" : "primary"}
+        loading={busy}
+        onClick={onReconnect}
+      >
         重连
       </Button>
       <button
         type="button"
         onClick={onRemove}
         aria-label={`从记录里删除 ${entry.name}`}
-        className="shrink-0 rounded-md p-1.5 text-slate-600 transition-colors hover:bg-rose-50 hover:text-rose-600"
+        className="shrink-0 rounded-md p-1.5 text-meta transition-colors hover:bg-rose-50 hover:text-rose-600"
       >
         <Trash2 className="size-3.5" />
       </button>
@@ -360,12 +424,12 @@ function SavedRow({
 function EmptySaved({ onCreate }: { onCreate: () => void }) {
   return (
     <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center">
-      <span className="flex size-10 items-center justify-center rounded-full bg-slate-100 text-slate-400">
+      <span className="flex size-10 items-center justify-center rounded-full bg-slate-100 text-meta">
         <Plug className="size-5" />
       </span>
       <div>
         <p className="text-xs font-medium text-slate-600">还没有连过的环境</p>
-        <p className="mt-1 text-(length:--text-app-meta) text-slate-400">
+        <p className="mt-1 text-(length:--text-app-meta) text-meta">
           连上一次之后，这里会留下地址与用户名，下次点一下就回来
         </p>
       </div>
@@ -406,7 +470,7 @@ export function SubmitRow({
         <span>
           保存此连接（连同密码写入本机 localStorage）
           <br />
-          <span className="text-slate-400">不勾选则仅在本次运行期间有效</span>
+          <span className="text-meta">不勾选则仅在本次运行期间有效</span>
         </span>
       </label>
       <Button type="submit" loading={submitting}>

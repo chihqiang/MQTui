@@ -10,7 +10,7 @@ const VARIANT_CLASS: Record<Variant, string> = {
   primary:
     "bg-accent text-white shadow-xs hover:bg-accent-hover active:bg-accent-active disabled:bg-accent/40 disabled:shadow-none",
   secondary:
-    "bg-white text-slate-700 shadow-xs ring-1 ring-slate-200 hover:bg-slate-50 hover:text-slate-900 active:bg-slate-100 disabled:text-slate-400",
+    "bg-white text-slate-700 shadow-xs ring-1 ring-slate-200 hover:bg-slate-50 hover:text-slate-900 active:bg-slate-100 disabled:text-meta",
   ghost: "text-slate-600 hover:bg-slate-100 hover:text-slate-900 active:bg-slate-200/70",
   danger:
     "bg-critical text-white shadow-xs hover:bg-critical-hover active:bg-critical-active disabled:bg-critical/40 disabled:shadow-none",

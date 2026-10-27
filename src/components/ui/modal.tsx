@@ -63,7 +63,7 @@ export function Modal({
             type="button"
             onClick={onClose}
             aria-label="关闭"
-            className="rounded-md p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+            className="rounded-md p-1 text-meta transition-colors hover:bg-slate-100 hover:text-slate-700"
           >
             <IconClose size={14} />
           </button>

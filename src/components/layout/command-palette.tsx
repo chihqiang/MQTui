@@ -108,7 +108,7 @@ export function CommandPalette() {
               它只是一句状态说明，所以现在把「改密度」的入口明说出去。 */}
           <span className="truncate">
             密度：{DENSITY_OPTIONS.find((option) => option.value === density)?.label ?? "紧凑"}
-            <span className="mx-1 text-slate-300">·</span>
+            <span className="mx-1 text-meta">·</span>
             搜「密度」可改
           </span>
         </div>

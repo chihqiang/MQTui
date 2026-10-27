@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Field, Input, Select } from "@/components/ui";
 import { readDraft, writeDraft } from "@/lib/session-storage";
@@ -11,6 +11,8 @@ interface Props {
   onSubmit: (config: ConnectionConfig) => void;
   save: boolean;
   onSaveChange: (next: boolean) => void;
+  /** 要预填的配置（来自「连接记录」的「填入表单」），见 Kafka 表单里的同类说明。 */
+  initialConfig?: Extract<ConnectionConfig, { kind: "rabbitMq" }> | null;
 }
 
 function initial(): ConnectionConfig & { kind: "rabbitMq" } {
@@ -32,8 +34,20 @@ function initial(): ConnectionConfig & { kind: "rabbitMq" } {
 }
 
 /** RabbitMQ 连接表单。字段变更即时写入 localStorage 草稿。 */
-export function ConnectionFormRabbitMq({ submitting, onSubmit, save, onSaveChange }: Props) {
-  const [config, setConfig] = useState(initial);
+export function ConnectionFormRabbitMq({
+  submitting,
+  onSubmit,
+  save,
+  onSaveChange,
+  initialConfig,
+}: Props) {
+  const [config, setConfig] = useState(() => initialConfig ?? initial());
+
+  useEffect(() => {
+    if (!initialConfig) return;
+    setConfig(initialConfig);
+    writeDraft(initialConfig);
+  }, [initialConfig]);
 
   const patch = (next: Partial<typeof config>) => {
     const merged = { ...config, ...next };

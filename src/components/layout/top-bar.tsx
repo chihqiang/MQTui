@@ -73,14 +73,14 @@ export function TopBar({
 
       {current ? (
         <div className="flex min-w-0 items-center gap-1.5 text-xs">
-          <span className="text-slate-300">/</span>
+          <span className="text-meta">/</span>
           <span className="truncate font-medium text-slate-800">{current.name}</span>
           <span className="shrink-0 text-(length:--text-app-meta) text-meta">
             {BROKER_LABEL[current.kind]} · {current.endpoint}
           </span>
         </div>
       ) : (
-        <span className="text-xs text-slate-400">未连接</span>
+        <span className="text-xs text-meta">未连接</span>
       )}
 
       <span className="ml-auto flex shrink-0 items-center gap-0.5">

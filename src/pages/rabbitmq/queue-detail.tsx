@@ -167,7 +167,7 @@ function DetailBody({
             {detail.bindings.map((binding) => (
               <li key={`${binding.source}|${binding.routingKey}`} className="font-mono text-(length:--text-app-meta)">
                 <span className="text-slate-600">{binding.source || "(默认交换机)"}</span>
-                <span className="mx-1 text-slate-400">→</span>
+                <span className="mx-1 text-meta">→</span>
                 <span className="text-info">{binding.routingKey || "(空)"}</span>
               </li>
             ))}

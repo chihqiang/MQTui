@@ -24,7 +24,7 @@ export function CommandTrigger() {
     >
       <IconSearch size={12} />
       <span className="flex-1 truncate text-left">搜索 / 跳转</span>
-      <kbd className="rounded border border-slate-200 bg-white px-1 text-(length:--text-app-micro) text-slate-400">
+      <kbd className="rounded border border-slate-200 bg-white px-1 text-(length:--text-app-micro) text-meta">
         {shortcut}
       </kbd>
     </button>

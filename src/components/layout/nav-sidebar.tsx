@@ -46,7 +46,7 @@ export function NavSidebar({ grouped }: { grouped: boolean }) {
             {/* 只分出一项的组不画标题：为一个菜单项加一行小标题，
                 换来的只是多一层缩进和一次视线跳跃。 */}
             {section.items.length > 1 ? (
-              <p className="px-2 pt-2 pb-1 text-(length:--text-app-micro) font-medium tracking-wider text-slate-400 uppercase">
+              <p className="px-2 pt-2 pb-1 text-(length:--text-app-micro) font-medium tracking-wider text-meta uppercase">
                 {NAV_GROUP_LABEL[section.group]}
               </p>
             ) : null}

@@ -91,7 +91,7 @@ export function MessageResendDialog({ connectionId, message, onClose }: Props) {
             onChange={(event) => setPayload(event.currentTarget.value)}
             rows={5}
             placeholder={message.preview || "(原消息内容为空)"}
-            className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 font-mono text-xs text-slate-800 shadow-xs outline-none placeholder:text-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/15"
+            className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 font-mono text-xs text-slate-800 shadow-xs outline-none placeholder:text-meta focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/15"
           />
         </Field>
 

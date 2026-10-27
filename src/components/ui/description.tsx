@@ -77,7 +77,7 @@ export function SectionTitle({
   return (
     <div className={cn("mb-1.5 flex items-baseline gap-2", className)}>
       <h4 className="text-(length:--text-app-meta) tracking-wide text-slate-500 uppercase">{children}</h4>
-      {extra ? <span className="text-(length:--text-app-meta) text-slate-400">{extra}</span> : null}
+      {extra ? <span className="text-(length:--text-app-meta) text-meta">{extra}</span> : null}
     </div>
   );
 }

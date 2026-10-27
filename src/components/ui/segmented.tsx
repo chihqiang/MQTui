@@ -26,7 +26,12 @@ export function Segmented<T extends string>({
   return (
     <div
       role="tablist"
-      className={cn("inline-flex shrink-0 gap-0.5 rounded-md bg-white p-0.5", className)}
+      // 底槽用浅灰而不是白：一段白底的分段开关落在白卡片上，两边都只剩一条描边，
+      // 用户分不清「这是一个控件」还是「两个并排按钮」。
+      className={cn(
+        "inline-flex shrink-0 gap-0.5 rounded-md bg-slate-100 p-0.5",
+        className,
+      )}
     >
       {options.map((option) => {
         const active = option.value === value;
@@ -40,11 +45,12 @@ export function Segmented<T extends string>({
             onClick={() => onChange(option.value)}
             className={cn(
               "rounded px-2.5 py-1 text-xs whitespace-nowrap transition-colors",
-              // 未选中项也要给颜色反馈：以前它只是「变亮一点」，两个选项都摊开时
-              // 到底会切到哪儿全靠猜。用虚线内描边做预览，按下才换成实底色。
+              // 选中态是「浅灰槽里的一块白」—— 与全站卡片同一套层级语言：
+              // 白 = 当前，灰 = 底。以前选中项和未选中项都带白色描边，
+              // 目光扫过去分不出哪一段是结果、哪一段是候选。
               active
-                ? "bg-white text-slate-900 shadow-xs ring-1 ring-slate-200"
-                : "text-slate-500 hover:bg-slate-100 hover:text-slate-800 hover:ring-1 hover:ring-slate-300 hover:ring-inset",
+                ? "bg-white font-medium text-indigo-700 shadow-xs"
+                : "text-slate-500 hover:bg-slate-200/60 hover:text-slate-800",
             )}
           >
             {option.label}

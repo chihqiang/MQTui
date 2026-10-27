@@ -22,12 +22,12 @@ export function ConnectionSidebar() {
   return (
     <aside className="flex w-56 shrink-0 flex-col border-r border-slate-200 bg-white">
       <div className="min-h-0 flex-1 overflow-auto px-2 py-3">
-        <p className="px-2 pb-1.5 text-(length:--text-app-micro) font-medium tracking-wider text-slate-400 uppercase">
+        <p className="px-2 pb-1.5 text-(length:--text-app-micro) font-medium tracking-wider text-meta uppercase">
           连接
         </p>
-        {isLoading ? <p className="px-2 text-xs text-slate-400">加载中…</p> : null}
+        {isLoading ? <p className="px-2 text-xs text-meta">加载中…</p> : null}
         {data?.length === 0 ? (
-          <p className="px-2 text-(length:--text-app-meta) leading-relaxed text-slate-400">
+          <p className="px-2 text-(length:--text-app-meta) leading-relaxed text-meta">
             还没有连接。点右上角的 + 新建一条。
           </p>
         ) : null}
