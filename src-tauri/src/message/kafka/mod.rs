@@ -12,6 +12,7 @@ pub mod locate;
 pub mod locate_cursor;
 pub mod migrations;
 pub mod orphans;
+pub mod quota;
 pub mod resend;
 pub mod throughput;
 pub mod topics;

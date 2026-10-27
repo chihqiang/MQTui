@@ -63,6 +63,8 @@ pub fn run() {
             commands::topic::get_migration_progress,
             commands::topic::build_migration_runbook,
             commands::topic::parse_migration_verify,
+            commands::quota::describe_client_quotas,
+            commands::quota::describe_user_scram_credentials,
             commands::admin::load_admin,
             commands::admin::save_vhost,
             commands::admin::delete_vhost,

@@ -31,6 +31,7 @@ impl BrokerKind {
                 BrokerCapability::ConsumerGroups,
                 BrokerCapability::OffsetReset,
                 BrokerCapability::OrphanTopics,
+                BrokerCapability::Access,
                 BrokerCapability::Messages,
                 BrokerCapability::Produce,
             ],
@@ -77,6 +78,12 @@ pub enum BrokerCapability {
     OrphanTopics,
     /// RabbitMQ 队列列表。
     Queues,
+    /// Kafka 准入：客户端配额与 SASL/SCRAM 凭据。
+    ///
+    /// 只有 Kafka 有这套东西 —— RabbitMQ 的账号与权限是另一回事（在 `Admin` 里）。
+    /// 这一页只读：librdkafka 既没导出 `DescribeClientQuotas`，
+    /// 也没导出 `AlterUserScramCredentials`。
+    Access,
     /// RabbitMQ 账户管理：vhost、用户、权限。
     ///
     /// 三样都挂在管理 HTTP API 上（`/api/vhosts`、`/api/users`、`/api/permissions`），
@@ -502,6 +509,7 @@ mod tests {
             BrokerCapability::OffsetReset => "位点重置",
             BrokerCapability::OrphanTopics => "无消费组主题",
             BrokerCapability::Queues => "队列",
+            BrokerCapability::Access => "准入",
             BrokerCapability::Admin => "账户",
             BrokerCapability::Policies => "策略",
             BrokerCapability::Parameters => "参数",
@@ -525,6 +533,7 @@ mod tests {
         BrokerCapability::OffsetReset,
         BrokerCapability::OrphanTopics,
         BrokerCapability::Queues,
+        BrokerCapability::Access,
         BrokerCapability::Admin,
         BrokerCapability::Policies,
         BrokerCapability::Parameters,
@@ -566,6 +575,22 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn access_page_is_kafka_only() {
+        // 配额与 SCRAM 是 Kafka 自己的概念。RabbitMQ 的账号权限在 `Admin` 里，
+        // 声明 `Access` 会让 RabbitMQ 菜单里多出一个永远报错的入口。
+        assert!(
+            BrokerKind::Kafka
+                .capabilities()
+                .contains(&BrokerCapability::Access)
+        );
+        assert!(
+            !BrokerKind::RabbitMq
+                .capabilities()
+                .contains(&BrokerCapability::Access)
+        );
     }
 
     #[test]

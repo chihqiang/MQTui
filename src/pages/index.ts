@@ -14,6 +14,7 @@
  * 但引用路径不用变，页面与路由之间仍然只有这一层契约。
  */
 export {
+  AccessPage,
   AdminPage,
   ClusterPage,
   ConnectPage,

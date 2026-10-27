@@ -5,6 +5,7 @@ import { RootLayout } from "@/App";
 import { AppShell } from "@/components/layout/app-shell";
 import { PageLoading } from "@/components/ui";
 import {
+  AccessPage,
   AdminPage,
   ClusterPage,
   ConsumerGraphPage,
@@ -86,6 +87,7 @@ export const router = createBrowserRouter([
               { path: "consumer-groups", element: <ConsumerGroupsPage /> },
               { path: "offset-reset", element: <OffsetResetPage /> },
               { path: "orphan-topics", element: <OrphanTopicsPage /> },
+              { path: "access", element: <AccessPage /> },
               { path: "queues", element: <QueuesPage /> },
               { path: "policies", element: <PoliciesPage /> },
               { path: "admin", element: <AdminPage /> },

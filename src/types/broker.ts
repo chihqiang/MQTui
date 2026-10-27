@@ -16,6 +16,7 @@ export type BrokerCapability =
   | "orphanTopics"
   | "queues"
   | "admin"
+  | "access"
   | "policies"
   | "parameters"
   | "exchanges"

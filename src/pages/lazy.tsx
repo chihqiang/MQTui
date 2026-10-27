@@ -34,6 +34,7 @@ const kafka = {
   ConsumerGroupsPage: lazyNamed(() => import("./kafka/consumer-groups-page"), "ConsumerGroupsPage"),
   OffsetResetPage: lazyNamed(() => import("./kafka/offset-reset-page"), "OffsetResetPage"),
   OrphanTopicsPage: lazyNamed(() => import("./kafka/orphan-topics-page"), "OrphanTopicsPage"),
+  AccessPage: lazyNamed(() => import("./kafka/access-page"), "AccessPage"),
 };
 
 const rabbitmq = {
@@ -65,6 +66,7 @@ export const {
   ConsumerGroupsPage,
   OffsetResetPage,
   OrphanTopicsPage,
+  AccessPage,
   RuntimePage,
   ConsumersPage,
   ConsumerGraphPage,

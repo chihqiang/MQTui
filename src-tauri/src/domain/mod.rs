@@ -21,6 +21,7 @@ pub mod orphan;
 pub mod parameter;
 pub mod partition_hotspot;
 pub mod policy;
+pub mod quota;
 pub mod reassignment;
 pub mod redeliver;
 pub mod resend;
@@ -96,6 +97,11 @@ pub use policy::{
     DefinitionEntry, ImpactEstimate, OperatorPolicyInfo, PolicyApplyTo, PolicyInfo, PolicyRemoval,
     PolicySnapshot, PolicySpec, PriorityConflict, effective_pattern, estimate_impact,
     overflow_hint, suppressed_by,
+};
+pub use quota::{
+    QuotaEntityKind, QuotaEntry, QuotaGroup, QuotaSnapshot, ScramCredential, ScramMechanism,
+    ScramSnapshot, ScramUser, assemble_quota, assemble_scram, kind_of as quota_kind_of,
+    normalize_entity as normalize_quota_entity,
 };
 pub use reassignment::{
     Layout as ReassignLayout, MigrationReport, PartitionMigration, PartitionProgress,

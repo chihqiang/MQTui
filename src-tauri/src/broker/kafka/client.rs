@@ -265,6 +265,28 @@ impl KafkaClient {
             .map_err(|error| AppError::Broker(format!("创建 Kafka 管理客户端失败: {error}")))
     }
 
+    /// 再建一个走同一份配置的客户端句柄，**不建连**。
+    ///
+    /// 给需要把阻塞调用挪进线程池的读取用：`KafkaClient` 自己不是 `Send` 的
+    /// （内含 `BaseConsumer` 与生产者），直接 `move` 进 `spawn_blocking` 会编译不过。
+    /// 这里只复制配置，句柄本身由线程池那边新建，用完即弃。
+    pub fn clone_handle(&self) -> AppResult<Self> {
+        let admin: BaseConsumer = self
+            .config
+            .create()
+            .map_err(|error| AppError::Broker(format!("创建 Kafka 客户端失败: {error}")))?;
+        let producer: FutureProducer = self
+            .config
+            .create()
+            .map_err(|error| AppError::Broker(format!("创建 Kafka 客户端失败: {error}")))?;
+        Ok(Self {
+            config: self.config.clone(),
+            bootstrap: self.bootstrap.clone(),
+            admin: Arc::new(admin),
+            producer,
+        })
+    }
+
     /// 用给定配置构造客户端，**不建连**。
     ///
     /// 只给参数校验类单测用：那些分支必须在发出任何网络请求之前就失败，

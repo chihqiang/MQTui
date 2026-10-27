@@ -9,5 +9,6 @@ pub mod consumer;
 pub mod message;
 pub mod parameter;
 pub mod policy;
+pub mod quota;
 pub mod reset;
 pub mod topic;

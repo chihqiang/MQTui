@@ -12,6 +12,7 @@ export * from "./offset-reset";
 export * from "./orphan";
 export * from "./parameter";
 export * from "./policy";
+export * from "./quota";
 export * from "./reassignment";
 export * from "./runtime";
 export * from "./topic";

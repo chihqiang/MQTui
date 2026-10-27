@@ -103,6 +103,12 @@ const NAV_LABELS: Record<
     description: "vhost、用户、标签与 vhost 权限",
     Icon: IconGroups,
   },
+  access: {
+    label: "准入",
+    path: "access",
+    description: "客户端配额与 SASL/SCRAM 凭据",
+    Icon: IconGroups,
+  },
   policies: {
     label: "策略",
     path: "policies",
