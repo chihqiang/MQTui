@@ -1,5 +1,6 @@
 //! Kafka 连接实现。基于 `rdkafka`。
 
+pub mod acl;
 pub mod admin;
 pub mod client;
 pub mod cluster;

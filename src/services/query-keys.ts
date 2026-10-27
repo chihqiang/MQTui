@@ -28,6 +28,14 @@ export const queryKeys = {
   admin: (id: string) => ["connections", "detail", id, "admin"] as const,
   /** 客户端配额：含 broker 级默认值线索。 */
   quotas: (id: string) => ["connections", "detail", id, "quotas"] as const,
+  /**
+   * ACL 规则：带过滤器指纹。
+   *
+   * 带上过滤器是关键：换一次筛选条件就该是另一份缓存，否则「筛了主题之后
+   * 又切回全部」会先看到上一次那张表，像是漏了一堆规则。
+   */
+  acls: (id: string, filterKey: string) =>
+    ["connections", "detail", id, "acls", filterKey] as const,
   /** SASL/SCRAM 凭据：与配额分开缓存，失败面不同。 */
   scram: (id: string) => ["connections", "detail", id, "scram"] as const,
   /** 参数快照：联邦 / 铲子 / 运行时三类一次拉全。 */

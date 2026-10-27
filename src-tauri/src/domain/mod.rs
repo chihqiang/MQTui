@@ -1,5 +1,6 @@
 //! 领域模型：全部与具体中间件实现无关，前端类型定义与此一一对应。
 
+pub mod acl;
 pub mod admin;
 pub mod broker;
 pub mod cluster;
@@ -35,6 +36,10 @@ pub mod topology;
 pub mod topology_graph;
 pub mod topology_insight;
 
+pub use acl::{
+    AclEntry, AclFilter, AclOperation, AclPattern, AclPermission, AclResourceType, AclSnapshot,
+    PrincipalAcl, assemble_acls,
+};
 pub use admin::{
     DEFAULT_VHOST, FULL_ACCESS, PasswordVerdict, PermissionInfo, RemovalBlock, SpecBlock, UserInfo,
     UserSpec, UserTag, VhostInfo, VhostRow, assemble_vhosts, check_password,

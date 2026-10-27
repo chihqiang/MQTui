@@ -3,6 +3,7 @@
 //! 面板只读不写：消费者使用随机的 group id 且从不提交 offset，
 //! 避免把「看一眼」的行为写进业务消费组的位点。
 
+pub mod acl;
 pub mod consumer_groups;
 pub mod dto;
 pub mod group_block;
