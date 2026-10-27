@@ -10,7 +10,7 @@ use crate::domain::{
     BindingKey, BindingSpec, CheckStatus, ConsumerGraph, ConsumerLinks, ExchangeRemoval,
     ExchangeSpec, HealthCheck, HealthReport, KeyValue, MessageHeader, Overview, ParameterComponent,
     ParameterSnapshot, PolicySnapshot, PolicySpec, QueueDetail, QueueInfo, RabbitMqConfig,
-    RabbitMqTopology, SendRoute, TopologyGraph, TopologyInsight, WRITE_ACCESS_KEY,
+    RabbitMqTopology, SendRoute, ShovelSnapshot, TopologyGraph, TopologyInsight, WRITE_ACCESS_KEY,
     analyze_topology, build_consumer_graph, build_topology_graph, predict_send_route,
 };
 use crate::error::{AppError, AppResult};
@@ -534,6 +534,14 @@ impl RabbitMqClient {
     /// 空列表会被读成「这个 vhost 没配参数」，而真实情况是根本没查。
     pub async fn parameters(&self) -> AppResult<ParameterSnapshot> {
         self.management()?.parameters(&self.config).await
+    }
+
+    /// 铲子快照：配置（参数接口）与运行态（`/api/shovels`）配对。
+    ///
+    /// 配置拉不到直接报错，运行态拉不到降级成 `runtimeError` —— 那是两件不同的事，
+    /// 一个说「没有配置」，一个说「看不到运行态」。
+    pub async fn shovel_snapshot(&self) -> AppResult<ShovelSnapshot> {
+        self.management()?.shovel_snapshot(&self.config).await
     }
 
     /// 新建 / 修改参数（同名即替换）。

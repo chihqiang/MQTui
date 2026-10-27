@@ -37,6 +37,7 @@ import { PARAMETER_COLUMNS } from "@/types/parameter";
 import type { ParameterComponent, ParameterInfo } from "@/types/parameter";
 
 import { ParameterEditor } from "@/components/broker/parameter-editor";
+import { ShovelRuntimeSection } from "@/components/broker/shovel-runtime-section";
 
 /**
  * RabbitMQ 参数页：联邦（federation）、铲子（shovel）、运行时参数。
@@ -151,6 +152,10 @@ export function ParametersPage() {
           ))}
         </div>
       ) : null}
+
+      {/* 铲子的运行态放进同一页：参数说的是「打算搬」，那边说的是「正在搬」，
+          两块分开看时，一条「配置正常但一条没搬」的铲子永远说不清。 */}
+      {connectionId ? <ShovelRuntimeSection connectionId={connectionId} /> : null}
 
       {isLoading ? (
         <Card>

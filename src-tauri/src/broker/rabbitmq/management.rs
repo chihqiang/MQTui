@@ -307,6 +307,99 @@ impl From<ParameterPayload> for ParameterInfo {
     }
 }
 
+/// `GET /api/shovels` 的一行。
+///
+/// 这个接口由 shovel 插件提供：插件没启用时返回 **404**，而不是空数组。
+/// 两者差别很大 —— 前者是「看不到」，后者才是「一条都没有」，上层要分开处理。
+#[derive(Debug, Deserialize)]
+struct ShovelPayload {
+    name: String,
+    #[serde(default)]
+    vhost: String,
+    #[serde(default)]
+    state: String,
+    #[serde(default, rename = "type")]
+    kind: String,
+    #[serde(default)]
+    reason: String,
+    #[serde(default)]
+    src_uri: Option<String>,
+    #[serde(default)]
+    dest_uri: Option<String>,
+    #[serde(default)]
+    src_queue: Option<String>,
+    #[serde(default)]
+    dest_queue: Option<String>,
+    #[serde(default)]
+    info: Option<ShovelInfo>,
+    /// 累计搬运条数。不同版本放的位置不一样（顶层 / `info` 内），两处都认。
+    #[serde(default)]
+    messages_transferred: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ShovelInfo {
+    #[serde(default)]
+    src_uri: Option<String>,
+    #[serde(default)]
+    dest_uri: Option<String>,
+    #[serde(default)]
+    messages_transferred: Option<u64>,
+}
+
+impl ShovelPayload {
+    /// 解析一行运行态。单独成函数是为了能单测：`info` 嵌套与顶层字段的
+    /// 取值顺序、空 vhost 归一、认不出来的状态，都只在这一处判。
+    /// 状态字段统一转成三态。**未知取值判 `Terminated` 而不是猜成运行中**：
+    /// 把一条认不出来的状态当成「在搬」，比报错更容易误导人 —— 消息其实可能一点没动。
+    fn state(&self) -> crate::domain::ShovelState {
+        match self.state.trim() {
+            "running" => crate::domain::ShovelState::Running,
+            "starting" => crate::domain::ShovelState::Starting,
+            _ => crate::domain::ShovelState::Terminated,
+        }
+    }
+
+    fn into_runtime(self) -> crate::domain::ShovelRuntime {
+        // 顶层字段在部分版本上缺失，真实的连接信息在 `info` 里；`src` / `dest`
+        // 两处取值顺序无所谓，但**顶层优先**：那是它此刻在连的东西。
+        let state = self.state();
+        let info = self.info.as_ref();
+        let src_uri = self
+            .src_uri
+            .or_else(|| info.and_then(|item| item.src_uri.clone()))
+            .or(self.src_queue)
+            .unwrap_or_default();
+        let dest_uri = self
+            .dest_uri
+            .or_else(|| info.and_then(|item| item.dest_uri.clone()))
+            .or(self.dest_queue)
+            .unwrap_or_default();
+        crate::domain::ShovelRuntime {
+            name: self.name,
+            vhost: if self.vhost.trim().is_empty() {
+                "/".to_owned()
+            } else {
+                self.vhost
+            },
+            state,
+            kind: if self.kind.trim().is_empty() {
+                "static".to_owned()
+            } else {
+                self.kind
+            },
+            reason: self.reason,
+            src_uri,
+            dest_uri,
+            // 搬运条数只有运行态给得出，配置里没有这个字段。
+            messages_transferred: self
+                .messages_transferred
+                .or_else(|| info.and_then(|item| item.messages_transferred))
+                .unwrap_or(0),
+        }
+    }
+}
+
 pub struct ManagementClient {
     /// 管理 API 根地址，例如 `http://localhost:15672`。
     base_url: String,
@@ -823,6 +916,47 @@ impl ManagementClient {
             errors,
             component_filter_supported,
         })
+    }
+
+    /// 读取铲子的运行态（`GET /api/shovels`，不带 vhost 段即全部 vhost）。
+    ///
+    /// 这个接口属于 shovel 插件：插件没启用时是 404，权限不足是 401/403。
+    /// 两种情况都不是「一条铲子都没有」，所以返回 `Err` 让上层去说清原因；
+    /// 返回空数组才表示「确实没有」。
+    pub async fn shovels(
+        &self,
+        config: &RabbitMqConfig,
+    ) -> AppResult<Vec<crate::domain::ShovelRuntime>> {
+        let payload: Vec<ShovelPayload> = self
+            .get_json("/api/shovels", &config.auth.username, &config.auth.password)
+            .await?;
+        Ok(payload
+            .into_iter()
+            .map(ShovelPayload::into_runtime)
+            .collect())
+    }
+
+    /// 铲子运行态与配置的合并快照。
+    ///
+    /// 两个接口各自会失败，且失败的含义不同：参数拉不到等于「没有配置」，
+    /// 运行态拉不到等于「看不到」——后者不能把每条铲子都写成「无运行态」。
+    pub async fn shovel_snapshot(
+        &self,
+        config: &RabbitMqConfig,
+    ) -> AppResult<crate::domain::ShovelSnapshot> {
+        let parameters = self
+            .parameters_of(config, ParameterComponent::Shovel, &config.auth.vhost)
+            .await?;
+        let (runtimes, runtime_error) = match self.shovels(config).await {
+            Ok(list) => (list, None),
+            Err(error) => (Vec::new(), Some(error.to_string())),
+        };
+        Ok(crate::domain::assemble_shovels(
+            &parameters,
+            &runtimes,
+            &config.auth.vhost,
+            runtime_error,
+        ))
     }
 
     /// 某一类组件在某个 vhost 下的参数列表。
@@ -1761,6 +1895,62 @@ mod tests {
         let body = publish_body("signals", &[], &serde_json::json!({}));
         assert_eq!(body["payload_encoding"], "string");
         assert_eq!(body["payload"], "");
+    }
+
+    #[test]
+    fn shovel_payload_reads_top_level_fields() {
+        let payload: ShovelPayload = serde_json::from_value(serde_json::json!({
+            "name": "sh1",
+            "vhost": "orders",
+            "state": "running",
+            "type": "static",
+            "src_uri": "amqp://u:p@a:5672",
+            "dest_uri": "amqp://u:p@b:5672",
+            "messages_transferred": 7
+        }))
+        .expect("应能解析");
+        let runtime = payload.into_runtime();
+        assert_eq!(runtime.vhost, "orders");
+        assert_eq!(runtime.state, crate::domain::ShovelState::Running);
+        assert_eq!(runtime.messages_transferred, 7);
+        assert_eq!(runtime.src_uri, "amqp://u:p@a:5672");
+    }
+
+    #[test]
+    fn shovel_payload_falls_back_to_info_block() {
+        // 部分版本把地址与条数放在 `info` 里；顶层缺失时要能捡回来，
+        // 否则界面上会出现一条「在运行、但不知道搬什么」的铲子。
+        let payload: ShovelPayload = serde_json::from_value(serde_json::json!({
+            "name": "sh2",
+            "state": "terminated",
+            "reason": "boom",
+            "info": {
+                "src_uri": "amqp://x:1",
+                "dest_uri": "amqp://y:1",
+                "messages_transferred": 123
+            }
+        }))
+        .expect("应能解析");
+        let runtime = payload.into_runtime();
+        // vhost 缺失时归一成默认 vhost，不能留空串。
+        assert_eq!(runtime.vhost, "/");
+        assert_eq!(runtime.dest_uri, "amqp://y:1");
+        assert_eq!(runtime.messages_transferred, 123);
+        assert_eq!(runtime.state, crate::domain::ShovelState::Terminated);
+    }
+
+    #[test]
+    fn unknown_shovel_state_is_not_optimistic() {
+        // 认不出来的状态不能猜成「在跑」：消息可能一点没动。
+        let payload: ShovelPayload = serde_json::from_value(serde_json::json!({
+            "name": "sh3",
+            "state": "weird"
+        }))
+        .expect("应能解析");
+        assert_eq!(
+            payload.into_runtime().state,
+            crate::domain::ShovelState::Terminated
+        );
     }
 
     #[test]

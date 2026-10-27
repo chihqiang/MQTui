@@ -286,7 +286,8 @@ pub struct PrincipalAcl {
 /// `None` 与 `Some("")` 必须区分开：`Some("")` 是「名字为空串的资源」
 /// （Kafka 用它表示通配），不是「不过滤」。混起来会让用户在搜索框里
 /// 敲个空串就把过滤器清掉，自己还不知道。
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct AclFilter {
     pub resource_type: Option<AclResourceType>,
     pub resource_name: Option<String>,

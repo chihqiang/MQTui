@@ -83,6 +83,7 @@ pub fn run() {
             commands::parameter::review_parameter_spec,
             commands::parameter::save_parameter,
             commands::parameter::delete_parameter,
+            commands::shovel::list_shovels,
             commands::message::list_queues,
             commands::message::load_topology,
             commands::message::load_topology_insight,

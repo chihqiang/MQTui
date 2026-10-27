@@ -40,6 +40,13 @@ export const queryKeys = {
   scram: (id: string) => ["connections", "detail", id, "scram"] as const,
   /** 参数快照：联邦 / 铲子 / 运行时三类一次拉全。 */
   parameters: (id: string) => ["connections", "detail", id, "parameters"] as const,
+  /**
+   * 铲子运行态：和参数分开缓存。
+   *
+   * 参数是「打算搬」，运行态是「正在搬」——两者的刷新节奏、失败面都不同，
+   * 合在一份缓存里会让「运行时刚重启完」的那次刷新把配置也一起重拉。
+   */
+  shovels: (id: string) => ["connections", "detail", id, "shovels"] as const,
   /** 策略预览：按表单内容缓存，改一个字符就该重算。 */
   policyPreview: (id: string, fingerprint: string) =>
     ["connections", "detail", id, "policy-preview", fingerprint] as const,

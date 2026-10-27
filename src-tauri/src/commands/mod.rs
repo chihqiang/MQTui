@@ -12,4 +12,5 @@ pub mod parameter;
 pub mod policy;
 pub mod quota;
 pub mod reset;
+pub mod shovel;
 pub mod topic;

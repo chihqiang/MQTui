@@ -9,5 +9,6 @@ export { aclService } from "./acl-service";
 export { quotaService } from "./quota-service";
 export { queryKeys } from "./query-keys";
 export { resetService } from "./reset-service";
+export { shovelService } from "./shovel-service";
 export { topicService } from "./topic-service";
 export { call } from "./ipc";

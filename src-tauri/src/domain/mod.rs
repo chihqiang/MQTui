@@ -28,6 +28,7 @@ pub mod reassignment;
 pub mod redeliver;
 pub mod resend;
 pub mod runtime;
+pub mod shovel;
 pub mod topic;
 pub mod topic_config;
 pub mod topic_purge;
@@ -129,6 +130,10 @@ pub use resend::{PartitionCheck, ResendBlock, ResendOutcome, ResendPlan, ResendR
 pub use runtime::{
     ChannelRow, ConnectionDetail, ConnectionRow, QueuePlacement, RuntimeSnapshot,
     assemble as assemble_connections, place_queues,
+};
+pub use shovel::{
+    ShovelRow, ShovelRuntime, ShovelSnapshot, ShovelState, assemble as assemble_shovels,
+    stop_hint as shovel_stop_hint,
 };
 pub use topic::{
     PartitionExpansion, TOPIC_NAME_MAX_LEN, TopicCapabilities, TopicDetail, TopicOutcome,
