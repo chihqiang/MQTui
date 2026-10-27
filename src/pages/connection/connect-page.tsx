@@ -23,6 +23,10 @@ import { ConnectWizard } from "./connect-wizard";
 /**
  * 首页：一条记录都没有时问「连哪种」，有记录时先摆记录。
  *
+ * 这一页上的每一次点击都已经回答了「连哪种」—— 卡片、新建行的小按钮、
+ * 记录行的编辑，点时就知道要 Kafka 还是 RabbitMQ。所以弹窗进来就是填参数，
+ * 不再把同一个问题问第二遍。只有顶栏「＋」没有前置选择，才从第一步问起。
+ *
  * 形态上刻意**不**做「连接记录 / 新建连接」两个页签：
  *
  * - 页签把「选类型」和「填参数」摊在同一屏，选 Kafka 之后表单就等在旁边，
@@ -34,8 +38,8 @@ import { ConnectWizard } from "./connect-wizard";
  * 记录在最上面，新建收成一行。让每天要点的东西排在一年点两次的东西后面，
  * 是这一页最早犯的错。
  *
- * 顶栏的「＋」走的是同一个向导（`/?new=1`），所以两条入口长得一样 ——
- * 早先它只是一条回首页的链接，点下去看到的是这页本身，观感就是「点了没反应」。
+ * 顶栏的「＋」走的是同一个向导（`/?new=1`），但它比首页的入口多一步：
+ * 这里每张卡都带着类型，那里什么都没带。
  */
 
 /** 每种中间件一句人话 + 默认端口。文案属于界面，不进后端清单。 */
@@ -44,9 +48,13 @@ const KIND_HINT: Record<BrokerKind, { summary: string; port: string }> = {
   rabbitMq: { summary: "队列、交换机、绑定与消息处置", port: "15672（管理 API）" },
 };
 
-/** 向导当前要连的目标；`saved` 非空表示从连接记录里打开的（带原名与预填配置）。 */
+/**
+ * 向导当前要连的目标。
+ *
+ * `kind` 非空 = 用户已经点过某一种中间件（首页卡片、新建行的按钮、记录行的编辑），
+ * 弹窗直接进表单；为空只有一种情况 —— 顶栏「＋」，那里没有任何前置选择。
+ */
 type Target = {
-  /** 为空表示停在第一步，让用户自己选中间件。 */
   kind: BrokerKind | null;
   saved?: SavedConnection;
 };
@@ -148,7 +156,7 @@ export function ConnectPage() {
             className="animate-fade-in mb-4 flex items-start gap-2 rounded-lg border border-indigo-100 bg-indigo-50/70 px-3 py-2 text-(length:--text-app-meta) text-slate-600"
           >
             <span className="min-w-0 flex-1 leading-relaxed">
-              已打开新建向导：<span className="font-medium text-slate-800">先选中间件</span>，下一步填连接地址与凭据。
+              已打开新建向导：<span className="font-medium text-slate-800">先选中间件</span>，再填连接地址与凭据。
             </span>
             <button
               type="button"

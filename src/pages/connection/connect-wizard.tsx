@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, Server } from "lucide-react";
+import { ArrowLeft, ArrowRight, Repeat, Server } from "lucide-react";
 
 import { Button, Field, Input, Modal } from "@/components/ui";
 import { useOpenConnection } from "@/hooks/use-connections";
@@ -16,27 +16,19 @@ import { ConnectionFormKafka } from "./forms/kafka-form";
 import { ConnectionFormRabbitMq } from "./forms/rabbitmq-form";
 
 /**
- * 新建连接向导：先选中间件，下一步再填参数。
+ * 新建连接向导：先定中间件，再填参数。
  *
- * 为什么是两步而不是一张「类型下拉 + 表单」的长弹窗：
+ * 定中间件有两条路，取决于**用户在哪一点**：
  *
- * - 选类型只有两三个选项，是一次**选择**；填参数是一段**工作**。挤在同一屏时，
- *   表单会先于用户做决定就摊开，字段看上去像是已经选好了 —— 用户得先扫一遍
- *   不需要的字段，才想起上面还有个下拉框；
- * - 两步之后，第一步只回答「连哪种」，第二步接管键盘焦点到第一个输入框，
- *   回车就提交。字段再多也不会有「这一页到底从哪开始」的问题。
+ * - 从首页的中间件卡片、新建行的按钮、记录行的「编辑连接」进来时，类型已经由
+ *   那一下点击给定了 —— 直接进表单。都点过「Kafka」这一张卡了，弹窗再问一遍
+ *   「连哪种」，是在让用户重复自己刚做过的决定；
+ * - 从顶栏「＋」进来时没有任何前置选择 —— 第一步才真的问「连哪种」。
  *
- * 编辑已有记录时不走向导，直接进第二步：类型已经定下来了，再让用户从两张卡片里
- * 点一次是多余的动作。
+ * 无论走哪条路，第一步都还在：表单上方挂一个「换一种中间件」，走错了就能退回去。
+ * 步骤不是由入口决定的常量，而是「当前有没有类型」这个状态 —— 少一份需要同步的布尔量。
  */
 
-/**
- * 向导当前的进度。
- *
- * `kind` 为空 = 停在第一步（选类型）；非空 = 进第二步。把它做成一个字段而不是
- * 两个 `useState`，是为了让「上一步」只是把 `kind` 抹掉，而不是另外维护一份布尔量 ——
- * 两份状态迟早会互相矛盾（比如退回了第一步，但表单里还留着 Kafka 的地址）。
- */
 type Builder = {
   kind: BrokerKind | null;
   /** 非空表示从连接记录里「编辑」，此时带原名、原配置。 */
@@ -53,23 +45,22 @@ export function ConnectWizard({
   onClose,
 }: {
   open: boolean;
+  /**
+   * 入口已经定下的中间件。有值时直接进表单，为空才从「连哪种」问起。
+   *
+   * 早先它只是「预先高亮哪张卡」：从首页卡片点 Kafka 进来，弹窗仍然停在第一步，
+   * 让人把刚做过的那次选择再做一遍。现在它是真正的初始状态 —— 点过卡片就填参数，
+   * 只有顶栏「＋」（没有前置选择）才问类型。
+   */
   initialKind?: BrokerKind | null;
+  /** 初始要编辑的记录；带原名、原配置，跳过第一步。 */
   initialSaved?: SavedConnection | null;
   onClose: () => void;
 }) {
   const openConnection = useOpenConnection();
   const [save, setSave] = useState(false);
-  /**
-   * `initialKind` 只是「预先高亮哪张卡」的提示，不再是「跳过第一步」的意思。
-   *
-   * 之前它和 `picked` 搅在一起：传了 kind 就当成已经有了选择，于是顶栏「＋」
-   * 带着 `?new=1` 进来时 `target.kind` 是 null，向导却只是**盖在首页上**打开 ——
-   * 底下的内容还是那张「开始使用 / 连接记录」的页面（用户截图里看到的就是这个）。
-   * 现在第一步永远先问「连哪种」，类型只是个可选高亮。
-   */
-  const [draft, setDraft] = useState<Builder>(() =>
-    initialSaved ? savedToBuilder(initialSaved) : { kind: null, name: "" },
-  );
+  /** 打开时的初始形态：编辑记录优先，其次入口指定的类型，都没有就停在第一步。 */
+  const [draft, setDraft] = useState<Builder>(() => initialDraft(initialSaved, initialKind));
 
   const busy = openConnection.isPending;
 
@@ -114,14 +105,23 @@ export function ConnectWizard({
     );
   };
 
-  // 关掉再打开时要回到初始步骤：这是向导自身的状态，上一轮的「选了 Kafka」
-  // 不该带给下一次新建。
-  // 只有「编辑记录」才跳过第一步 —— 类型早就定了，再选一次是多余动作。
-  // 其余入口（首页卡片、顶栏「＋」）都从「连哪种」开始，`initialKind` 只负责高亮。
+  /**
+   * 回到「连哪种」。
+   *
+   * 到这一步才把类型抹掉，名字留着 —— 用户只是走错了卡片，不该连名字一起丢。
+   * 编辑记录时也允许：从 Kafka 退回去改成 RabbitMQ，等于换成新建，`saved` 一并清掉。
+   */
+  const backToKind = useCallback(() => {
+    setDraft((prev) => ({ ...prev, kind: null, saved: undefined }));
+  }, []);
+
+  // 步骤只看「当前有没有类型」：有就填参数，没有就问连哪种。上一轮的「选了 Kafka」
+  // 不会带给下一次新建 —— `draft` 是向导自己的状态，重开时由 `initialDraft` 重建。
   const step: "kind" | "form" = draft.kind ? "form" : "kind";
   const kind = draft.kind;
   const shellRef = useRef<HTMLDivElement>(null);
-  // 编辑已有记录时「上一步」没有去处：类型早就定了，退回去只会看到两张卡片。
+  // 页脚的「上一步」只给新建用；编辑记录时退回第一步没有意义（类型早就定了），
+  // 那种情况下的换类型走表单上方的「换一种中间件」。
   const canGoBack = step === "form" && !draft.saved && !initialSaved;
 
   /**
@@ -185,9 +185,9 @@ export function ConnectWizard({
         return;
       }
       if (event.key === "ArrowLeft") {
-        if (!canGoBack || busy) return;
+        if (busy) return;
         event.preventDefault();
-        setDraft((prev) => ({ ...prev, kind: null, saved: undefined }));
+        backToKind();
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -210,11 +210,7 @@ export function ConnectWizard({
           <>
             {/* 新建时能退回第一步换类型；编辑记录时退回去没有意义。 */}
             {canGoBack ? (
-              <Button
-                variant="ghost"
-                onClick={() => setDraft((prev) => ({ ...prev, kind: null, saved: undefined }))}
-                disabled={busy}
-              >
+              <Button variant="ghost" onClick={backToKind} disabled={busy}>
                 <ArrowLeft className="size-3.5" />
                 上一步
               </Button>
@@ -232,7 +228,8 @@ export function ConnectWizard({
       <div ref={shellRef} className="contents">
         {step === "kind" || !kind ? (
           <KindStep
-            onPick={(next) => setDraft({ kind: next, name: "" })}
+            // 换类型时把名字带过去：从表单退回来重选，人多半只是点错了卡片。
+            onPick={(next) => setDraft((prev) => ({ ...prev, kind: next }))}
             selected={kind ?? initialKind ?? null}
           />
         ) : (
@@ -246,6 +243,8 @@ export function ConnectWizard({
             onSubmit={submit}
             initialSaved={initialSaved ?? null}
             onNameChange={(name) => setDraft((prev) => ({ ...prev, name }))}
+            // 表单上方的「换一种中间件」：编辑记录时也能用（换类型 = 转成新建）。
+            onChangeKind={busy ? undefined : backToKind}
             // 失败的翻译结果留在表单上方，而不是只跟在 toast 里：toast 六秒就没了，
             // 而人这时正要改字段。`error` 是 mutation 自己的状态，重开弹窗自然清掉。
             failure={
@@ -278,7 +277,7 @@ function KindStep({
     <div className="flex flex-col gap-3">
       <p className="text-(length:--text-app-meta) leading-relaxed text-meta">
         先选一种中间件，下一步填它的连接地址与凭据。
-        <span className="ml-1 text-meta">（↑↓ 选，Enter 确认，或直接按 1 / 2）</span>
+        <span className="ml-1 text-meta">（↑↓ 选，Enter 确认，或按 1 / 2）</span>
       </p>
       {/* `data-wizard-keys` 是向导键盘路径的作用域：打开弹窗时这里拿焦点，
           `↑↓` / `Enter` / 数字键才生效，不会跑去抢过滤框里的按键。 */}
@@ -343,6 +342,7 @@ function FormStep({
   onSubmit,
   initialSaved,
   onNameChange,
+  onChangeKind,
   failure,
 }: {
   draft: Builder;
@@ -352,6 +352,8 @@ function FormStep({
   onSubmit: (config: ConnectionConfig) => void;
   initialSaved: SavedConnection | null;
   onNameChange: (name: string) => void;
+  /** 回到第一步换类型；`undefined` 表示正在提交，先别动。 */
+  onChangeKind?: () => void;
   failure: ConnectFailure | null;
 }) {
   const saved = draft.saved ?? initialSaved;
@@ -361,14 +363,36 @@ function FormStep({
 
   return (
     <div className="flex flex-col gap-4">
+      {/* 类型写在表单最上面，并且能改：从卡片点进来时这一步是省掉的，
+          但「我刚才是不是点错了」这个念头得有地方落。 */}
+      <div className="flex items-center gap-2">
+        <Server className="size-3.5 shrink-0 text-meta" />
+        <span className="text-(length:--text-app-meta) text-secondary">
+          正在配置 <span className="font-medium text-slate-800">{BROKER_LABEL[kind]}</span>
+          {" · "}
+          {KIND_SUMMARY[kind]}
+        </span>
+        {onChangeKind ? (
+          <button
+            type="button"
+            onClick={onChangeKind}
+            className="ml-auto shrink-0 rounded px-1.5 py-0.5 text-(length:--text-app-micro) text-indigo-600 transition-colors hover:bg-indigo-50"
+          >
+            <Repeat className="mr-0.5 inline size-3" />
+            换一种中间件
+          </button>
+        ) : null}
+      </div>
+
       {/* 报错放在字段上方而不是页脚：人看完要接着改的就是下面这些输入框，
           放在页脚则要先把视线从按钮挪回上半屏。 */}
       {failure ? <FailureNotice failure={failure} /> : null}
 
-      <p className="text-(length:--text-app-meta) leading-relaxed text-meta">
-        {KIND_SUMMARY[kind]}
-        {editing ? " · 改完保存会覆盖同名同类型的记录" : ""}
-      </p>
+      {editing ? (
+        <p className="text-(length:--text-app-meta) leading-relaxed text-meta">
+          改完保存会覆盖同名同类型的记录
+        </p>
+      ) : null}
 
       <Field label="连接名称（可选）" hint="同名同类型会覆盖已保存的连接">
         <Input
@@ -437,6 +461,18 @@ function endpointOf(draft: Builder, saved: SavedConnection | null): string | und
 /** 一条保存过的记录 → 向导第二步的形态（带原名与原配置）。 */
 function savedToBuilder(saved: SavedConnection): Builder {
   return { kind: saved.config.kind, saved, name: saved.name };
+}
+
+/**
+ * 弹窗打开时的形态。
+ *
+ * 编辑记录优先（要带原名原配置）；其次看入口给没给类型 —— 首页卡片、新建行的
+ * 按钮都给了，那是对「连哪种」已经作出的回答，直接进表单；顶栏「＋」什么都不给，
+ * 才从第一步问起。
+ */
+function initialDraft(saved: SavedConnection | null | undefined, kind: BrokerKind | null | undefined): Builder {
+  if (saved) return savedToBuilder(saved);
+  return { kind: kind ?? null, name: "" };
 }
 
 /** 焦点是否落在向导自己的元素里；`null` 的 target（比如 window）算不在。 */
