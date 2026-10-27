@@ -10,7 +10,7 @@ import {
   IconClose,
   IconServer,
 } from "@/lib/icons";
-import { NAV_GROUP_LABEL, groupConnectionsByKind, groupNavItems } from "@/lib/layout";
+import { groupConnectionsByKind } from "@/lib/layout";
 import { BROKER_LABEL, brokerIcon, buildNavItems, connectionPath, type NavItem } from "@/lib/nav";
 import { disconnectLabel } from "@/lib/reconnect";
 import { BROKER_TONE_CLASS, brokerTone } from "@/lib/visual";
@@ -210,8 +210,12 @@ function ConnectionNode({
 /**
  * 当前连接的页面菜单。
  *
- * 分组保留（消息 / 观测 / 配置）：13 项平铺一列，「队列」和「策略」长得
- * 一模一样，其实一个是天天点、一个是改一次就不碰。
+ * 一列平铺，不加「消息 / 观测 / 配置」分组标题。
+ *
+ * 那几行小标题长得像菜单项却点不动 —— 光标划过任何一行都有反馈，唯独划过
+ * 它没有，人先怀疑的是自己点错了位置，而不是「这里本来就不该点」。分组想
+ * 回答的是「哪些常用、哪些偶尔用」，可答案已经写在排序和图标上了；为了
+ * 一份看不见的层级，每次都多付三行垂直空间。
  */
 function ConnectionPages({ connectionId, kind }: { connectionId: string; kind: BrokerKind }) {
   const location = useLocation();
@@ -219,21 +223,10 @@ function ConnectionPages({ connectionId, kind }: { connectionId: string; kind: B
   const items = buildNavItems(capabilities);
 
   return (
-    <ul className="mt-0.5 mb-1 ml-1.5 flex flex-col border-l border-slate-200 pl-2">
-      {groupNavItems(items).map((section) => (
-        <li key={section.group}>
-          {section.items.length > 1 ? (
-            <p className="px-2 pt-1.5 pb-0.5 text-(length:--text-app-micro) font-semibold tracking-wider text-secondary uppercase">
-              {NAV_GROUP_LABEL[section.group]}
-            </p>
-          ) : null}
-          <ul className="flex flex-col">
-            {section.items.map((item) => (
-              <li key={item.capability}>
-                <PageLink item={item} connectionId={connectionId} pathname={location.pathname} />
-              </li>
-            ))}
-          </ul>
+    <ul className="mt-0.5 mb-1 ml-1.5 flex flex-col gap-px border-l border-slate-200 pl-2">
+      {items.map((item) => (
+        <li key={item.capability}>
+          <PageLink item={item} connectionId={connectionId} pathname={location.pathname} />
         </li>
       ))}
     </ul>
