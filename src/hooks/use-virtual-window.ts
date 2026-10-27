@@ -1,7 +1,7 @@
 /**
  * 虚拟窗口的 React 绑定。
  *
- * 计算在 `lib/virtual-window.ts` 里（纯函数，能被 `node --test` 直接跑）；
+ * 计算在 `lib/virtual-window.ts` 里（纯函数，能被 vitest 直接跑）；
  * 这里只负责把滚动位置留在组件状态里。
  */
 

@@ -6,10 +6,7 @@
  * 以及 `withEndpoint` 只换地址、不顺手改别的字段。
  */
 
-// @ts-expect-error node 内置模块未随仓库提供类型声明
-import assert from "node:assert/strict";
-// @ts-expect-error 同上
-import test from "node:test";
+import { expect, test } from "vitest";
 
 import {
   CONNECTION_DEFAULTS,
@@ -21,57 +18,57 @@ import {
 
 test("Kafka 的默认配置是本地明文直连", () => {
   const config = defaultConnection("kafka");
-  assert.equal(config.kind, "kafka");
-  assert.deepEqual(config.brokers, [CONNECTION_DEFAULTS.kafka.brokers]);
-  assert.equal(config.tls, "disabled");
-  assert.equal(config.auth.mechanism, "none");
-  assert.deepEqual(config.options, {});
+  expect(config.kind).toBe("kafka");
+  expect(config.brokers).toEqual([CONNECTION_DEFAULTS.kafka.brokers]);
+  expect(config.tls).toBe("disabled");
+  expect(config.auth.mechanism).toBe("none");
+  expect(config.options).toEqual({});
 });
 
 test("RabbitMQ 的默认配置是本地 guest", () => {
   const config = defaultConnection("rabbitMq");
-  assert.equal(config.kind, "rabbitMq");
-  assert.equal(config.host, "127.0.0.1");
-  assert.equal(config.port, 5672);
-  assert.equal(config.auth.username, "guest");
-  assert.equal(config.auth.vhost, "/");
+  expect(config.kind).toBe("rabbitMq");
+  expect(config.host).toBe("127.0.0.1");
+  expect(config.port).toBe(5672);
+  expect(config.auth.username).toBe("guest");
+  expect(config.auth.vhost).toBe("/");
 });
 
 test("默认配置每次都是新的，改一份不会污染下一份", () => {
   const first = defaultConnection("kafka");
   first.brokers.push("10.0.0.1:9092");
   first.auth.username = "someone";
-  assert.deepEqual(defaultConnection("kafka").brokers, [CONNECTION_DEFAULTS.kafka.brokers]);
-  assert.equal(defaultConnection("kafka").auth.username, "");
+  expect(defaultConnection("kafka").brokers).toEqual([CONNECTION_DEFAULTS.kafka.brokers]);
+  expect(defaultConnection("kafka").auth.username).toBe("");
 });
 
 test("address 换进配置时只动地址", () => {
   const kafka = withEndpoint(defaultConnection("kafka"), "10.0.0.1:9093, 10.0.0.2:9093");
-  assert.equal(kafka.kind, "kafka");
-  assert.deepEqual(kafka.kind === "kafka" ? kafka.brokers : [], ["10.0.0.1:9093", "10.0.0.2:9093"]);
-  assert.equal(kafka.tls, "disabled");
+  expect(kafka.kind).toBe("kafka");
+  expect(kafka.kind === "kafka" ? kafka.brokers : []).toEqual(["10.0.0.1:9093", "10.0.0.2:9093"]);
+  expect(kafka.tls).toBe("disabled");
 
   const rabbit = withEndpoint(defaultConnection("rabbitMq"), "rabbit:5673");
-  assert.equal(rabbit.kind === "rabbitMq" ? rabbit.host : "", "rabbit");
-  assert.equal(rabbit.kind === "rabbitMq" ? rabbit.port : 0, 5673);
-  assert.equal(rabbit.kind === "rabbitMq" ? rabbit.auth.vhost : "", "/");
+  expect(rabbit.kind === "rabbitMq" ? rabbit.host : "").toBe("rabbit");
+  expect(rabbit.kind === "rabbitMq" ? rabbit.port : 0).toBe(5673);
+  expect(rabbit.kind === "rabbitMq" ? rabbit.auth.vhost : "").toBe("/");
 });
 
 test("地址里没端口时沿用底子里的端口", () => {
   const config = withEndpoint(defaultConnection("rabbitMq"), "rabbit");
-  assert.equal(config.kind === "rabbitMq" ? config.port : 0, 5672);
+  expect(config.kind === "rabbitMq" ? config.port : 0).toBe(5672);
 });
 
 test("只拆「主机:端口」，拆不出来就把整段当主机", () => {
-  assert.deepEqual(splitHostPort("rabbit:5673"), { host: "rabbit", port: 5673 });
-  assert.deepEqual(splitHostPort("rabbit"), { host: "rabbit" });
-  assert.deepEqual(splitHostPort("rabbit:"), { host: "rabbit:" });
+  expect(splitHostPort("rabbit:5673")).toEqual({ host: "rabbit", port: 5673 });
+  expect(splitHostPort("rabbit")).toEqual({ host: "rabbit" });
+  expect(splitHostPort("rabbit:")).toEqual({ host: "rabbit:" });
   // IPv6 字面量不硬拆：拆错了会去连一台不存在的机器。
-  assert.deepEqual(splitHostPort("[::1]:5672"), { host: "::1", port: 5672 });
-  assert.deepEqual(splitHostPort("::1"), { host: "::1" });
+  expect(splitHostPort("[::1]:5672")).toEqual({ host: "::1", port: 5672 });
+  expect(splitHostPort("::1")).toEqual({ host: "::1" });
 });
 
 test("端点措辞两种中间件各说各的", () => {
-  assert.equal(endpointOf(defaultConnection("kafka")), "127.0.0.1:9092");
-  assert.equal(endpointOf(defaultConnection("rabbitMq")), "127.0.0.1:5672");
+  expect(endpointOf(defaultConnection("kafka"))).toBe("127.0.0.1:9092");
+  expect(endpointOf(defaultConnection("rabbitMq"))).toBe("127.0.0.1:5672");
 });

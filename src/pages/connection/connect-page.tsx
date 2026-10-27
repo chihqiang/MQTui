@@ -239,7 +239,6 @@ export function ConnectPage() {
             所以标题、顺序、视觉重量都跟着状态换一次，而不是让「开始使用」常驻在最上面。 */}
         {hasHistory ? (
           <>
-            {/* ui-lint-allow: 首页展示级标题 */}
             <h1 className="text-[28px] leading-9 font-semibold tracking-tight text-slate-900">
               连接记录
             </h1>
@@ -293,7 +292,6 @@ export function ConnectPage() {
           <>
             {/* 全屏只有这一处内容，所以标题单独走一档 28px 的展示级 —— 五档语义阶梯
                 同时要服务 30 行的表格，压不下这个尺寸。 */}
-            {/* ui-lint-allow: 首页空态展示级标题 */}
             <h1 className="text-[28px] leading-9 font-semibold tracking-tight text-slate-900">
               开始使用
             </h1>

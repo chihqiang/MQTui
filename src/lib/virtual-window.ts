@@ -1,7 +1,7 @@
 /**
  * 虚拟窗口计算：纯函数，便于单测也便于复用。
  *
- * 这里**不**放 hook：`node --test` 直接跑 `.mts`，模块一旦 import `react`
+ * 这里**不**放 hook：vitest 直接跑 `.mts`，模块一旦 import `react`
  * 就解析不到包（lib 是给纯逻辑用的）。React 那一层见 `hooks/use-virtual-window.ts`。
  */
 

@@ -5,10 +5,7 @@
  * 列数算错导致卡片塌成一列 —— 都不会崩，只是界面在撒谎。
  */
 
-// @ts-expect-error node 内置模块未随仓库提供类型声明
-import assert from "node:assert/strict";
-// @ts-expect-error 同上
-import test from "node:test";
+import { expect, test } from "vitest";
 
 import {
   brokerBadgeLabel,
@@ -22,72 +19,69 @@ import {
 } from "./monitor-layout.ts";
 
 test("宽度未知时按最小列数渲染，不做猜测", () => {
-  assert.equal(splitColumns(0, 320, 3), 1);
-  assert.equal(splitColumns(-100, 320, 3), 1);
+  expect(splitColumns(0, 320, 3)).toBe(1);
+  expect(splitColumns(-100, 320, 3)).toBe(1);
   // 最小列数是 2 时也不该塌成 1。
-  assert.equal(splitColumns(0, 320, 3, 2), 2);
+  expect(splitColumns(0, 320, 3, 2)).toBe(2);
 });
 
 test("列数落在 min..max 之间", () => {
-  assert.equal(splitColumns(320, 320, 3), 1);
-  assert.equal(splitColumns(700, 320, 3), 2);
-  assert.equal(splitColumns(2000, 320, 3), 3);
+  expect(splitColumns(320, 320, 3)).toBe(1);
+  expect(splitColumns(700, 320, 3)).toBe(2);
+  expect(splitColumns(2000, 320, 3)).toBe(3);
   // 单卡最小宽度为 0 是配置错误，不该除出 Infinity。
-  assert.equal(splitColumns(800, 0, 3), 1);
+  expect(splitColumns(800, 0, 3)).toBe(1);
 });
 
 test("筛选说明两个方向都读得通", () => {
-  assert.equal(describeScope(0, 0), "没有可显示的数据");
-  assert.equal(describeScope(3, 3), "共 3 条");
-  assert.equal(describeScope(1, 3), "共 3 条 · 显示 1 条");
-  assert.equal(describeScope(3, 3, "个队列"), "共 3 个队列");
+  expect(describeScope(0, 0)).toBe("没有可显示的数据");
+  expect(describeScope(3, 3)).toBe("共 3 条");
+  expect(describeScope(1, 3)).toBe("共 3 条 · 显示 1 条");
+  expect(describeScope(3, 3, "个队列")).toBe("共 3 个队列");
 });
 
 test("没有数据 / 全被筛掉 / 全绿 三种空态互不相同", () => {
-  assert.equal(scopeVerdict(0, 0), "empty");
-  assert.equal(scopeVerdict(0, 5), "filtered-out");
-  assert.equal(scopeVerdict(2, 5), "has-items");
+  expect(scopeVerdict(0, 0)).toBe("empty");
+  expect(scopeVerdict(0, 5)).toBe("filtered-out");
+  expect(scopeVerdict(2, 5)).toBe("has-items");
 });
 
 test("占比上限未知时返回 null，不返回 0", () => {
   // 老版本管理 API 不报 mem_limit：把「没上报」画成「很空」是这类面板最典型的骗人方式。
-  assert.equal(ratio(100, 0), null);
-  assert.equal(ratio(0, 0), null);
-  assert.equal(ratioText(100, 0), "未知");
-  assert.equal(ratioText(0, 0), "未知");
+  expect(ratio(100, 0)).toBe(null);
+  expect(ratio(0, 0)).toBe(null);
+  expect(ratioText(100, 0)).toBe("未知");
+  expect(ratioText(0, 0)).toBe("未知");
 });
 
 test("占比收敛到 0..1", () => {
-  assert.equal(ratio(50, 100), 0.5);
-  assert.equal(ratio(150, 100), 1);
-  assert.equal(ratio(-5, 100), 0);
-  assert.equal(ratioText(1, 3), "33%");
+  expect(ratio(50, 100)).toBe(0.5);
+  expect(ratio(150, 100)).toBe(1);
+  expect(ratio(-5, 100)).toBe(0);
+  expect(ratioText(1, 3)).toBe("33%");
 });
 
 test("按列填充时纵向连续，且不丢条目", () => {
   const columns = chunkColumns([1, 2, 3, 4, 5], 2);
-  assert.equal(columns.length, 2);
-  assert.deepEqual(
-    columns.flat().sort((a, b) => a - b),
-    [1, 2, 3, 4, 5],
-  );
+  expect(columns.length).toBe(2);
+  expect(columns.flat().sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5]);
   // 3 行 2 列：第一列是 1/2/3，第二列是 4/5。
-  assert.deepEqual(columns, [[1, 2, 3], [4, 5]]);
+  expect(columns).toEqual([[1, 2, 3], [4, 5]]);
 });
 
 test("列数为 0 或空列表时不崩", () => {
-  assert.deepEqual(chunkColumns([1, 2], 0), [[1, 2]]);
-  assert.deepEqual(chunkColumns([], 3), [[], [], []]);
+  expect(chunkColumns([1, 2], 0)).toEqual([[1, 2]]);
+  expect(chunkColumns([], 3)).toEqual([[], [], []]);
 });
 
 // —— 中间件的身份色 ————————————————————————————————————————————
 
 test("身份色只认已知中间件，未知的一律不标", () => {
-  assert.equal(brokerBadgeTone("kafka"), "broker-kafka");
-  assert.equal(brokerBadgeTone("rabbitMq"), "broker-rabbitmq");
-  assert.equal(brokerBadgeTone(undefined), null);
-  assert.equal(brokerBadgeTone("nats"), null);
-  assert.equal(brokerBadgeLabel("nats"), null);
+  expect(brokerBadgeTone("kafka")).toBe("broker-kafka");
+  expect(brokerBadgeTone("rabbitMq")).toBe("broker-rabbitmq");
+  expect(brokerBadgeTone(undefined)).toBe(null);
+  expect(brokerBadgeTone("nats")).toBe(null);
+  expect(brokerBadgeLabel("nats")).toBe(null);
 });
 
 test("身份色不许借用任何语义色", () => {
@@ -95,7 +89,7 @@ test("身份色不许借用任何语义色", () => {
   // 之后 Kafka 又借了 info(sky)，于是「这是 Kafka」和「这是一条提示」同色。
   const tones = [brokerBadgeTone("kafka"), brokerBadgeTone("rabbitMq")];
   for (const tone of tones) {
-    assert.ok(!["info", "success", "warning", "danger"].includes(tone as string), String(tone));
+    expect(["info", "success", "warning", "danger"].includes(tone as string)).toBe(false);
   }
-  assert.notEqual(brokerBadgeTone("kafka"), brokerBadgeTone("rabbitMq"));
+  expect(brokerBadgeTone("kafka")).not.toBe(brokerBadgeTone("rabbitMq"));
 });

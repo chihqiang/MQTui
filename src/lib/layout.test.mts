@@ -5,10 +5,7 @@
  * 所以逐条钉住。
  */
 
-// @ts-expect-error node 内置模块未随仓库提供类型声明
-import assert from "node:assert/strict";
-// @ts-expect-error 同上
-import test from "node:test";
+import { expect, test } from "vitest";
 
 import {
   DEFAULT_LAYOUT,
@@ -19,20 +16,20 @@ import {
 } from "./layout.ts";
 
 test("宽度未知时不降级，按默认布局先铺一版", () => {
-  assert.equal(resolveLayout(null), DEFAULT_LAYOUT);
+  expect(resolveLayout(null)).toBe(DEFAULT_LAYOUT);
 });
 
 test("窄屏一律降到图标条，宽屏回到侧栏", () => {
-  assert.equal(resolveLayout(NARROW_WIDTH - 1), "rail");
-  assert.equal(resolveLayout(320), "rail");
+  expect(resolveLayout(NARROW_WIDTH - 1)).toBe("rail");
+  expect(resolveLayout(320)).toBe("rail");
   // 正好等于阈值算宽屏：边界不该因为用 < 还是 <= 而让 900px 的用户左右横跳。
-  assert.equal(resolveLayout(NARROW_WIDTH), DEFAULT_LAYOUT);
-  assert.equal(resolveLayout(1600), DEFAULT_LAYOUT);
+  expect(resolveLayout(NARROW_WIDTH)).toBe(DEFAULT_LAYOUT);
+  expect(resolveLayout(1600)).toBe(DEFAULT_LAYOUT);
 });
 
 test("默认布局是侧栏，窄屏降级为图标条", () => {
-  assert.equal(DEFAULT_LAYOUT, "sidebar");
-  assert.equal(resolveLayout(NARROW_WIDTH - 1), "rail");
+  expect(DEFAULT_LAYOUT).toBe("sidebar");
+  expect(resolveLayout(NARROW_WIDTH - 1)).toBe("rail");
 });
 
 test("连接按中间件分组，组内保持原顺序", () => {
@@ -41,20 +38,14 @@ test("连接按中间件分组，组内保持原顺序", () => {
     { b: 2, kind: "rabbitMq" },
     { c: 3, kind: "kafka" },
   ]);
-  assert.deepEqual(
-    groups.map((group) => group.kind),
-    ["kafka", "rabbitMq"],
-  );
-  assert.deepEqual(
-    groups[0].items.map((item) => item.a ?? item.c),
-    [1, 3],
-  );
+  expect(groups.map((group) => group.kind)).toEqual(["kafka", "rabbitMq"]);
+  expect(groups[0].items.map((item) => item.a ?? item.c)).toEqual([1, 3]);
 });
 
 test("组默认展开，手动折起来的那几个才算折叠", () => {
   const collapsed = new Set(["kind:rabbitMq"]);
-  assert.equal(isGroupExpanded(collapsed, "kind:kafka"), true);
-  assert.equal(isGroupExpanded(collapsed, "kind:rabbitMq"), false);
+  expect(isGroupExpanded(collapsed, "kind:kafka")).toBe(true);
+  expect(isGroupExpanded(collapsed, "kind:rabbitMq")).toBe(false);
   // 存的是「折起来的」，所以新出现的组不会继承一份旧的折叠状态。
-  assert.equal(isGroupExpanded(collapsed, "pages:new-connection"), true);
+  expect(isGroupExpanded(collapsed, "pages:new-connection")).toBe(true);
 });

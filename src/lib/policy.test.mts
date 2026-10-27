@@ -1,7 +1,4 @@
-// @ts-expect-error node 内置模块未随仓库提供类型声明
-import assert from "node:assert/strict";
-// @ts-expect-error node 内置模块未随仓库提供类型声明
-import { test } from "node:test";
+import { expect, test } from "vitest";
 
 import {
   describeDefinition,
@@ -22,13 +19,13 @@ const baseSpec = {
 };
 
 test("name must not be blank or padded", () => {
-  assert.match(validateSpec({ ...baseSpec, name: " " }) ?? "", /不能为空/);
-  assert.match(validateSpec({ ...baseSpec, name: " p " }) ?? "", /空白/);
-  assert.equal(validateSpec(baseSpec), null);
+  expect(validateSpec({ ...baseSpec, name: " " }) ?? "").toMatch(/不能为空/);
+  expect(validateSpec({ ...baseSpec, name: " p " }) ?? "").toMatch(/空白/);
+  expect(validateSpec(baseSpec)).toBe(null);
 });
 
 test("empty definition is rejected", () => {
-  assert.match(validateSpec({ ...baseSpec, definition: [] }) ?? "", /至少要包含/);
+  expect(validateSpec({ ...baseSpec, definition: [] }) ?? "").toMatch(/至少要包含/);
 });
 
 test("blank value tells user to delete the row", () => {
@@ -36,16 +33,16 @@ test("blank value tells user to delete the row", () => {
     ...baseSpec,
     definition: [{ key: "x-max-length", value: "  " }],
   });
-  assert.match(error ?? "", /删除该行/);
+  expect(error ?? "").toMatch(/删除该行/);
 });
 
 test("x-overflow only accepts three modes", () => {
   const make = (value: string) =>
     validateSpec({ ...baseSpec, definition: [{ key: "x-overflow", value }] });
-  assert.equal(make("drop-head"), null);
-  assert.equal(make("reject-publish"), null);
-  assert.equal(make("reject-publish-dlx"), null);
-  assert.match(make("drop-tail") ?? "", /x-overflow/);
+  expect(make("drop-head")).toBe(null);
+  expect(make("reject-publish")).toBe(null);
+  expect(make("reject-publish-dlx")).toBe(null);
+  expect(make("drop-tail") ?? "").toMatch(/x-overflow/);
 });
 
 test("x-max-length-bytes is not confused with x-max-length", () => {
@@ -55,20 +52,20 @@ test("x-max-length-bytes is not confused with x-max-length", () => {
   const make = (key: string, value: string) =>
     validateSpec({ ...baseSpec, definition: [{ key, value }] });
 
-  assert.equal(make("x-max-length-bytes", "1048576"), null);
-  assert.equal(make("x-max-length", "1048576"), null);
-  assert.match(make("x-max-length-bytes", "1MB") ?? "", /必须是整数/);
+  expect(make("x-max-length-bytes", "1048576")).toBe(null);
+  expect(make("x-max-length", "1048576")).toBe(null);
+  expect(make("x-max-length-bytes", "1MB") ?? "").toMatch(/必须是整数/);
   // 非整数项的文本值不该被整数规则误伤。
-  assert.equal(make("x-dead-letter-exchange", "dlx.v2"), null);
+  expect(make("x-dead-letter-exchange", "dlx.v2")).toBe(null);
 });
 
 test("x-queue-master-locator is an enum, not a boolean", () => {
   const make = (value: string) =>
     validateSpec({ ...baseSpec, definition: [{ key: "x-queue-master-locator", value }] });
-  assert.equal(make("min-masters"), null);
-  assert.equal(make("client-local"), null);
-  assert.equal(make("random"), null);
-  assert.match(make("nearest") ?? "", /x-queue-master-locator/);
+  expect(make("min-masters")).toBe(null);
+  expect(make("client-local")).toBe(null);
+  expect(make("random")).toBe(null);
+  expect(make("nearest") ?? "").toMatch(/x-queue-master-locator/);
 });
 
 test("rows drop blank keys but keep the rest in order", () => {
@@ -77,20 +74,20 @@ test("rows drop blank keys but keep the rest in order", () => {
     { key: "  ", value: "1", draft: "x" },
     { key: "ha-mode", value: "all", draft: "all" },
   ]);
-  assert.deepEqual(entries, [
+  expect(entries).toEqual([
     { key: "x-message-ttl", value: "60000" },
     { key: "ha-mode", value: "all" },
   ]);
 });
 
 test("dirty means draft differs from current value", () => {
-  assert.equal(isDirty({ key: "k", value: "1", draft: "1" }), false);
-  assert.equal(isDirty({ key: "k", value: "1", draft: "2" }), true);
+  expect(isDirty({ key: "k", value: "1", draft: "1" })).toBe(false);
+  expect(isDirty({ key: "k", value: "1", draft: "2" })).toBe(true);
 });
 
 test("spec round-trips through rows without losing values", () => {
   const rows = toRows(baseSpec.definition);
-  assert.deepEqual(fromRows(rows), baseSpec.definition);
+  expect(fromRows(rows)).toEqual(baseSpec.definition);
 
   // 编辑既有策略时，原值进 value、草稿进 draft：否则一打开就显示「有改动」。
   const spec = specFromPolicy({
@@ -102,26 +99,23 @@ test("spec round-trips through rows without losing values", () => {
     definition: [{ key: "x-expires", value: "1000" }],
   });
   const opened = toRows(spec.definition);
-  assert.equal(opened[0].value, "1000");
-  assert.equal(opened[0].draft, "1000");
-  assert.equal(opened.some(isDirty), false);
+  expect(opened[0].value).toBe("1000");
+  expect(opened[0].draft).toBe("1000");
+  expect(opened.some(isDirty)).toBe(false);
 });
 
 test("definition summary folds the tail into +N", () => {
-  assert.equal(describeDefinition([]), "（空定义）");
-  assert.equal(describeDefinition([{ key: "a", value: "1" }]), "a=1");
-  assert.equal(
-    describeDefinition([
+  expect(describeDefinition([])).toBe("（空定义）");
+  expect(describeDefinition([{ key: "a", value: "1" }])).toBe("a=1");
+  expect(describeDefinition([
       { key: "a", value: "1" },
       { key: "b", value: "2" },
       { key: "c", value: "3" },
-    ]),
-    "a=1 · b=2 · +1",
-  );
+    ])).toBe("a=1 · b=2 · +1");
 });
 
 test("impact text always reads as an estimate", () => {
-  assert.match(describeImpact({ queues: 3, exchanges: 0 }), /约 3 个队列/);
-  assert.match(describeImpact({ queues: 0, exchanges: 2 }), /约 2 个交换机/);
-  assert.match(describeImpact({ queues: 0, exchanges: 0 }), /没有资源命中/);
+  expect(describeImpact({ queues: 3, exchanges: 0 })).toMatch(/约 3 个队列/);
+  expect(describeImpact({ queues: 0, exchanges: 2 })).toMatch(/约 2 个交换机/);
+  expect(describeImpact({ queues: 0, exchanges: 0 })).toMatch(/没有资源命中/);
 });

@@ -5,10 +5,7 @@
  * 这组断言就是那道防线：后端改了规则，这里会立刻红。
  */
 
-// @ts-expect-error node 内置模块未随仓库提供类型声明
-import assert from "node:assert/strict";
-// @ts-expect-error 同上
-import test from "node:test";
+import { expect, test } from "vitest";
 
 import { confirmMatches, evaluateDisconnect } from "./consumer-disconnect.ts";
 
@@ -24,28 +21,28 @@ function consumer(tag: string, unacked = 0) {
 }
 
 test("空闲消费者可以断开", () => {
-  assert.equal(evaluateDisconnect(consumer("amq.ctag-abc123")), "allowed");
+  expect(evaluateDisconnect(consumer("amq.ctag-abc123"))).toBe("allowed");
 });
 
 test("有未确认消息就拦下", () => {
-  assert.equal(evaluateDisconnect(consumer("amq.ctag-abc123", 1)), "inFlight");
+  expect(evaluateDisconnect(consumer("amq.ctag-abc123", 1))).toBe("inFlight");
 });
 
 test("面板自己的消费者不能被断开", () => {
-  assert.equal(evaluateDisconnect(consumer("mqtui-preview-42")), "ownedByPanel");
+  expect(evaluateDisconnect(consumer("mqtui-preview-42"))).toBe("ownedByPanel");
 });
 
 test("不可定位的 tag 一律拒绝", () => {
-  assert.equal(evaluateDisconnect(consumer("   ")), "unknownTarget");
-  assert.equal(evaluateDisconnect(consumer("amq.ctag/a")), "unknownTarget");
-  assert.equal(evaluateDisconnect(consumer("amq.ctag-\u0001")), "unknownTarget");
+  expect(evaluateDisconnect(consumer("   "))).toBe("unknownTarget");
+  expect(evaluateDisconnect(consumer("amq.ctag/a"))).toBe("unknownTarget");
+  expect(evaluateDisconnect(consumer("amq.ctag-\u0001"))).toBe("unknownTarget");
 });
 
 test("确认串必须与队列名一致", () => {
-  assert.ok(confirmMatches("orders", "orders"));
-  assert.ok(confirmMatches("orders", " orders "));
-  assert.equal(confirmMatches("orders", "order"), false);
-  assert.equal(confirmMatches("orders", ""), false);
+  expect(confirmMatches("orders", "orders")).toBeTruthy();
+  expect(confirmMatches("orders", " orders ")).toBeTruthy();
+  expect(confirmMatches("orders", "order")).toBe(false);
+  expect(confirmMatches("orders", "")).toBe(false);
   // 队列名为空时永远不能通过：那等于没确认。
-  assert.equal(confirmMatches("  ", "  "), false);
+  expect(confirmMatches("  ", "  ")).toBe(false);
 });

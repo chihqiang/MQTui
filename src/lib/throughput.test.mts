@@ -1,7 +1,4 @@
-// @ts-expect-error node 内置模块未随仓库提供类型声明
-import assert from "node:assert/strict";
-// @ts-expect-error node 内置模块未随仓库提供类型声明
-import { test } from "node:test";
+import { expect, test } from "vitest";
 
 import {
   busiest,
@@ -28,49 +25,49 @@ function report(patch: Partial<TopicThroughput> = {}): TopicThroughput {
 }
 
 test("速率文案区分静止、微量与正常量", () => {
-  assert.equal(formatThroughput(0), "静止");
-  assert.equal(formatThroughput(-3), "静止");
-  assert.equal(formatThroughput(Number.NaN), "静止");
+  expect(formatThroughput(0)).toBe("静止");
+  expect(formatThroughput(-3)).toBe("静止");
+  expect(formatThroughput(Number.NaN)).toBe("静止");
   // 每秒 0.004 条显示 0.00 会被读成「停了」，所以单独说清。
-  assert.equal(formatThroughput(0.004), "< 0.01 条/秒");
-  assert.equal(formatThroughput(0.5), "0.50 条/秒");
-  assert.equal(formatThroughput(3.1415), "3.1 条/秒");
-  assert.equal(formatThroughput(1234.6), "1,235 条/秒");
+  expect(formatThroughput(0.004)).toBe("< 0.01 条/秒");
+  expect(formatThroughput(0.5)).toBe("0.50 条/秒");
+  expect(formatThroughput(3.1415)).toBe("3.1 条/秒");
+  expect(formatThroughput(1234.6)).toBe("1,235 条/秒");
 });
 
 test("窗口不可用时给出可读原因", () => {
-  assert.equal(windowWarning("fresh"), undefined);
-  assert.match(windowWarning("tooShort") ?? "", /采样/);
-  assert.match(windowWarning("tooOld") ?? "", /30 分钟/);
-  assert.match(windowWarning("invalid") ?? "", /时间顺序/);
+  expect(windowWarning("fresh")).toBe(undefined);
+  expect(windowWarning("tooShort") ?? "").toMatch(/采样/);
+  expect(windowWarning("tooOld") ?? "").toMatch(/30 分钟/);
+  expect(windowWarning("invalid") ?? "").toMatch(/时间顺序/);
 });
 
 test("只有正常窗口的速率才当真", () => {
-  assert.equal(rateIsTrustworthy("fresh"), true);
+  expect(rateIsTrustworthy("fresh")).toBe(true);
   // 「样本旧」也算能算，但界面不能把它当即时速率展示。
-  assert.equal(rateIsTrustworthy("tooOld"), false);
-  assert.equal(rateIsTrustworthy("tooShort"), false);
-  assert.equal(rateIsTrustworthy("invalid"), false);
+  expect(rateIsTrustworthy("tooOld")).toBe(false);
+  expect(rateIsTrustworthy("tooShort")).toBe(false);
+  expect(rateIsTrustworthy("invalid")).toBe(false);
 });
 
 test("静止判定要求窗口本身可用", () => {
-  assert.equal(isIdle(report({ delta: 0 })), true);
+  expect(isIdle(report({ delta: 0 }))).toBe(true);
   // 窗口不可用时 delta 为 0 是「算不出来」，不是「没有写入」。
-  assert.equal(isIdle(report({ delta: 0, window: "invalid" })), false);
+  expect(isIdle(report({ delta: 0, window: "invalid" }))).toBe(false);
 });
 
 test("结论优先说窗口问题，其次说写入量", () => {
-  assert.match(summarize(report()), /500/);
-  assert.equal(summarize(report({ delta: 0 })), "窗口内没有新消息写入");
-  assert.match(summarize(report({ window: "tooShort" })), /采样/);
+  expect(summarize(report())).toMatch(/500/);
+  expect(summarize(report({ delta: 0 }))).toBe("窗口内没有新消息写入");
+  expect(summarize(report({ window: "tooShort" }))).toMatch(/采样/);
 });
 
 test("窗口时长带小数时保留一位", () => {
-  assert.equal(formatWindow(5000), "5 秒");
-  assert.equal(formatWindow(2500), "2.5 秒");
+  expect(formatWindow(5000)).toBe("5 秒");
+  expect(formatWindow(2500)).toBe("2.5 秒");
 });
 
 test("最忙的分区取第一个，没有增长就没有", () => {
-  assert.deepEqual(busiest(report()), { partition: 1, rate: 100 });
-  assert.equal(busiest(report({ partitions: [] })), undefined);
+  expect(busiest(report())).toEqual({ partition: 1, rate: 100 });
+  expect(busiest(report({ partitions: [] }))).toBe(undefined);
 });

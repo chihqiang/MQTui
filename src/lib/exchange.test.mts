@@ -1,9 +1,6 @@
 /** 交换机页纯逻辑的单测：唯一键、速率文案、可删性、过滤。 */
 
-// @ts-expect-error node 内置模块未随仓库提供类型声明
-import assert from "node:assert/strict";
-// @ts-expect-error 同上
-import test from "node:test";
+import { expect, test } from "vitest";
 
 import { bindingKey, filterTopology, formatRate, initialBinding, removalReason } from "./exchange.ts";
 
@@ -18,25 +15,22 @@ const binding = {
 test("同名队列与同名交换机的绑定键必须不同", () => {
   const asQueue = { ...binding, destinationType: "queue" } as never;
   const asExchange = { ...binding, destinationType: "exchange" } as never;
-  assert.notEqual(bindingKey(asQueue), bindingKey(asExchange));
+  expect(bindingKey(asQueue)).not.toBe(bindingKey(asExchange));
 });
 
 test("同一对节点的不同 routing key 是两条绑定", () => {
-  assert.notEqual(
-    bindingKey({ ...binding, routingKey: "a" } as never),
-    bindingKey({ ...binding, routingKey: "b" } as never),
-  );
+  expect(bindingKey({ ...binding, routingKey: "a" } as never)).not.toBe(bindingKey({ ...binding, routingKey: "b" } as never));
 });
 
 test("速率为 0 不显示 0.00/s", () => {
-  assert.equal(formatRate({ messageRate: 0 } as never), "-");
-  assert.equal(formatRate({ messageRate: 1.234 } as never), "1.23/s");
+  expect(formatRate({ messageRate: 0 } as never)).toBe("-");
+  expect(formatRate({ messageRate: 1.234 } as never)).toBe("1.23/s");
 });
 
 test("默认交换机与 amq. 前缀不可删", () => {
-  assert.ok(removalReason({ name: "", internal: false } as never));
-  assert.ok(removalReason({ name: "amq.topic", internal: false } as never));
-  assert.equal(removalReason({ name: "orders", internal: false } as never), null);
+  expect(removalReason({ name: "", internal: false } as never)).toBeTruthy();
+  expect(removalReason({ name: "amq.topic", internal: false } as never)).toBeTruthy();
+  expect(removalReason({ name: "orders", internal: false } as never)).toBe(null);
 });
 
 test("选中交换机后只留与它相关的绑定", () => {
@@ -48,8 +42,8 @@ test("选中交换机后只留与它相关的绑定", () => {
     ] as never,
   };
   const filtered = filterTopology(data, "", "e1");
-  assert.equal(filtered.bindings.length, 1);
-  assert.equal(filtered.bindings[0].destination, "q1");
+  expect(filtered.bindings.length).toBe(1);
+  expect(filtered.bindings[0].destination).toBe("q1");
 });
 
 test("关键字命中目标或 routing key 都算", () => {
@@ -57,13 +51,13 @@ test("关键字命中目标或 routing key 都算", () => {
     exchanges: [] as never,
     bindings: [{ source: "e1", destination: "orders", routingKey: "created" }] as never,
   };
-  assert.equal(filterTopology(data, "orders", null).bindings.length, 1);
-  assert.equal(filterTopology(data, "creat", null).bindings.length, 1);
-  assert.equal(filterTopology(data, "nothing", null).bindings.length, 0);
+  expect(filterTopology(data, "orders", null).bindings.length).toBe(1);
+  expect(filterTopology(data, "creat", null).bindings.length).toBe(1);
+  expect(filterTopology(data, "nothing", null).bindings.length).toBe(0);
 });
 
 test("新建绑定只认源交换机", () => {
   const spec = initialBinding("e1");
-  assert.equal(spec.source, "e1");
-  assert.equal(spec.destination.name, "");
+  expect(spec.source).toBe("e1");
+  expect(spec.destination.name).toBe("");
 });

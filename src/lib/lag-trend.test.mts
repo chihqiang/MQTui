@@ -1,7 +1,4 @@
-// @ts-expect-error node 内置模块未随仓库提供类型声明
-import assert from "node:assert/strict";
-// @ts-expect-error node 内置模块未随仓库提供类型声明
-import test from "node:test";
+import { expect, test } from "vitest";
 
 import {
   catchUpNote,
@@ -51,56 +48,53 @@ function progress(overrides: Partial<PartitionLagProgress> = {}): PartitionLagPr
 }
 
 test("在追与越欠越多用的是相反的说法", () => {
-  assert.match(summarize(trend()), /在追/);
-  assert.match(
-    summarize(trend({ verdict: "falling", lagBefore: 0, lagAfter: 900 })),
-    /越欠越多/,
-  );
+  expect(summarize(trend())).toMatch(/在追/);
+  expect(summarize(trend({ verdict: "falling", lagBefore: 0, lagAfter: 900 }))).toMatch(/越欠越多/);
 });
 
 test("窗口不可用时先说窗口的问题，不谈趋势", () => {
   const short = summarize(trend({ window: "tooShort", verdict: "catching" }));
-  assert.match(short, /挨得太近/);
-  assert.ok(!short.includes("在追"));
+  expect(short).toMatch(/挨得太近/);
+  expect(short.includes("在追")).toBe(false);
 });
 
 test("零滞后持平不能说成持平在 0 条", () => {
   const idle = summarize(trend({ verdict: "flat", lagBefore: 0, lagAfter: 0, lagDelta: 0 }));
-  assert.match(idle, /没有积压/);
+  expect(idle).toMatch(/没有积压/);
 });
 
 test("位点回退的结论要说明差值不作数", () => {
-  assert.match(summarize(trend({ verdict: "rewound" })), /不作数/);
-  assert.equal(windowWarning("invalid"), "两次采样的时间顺序不对，本次不计算趋势");
-  assert.equal(trendIsTrustworthy("fresh"), true);
-  assert.equal(trendIsTrustworthy("tooShort"), false);
+  expect(summarize(trend({ verdict: "rewound" }))).toMatch(/不作数/);
+  expect(windowWarning("invalid")).toBe("两次采样的时间顺序不对，本次不计算趋势");
+  expect(trendIsTrustworthy("fresh")).toBe(true);
+  expect(trendIsTrustworthy("tooShort")).toBe(false);
 });
 
 test("极小的速率不显示成 0.00", () => {
-  assert.equal(formatRate(0.004), "< 0.01 条/秒");
-  assert.equal(formatRate(0), "0 条/秒");
-  assert.equal(formatRate(undefined), "0 条/秒");
-  assert.equal(formatRate(1500), "1,500 条/秒");
+  expect(formatRate(0.004)).toBe("< 0.01 条/秒");
+  expect(formatRate(0)).toBe("0 条/秒");
+  expect(formatRate(undefined)).toBe("0 条/秒");
+  expect(formatRate(1500)).toBe("1,500 条/秒");
 });
 
 test("变化量带方向", () => {
-  assert.equal(formatDelta(-6000), "-6,000");
-  assert.equal(formatDelta(300), "+300");
-  assert.equal(formatDelta(0), "0");
+  expect(formatDelta(-6000)).toBe("-6,000");
+  expect(formatDelta(300)).toBe("+300");
+  expect(formatDelta(0)).toBe("0");
 });
 
 test("结论与色调一一对应", () => {
-  assert.equal(verdictOf("catching").tone, "success");
-  assert.equal(verdictOf("falling").tone, "danger");
-  assert.equal(verdictOf("rewound").tone, "warning");
+  expect(verdictOf("catching").tone).toBe("success");
+  expect(verdictOf("falling").tone).toBe("danger");
+  expect(verdictOf("rewound").tone).toBe("warning");
   // 后端加了新结论时先原样显示，不要吞掉。
-  assert.deepEqual(verdictOf("throttled"), { label: "throttled", tone: "neutral" });
+  expect(verdictOf("throttled")).toEqual({ label: "throttled", tone: "neutral" });
 });
 
 test("分区判定：恶化最显眼", () => {
-  assert.equal(verdictTone("falling"), "danger");
-  assert.equal(verdictTone("flat"), "neutral");
-  assert.equal(verdictText("rewound"), "位点回退");
+  expect(verdictTone("falling")).toBe("danger");
+  expect(verdictTone("flat")).toBe("neutral");
+  expect(verdictText("rewound")).toBe("位点回退");
 });
 
 test("只挑需要看一眼的分区", () => {
@@ -112,25 +106,16 @@ test("只挑需要看一眼的分区", () => {
       progress({ partition: 3, verdict: "rewound" }),
     ],
   });
-  assert.equal(hasWorsening(report), true);
-  assert.deepEqual(
-    notablePartitions(report).map((item) => item.partition),
-    [1, 3],
-  );
+  expect(hasWorsening(report)).toBe(true);
+  expect(notablePartitions(report).map((item) => item.partition)).toEqual([1, 3]);
 });
 
 test("分区不齐时要说明，而不是让总数自己解释", () => {
-  assert.equal(missingNote(trend()), undefined);
-  assert.match(
-    missingNote(trend({ missing: ["orders/3"] })) ?? "",
-    /orders\/3/,
-  );
+  expect(missingNote(trend())).toBe(undefined);
+  expect(missingNote(trend({ missing: ["orders/3"] })) ?? "").toMatch(/orders\/3/);
 });
 
 test("追赶速度只在本该追赶时出现", () => {
-  assert.equal(catchUpNote(trend()), undefined);
-  assert.match(
-    catchUpNote(trend({ catchUpRate: 0.14 })) ?? "",
-    /再快/,
-  );
+  expect(catchUpNote(trend())).toBe(undefined);
+  expect(catchUpNote(trend({ catchUpRate: 0.14 })) ?? "").toMatch(/再快/);
 });

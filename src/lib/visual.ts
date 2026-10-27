@@ -151,7 +151,7 @@ export const BROKER_TONE_CLASS: Record<BrokerTone, { tint: string; solid: string
  * 品牌形状 —— 与身份色一一对应的那对图标名。
  *
  * 类型放这儿而不是直接引用组件：`lib/visual.ts` 是纯函数模块，被单测
- * 直接跑在 node 里，一旦它去 import `react-icons`，`npm run test:web`
+ * 直接跑在 node 里，一旦它去 import `react-icons`，`npm run test:ui`
  * 就会因为解析不到 JSX 而挂掉。组件映射留在 `lib/nav.ts`。
  */
 export type BrokerMarkName = "kafka" | "rabbitmq" | "unknown";

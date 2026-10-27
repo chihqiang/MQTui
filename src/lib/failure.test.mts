@@ -5,30 +5,24 @@
  * 只有「读取失败」四个字，用户没法判断该动配置还是等网络。
  */
 
-// @ts-expect-error node 内置模块未随仓库提供类型声明
-import assert from "node:assert/strict";
-// @ts-expect-error 同上
-import test from "node:test";
+import { expect, test } from "vitest";
 
 import { failureText, shouldReplaceWithError } from "./failure.ts";
 
 test("带上动作与对象", () => {
-  assert.equal(
-    failureText("读取队列", "连接被拒绝", "orders"),
-    "读取队列 orders 失败：连接被拒绝",
-  );
+  expect(failureText("读取队列", "连接被拒绝", "orders")).toBe("读取队列 orders 失败：连接被拒绝");
 });
 
 test("对象名留空时不出现多余空格", () => {
-  assert.equal(failureText("读取队列", "连接被拒绝"), "读取队列失败：连接被拒绝");
-  assert.equal(failureText("读取队列", "连接被拒绝", "   "), "读取队列失败：连接被拒绝");
+  expect(failureText("读取队列", "连接被拒绝")).toBe("读取队列失败：连接被拒绝");
+  expect(failureText("读取队列", "连接被拒绝", "   ")).toBe("读取队列失败：连接被拒绝");
 });
 
 test("有旧数据时不用错误页顶掉内容", () => {
-  assert.equal(shouldReplaceWithError({ hasData: true, isFetching: false }), false);
+  expect(shouldReplaceWithError({ hasData: true, isFetching: false })).toBe(false);
 });
 
 test("没有数据且不在重试时才显示错误页", () => {
-  assert.equal(shouldReplaceWithError({ hasData: false, isFetching: false }), true);
-  assert.equal(shouldReplaceWithError({ hasData: false, isFetching: true }), false);
+  expect(shouldReplaceWithError({ hasData: false, isFetching: false })).toBe(true);
+  expect(shouldReplaceWithError({ hasData: false, isFetching: true })).toBe(false);
 });

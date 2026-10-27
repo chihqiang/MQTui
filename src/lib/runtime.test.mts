@@ -5,10 +5,7 @@
  * 连接进入 blocking 必须红 —— 这三种状态在排查时的含义完全不同。
  */
 
-// @ts-expect-error node 内置模块未随仓库提供类型声明
-import assert from "node:assert/strict";
-// @ts-expect-error 同上
-import test from "node:test";
+import { expect, test } from "vitest";
 
 import {
   channelIdle,
@@ -49,38 +46,38 @@ function connection(overrides = {}) {
 }
 
 test("预取 0 表示不限，永远不算打满", () => {
-  assert.equal(channelSaturated(channel({ prefetch: 0, unacked: 999 })), false);
+  expect(channelSaturated(channel({ prefetch: 0, unacked: 999 }))).toBe(false);
 });
 
 test("未确认数触到预取上限即为打满", () => {
-  assert.equal(channelSaturated(channel({ prefetch: 10, unacked: 10 })), true);
+  expect(channelSaturated(channel({ prefetch: 10, unacked: 10 }))).toBe(true);
 });
 
 test("打满的通道是 danger", () => {
-  assert.equal(channelTone(channel({ unacked: 10 })), "danger");
+  expect(channelTone(channel({ unacked: 10 }))).toBe("danger");
 });
 
 test("空转通道是 warning 而不是 danger", () => {
   const idle = channel({ consumers: 0, acks: 0, unacked: 0 });
-  assert.equal(channelIdle(idle), true);
-  assert.equal(channelTone(idle), "warning");
+  expect(channelIdle(idle)).toBe(true);
+  expect(channelTone(idle)).toBe("warning");
 });
 
 test("正常通道保持中性", () => {
-  assert.equal(channelTone(channel()), "neutral");
+  expect(channelTone(channel())).toBe("neutral");
 });
 
 test("blocking 状态的连接是 danger", () => {
-  assert.equal(connectionTone(connection({ state: "blocking" })), "danger");
-  assert.equal(connectionTone(connection()), "success");
+  expect(connectionTone(connection({ state: "blocking" }))).toBe("danger");
+  expect(connectionTone(connection())).toBe("success");
 });
 
 test("关键字能匹配客户端名与对端地址", () => {
   const detail = { connection: connection(), channels: [], unackedTotal: 0, saturated: 0 };
-  assert.equal(matchConnection(detail, "order"), true);
-  assert.equal(matchConnection(detail, "10.0.0.9"), true);
-  assert.equal(matchConnection(detail, "missing"), false);
-  assert.equal(matchConnection(detail, "  "), true);
+  expect(matchConnection(detail, "order")).toBe(true);
+  expect(matchConnection(detail, "10.0.0.9")).toBe(true);
+  expect(matchConnection(detail, "missing")).toBe(false);
+  expect(matchConnection(detail, "  ")).toBe(true);
 });
 
 test("连接只要有一个打满通道就算有问题", () => {
@@ -90,7 +87,7 @@ test("连接只要有一个打满通道就算有问题", () => {
     unackedTotal: 10,
     saturated: 1,
   };
-  assert.equal(connectionHasProblem(detail), true);
+  expect(connectionHasProblem(detail)).toBe(true);
 });
 
 test("总结里优先报告卡住的连接", () => {
@@ -107,5 +104,5 @@ test("总结里优先报告卡住的连接", () => {
     unassigned: ["lonely"],
     perNode: {},
   };
-  assert.match(describeRuntime(snapshot), /1 条连接有卡住的通道/);
+  expect(describeRuntime(snapshot)).toMatch(/1 条连接有卡住的通道/);
 });

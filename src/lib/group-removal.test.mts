@@ -1,7 +1,4 @@
-// @ts-expect-error node 内置模块未随仓库提供类型声明
-import assert from "node:assert/strict";
-// @ts-expect-error node 内置模块未随仓库提供类型声明
-import { test } from "node:test";
+import { expect, test } from "vitest";
 
 import {
   blockedChecks,
@@ -31,7 +28,7 @@ function check(patch: Partial<GroupRemovalCheck> = {}): GroupRemovalCheck {
 
 function preflight(
   groups: GroupRemovalCheck[],
-  patch: Partial<GroupRemovalPreflight> = {},
+  patch: Partial<GroupRemovalPreflight> = {}
 ): GroupRemovalPreflight {
   return {
     hasBlocked: groups.some((item) => item.blocked),
@@ -45,24 +42,24 @@ function preflight(
 test("键的顺序不影响结果，空白与重复会被吃掉", () => {
   const a = groupRemovalKey([" b ", "a", "a"]);
   const b = groupRemovalKey(["a", "b"]);
-  assert.equal(a, b);
-  assert.equal(groupRemovalKey(["  "]), "");
+  expect(a).toBe(b);
+  expect(groupRemovalKey(["  "])).toBe("");
 });
 
 test("键把组名分开，不会把 a b 与 ab 当成同一批", () => {
-  assert.notEqual(groupRemovalKey(["a", "b"]), groupRemovalKey(["ab"]));
+  expect(groupRemovalKey(["a", "b"])).not.toBe(groupRemovalKey(["ab"]));
 });
 
 test("有成员才用危险色，读不到用中性", () => {
-  assert.equal(checkTone(check({ blocked: true })), "danger");
-  assert.equal(checkTone(check()), "neutral");
-  assert.equal(checkTone(check({ members: null })), "neutral");
+  expect(checkTone(check({ blocked: true }))).toBe("danger");
+  expect(checkTone(check())).toBe("neutral");
+  expect(checkTone(check({ members: null }))).toBe("neutral");
 });
 
 test("成员数读不到不写成 0", () => {
-  assert.equal(memberText(check({ members: null })), "成员数读不到");
-  assert.equal(memberText(check({ members: 0 })), "无在线成员");
-  assert.equal(memberText(check({ members: 3 })), "3 个在线成员");
+  expect(memberText(check({ members: null }))).toBe("成员数读不到");
+  expect(memberText(check({ members: 0 }))).toBe("无在线成员");
+  expect(memberText(check({ members: 3 }))).toBe("3 个在线成员");
 });
 
 test("按是否被拦分组", () => {
@@ -70,44 +67,32 @@ test("按是否被拦分组", () => {
     check({ group: "a" }),
     check({ group: "b", blocked: true, members: 1 }),
   ]);
-  assert.deepEqual(
-    blockedChecks(report).map((item) => item.group),
-    ["b"],
-  );
-  assert.deepEqual(
-    clearChecks(report).map((item) => item.group),
-    ["a"],
-  );
+  expect(blockedChecks(report).map((item) => item.group)).toEqual(["b"]);
+  expect(clearChecks(report).map((item) => item.group)).toEqual(["a"]);
 });
 
 test("预检失败时不说成后端的结论", () => {
-  assert.match(preflightHeadline(undefined, true), /预检没做成/);
-  assert.match(preflightHeadline(undefined, false), /正在检查/);
-  assert.equal(preflightHeadline(preflight([check()]), false), "共 1 个组");
+  expect(preflightHeadline(undefined, true)).toMatch(/预检没做成/);
+  expect(preflightHeadline(undefined, false)).toMatch(/正在检查/);
+  expect(preflightHeadline(preflight([check()]), false)).toBe("共 1 个组");
 });
 
 test("还有能删的组时允许提交", () => {
-  assert.equal(
-    canSubmit(
-      preflight([check(), check({ group: "b", blocked: true, members: 2 })]),
-    ),
-    true,
-  );
+  expect(canSubmit(
+      preflight([check(), check({ group: "b", blocked: true, members: 2 })])
+    )).toBe(true);
 });
 
 test("全部被占着时不允许提交", () => {
-  assert.equal(
-    canSubmit(
+  expect(canSubmit(
       preflight([
         check({ group: "a", blocked: true, members: 1 }),
         check({ group: "b", blocked: true, members: 2 }),
-      ]),
-    ),
-    false,
-  );
+      ])
+    )).toBe(false);
 });
 
 test("没有预检结果时不拦人", () => {
-  assert.equal(canSubmit(undefined), true);
-  assert.equal(canSubmit(preflight([])), true);
+  expect(canSubmit(undefined)).toBe(true);
+  expect(canSubmit(preflight([]))).toBe(true);
 });

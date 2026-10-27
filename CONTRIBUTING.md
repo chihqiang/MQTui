@@ -92,15 +92,15 @@ npm run tauri dev
 首次运行会依次：装前端依赖 → 编译 Rust（含 librdkafka）→ 拉起 Vite（`localhost:1420`）→ 开窗口。
 只改前端时热更新是即时的；改 Rust 会重启应用。
 
-常用脚本：
+常用脚本（`package.json` 里只有这几条，其余一律交给工具自己带）：
 
 ```bash
-npm run typecheck    # 前端类型检查
-npm run lint:ui      # 浅色主题颜色与字号守卫
-npm run lint:layers  # 目录分层守卫（pages / types / lib / components）
-npm run build        # typecheck + lint:ui + vite build
-npm run test:rust    # 后端核心逻辑单测（--no-default-features，不需要图形环境）
-npm run test:web     # 前端纯逻辑单测（node --test）
+npm run dev       # 只起 Vite，不开 Tauri 窗口
+npm run build     # tsc 类型检查 + vite 打包
+npm run preview   # 预览打包结果
+npm run tauri     # Tauri CLI 透传，tauri dev / tauri build 走这里
+npm run test:ui   # 前端单测（vitest run）
+npm run test:rust # 后端核心逻辑单测（--no-default-features，不需要图形环境）
 ```
 
 ## 提交前自检
@@ -109,10 +109,7 @@ npm run test:web     # 前端纯逻辑单测（node --test）
 
 ```bash
 # 前端
-npm run typecheck
-npm run lint:ui
-npm run lint:layers
-npm run test:web
+npm run test:ui
 npm run build
 
 # 后端
@@ -120,12 +117,33 @@ npm run test:rust
 (cd src-tauri && cargo fmt --all -- --check && cargo clippy --all-targets -- -D warnings)
 ```
 
+`npm run build` 里的 `tsc` 就是类型检查；单测与类型检查分开跑，出问题能一眼看出是行为坏了还是类型坏了。
+
 `cargo clippy` 需要默认特性（含 `desktop`），因此依赖上面那套系统库；
 `cargo test` 走 `--no-default-features`，脱离图形环境也能跑。
 
+## 前端单测
+
+单测用 [Vitest](https://vitest.dev/)，只有一条脚本：
+
+```bash
+npm run test:ui                     # 全量跑一遍
+npx vitest run src/lib/choice.test.mts   # 只跑一个文件
+npx vitest                          # watch 模式，改哪跑哪
+```
+
+写用例的规矩：
+
+- 文件与模块同名，放在 `src/lib/` 里，后缀 `*.test.mts`；同目录 `./x.ts` 相对引用被测模块。
+- 第一行 `import { expect, test } from "vitest";`，断言写 `expect(x).toBe(y)`，
+  失败说明写第二参数：`expect(tone, "身份色撞了语义色").not.toBe("info")`。
+- 只测纯逻辑（虚拟列表区间、过滤器、格式化、滚动还原……）。碰 Tauri `invoke` 或 React 渲染的
+  不在这里测——没装 jsdom，也不打算装。
+- 用例名写「规则」而不是「函数名」：`test("滚到同一行之内，区间不变")` 一眼能看出坏在哪。
+
 ## 目录分层
 
-四条线，各管一件事，由 `npm run lint:layers` 守着（破了不报错、只是慢慢漂移，所以才写成脚本）：
+四条线，各管一件事。它们是约定，不是脚本——破了不会报错，所以更需要每个人落地时守住：
 
 | 目录 | 放什么 | 不许做什么 |
 | --- | --- | --- |
@@ -138,13 +156,11 @@ npm run test:rust
 
 - 一个常量在**两个页面**出现，就说明它不属于任何一个页面 —— 进 `src/types` 对应领域文件。
   列定义（`TOPIC_COLUMNS` 这类）同理：它是「一页数据长什么样」，不是渲染。
-- 一段逻辑在页面里被反复抄 —— 进 `src/lib`，并补一条 `node --test` 单测。
+- 一段逻辑在页面里被反复抄 —— 进 `src/lib`，并补一条 `*.test.mts`（`npm run test:ui` 会扫到）。
 - 一块界面被两个页面用（弹窗、卡片、表单）—— 进 `src/components/broker`，命名以 `-dialog` /
   `-panel` / `-card` 结尾，避免与页面同名。
-- 纯逻辑模块之间用相对路径 `./x.ts` / `../types/x.ts`，不要用 `@/` —— `node --test` 直接跑 `.mts`
-  时解析不到路径别名。
-
-例外写行内注释 `// layer-lint-allow: 原因`。
+- 纯逻辑模块之间用相对路径 `./x.ts` / `../types/x.ts`，不要用 `@/` —— 测试直接跑 `.mts`，
+  相对路径最稳，也不依赖任何别名配置。
 
 ## 代码约定
 
@@ -154,7 +170,7 @@ npm run test:rust
 - 能用成熟库就不自己写，例如虚拟滚动、请求缓存、路由。
 - Rust 遵循 [Google Rust Style Guide](https://google.github.io/styleguide/rustguide.html)：
   小函数、明确错误类型、`clippy` 零告警。
-- 样式不写裸字号与浅色文字类名，走语义档位；例外必须写 `// ui-lint-allow: 原因`。
+- 样式不写裸字号与浅色文字类名，走语义档位（`text-meta` 之类），别让浅色底上冒出浅色字。
 - 破坏性操作不用 `window.confirm`，统一走 `ConfirmDialog`，写清「会失去什么」。
 
 ## 提交信息
