@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { Button, Field, Input, Modal } from "@/components/ui";
+import { Button, ComboInput, Field, Input, Modal } from "@/components/ui";
 import { useResendMessage } from "@/hooks/use-message-disposal";
 import type { MessageSummary } from "@/types";
 
@@ -8,6 +8,8 @@ interface Props {
   connectionId: string;
   message: MessageSummary;
   onClose: () => void;
+  /** 当前 topic 列表；`null` 表示还没读到或读失败，此时允许手填。 */
+  topicNames: string[] | null;
 }
 
 /**
@@ -17,13 +19,18 @@ interface Props {
  * 存在分区日志里，所谓重发只是往日志里再写一条，原消息一动不动。
  * 三处「留空即沿用」也都在提示里写明，避免用户以为清空输入就是「发一条空的」。
  */
-export function MessageResendDialog({ connectionId, message, onClose }: Props) {
+export function MessageResendDialog({ connectionId, message, onClose, topicNames }: Props) {
   const resend = useResendMessage(connectionId);
-
   const [topic, setTopic] = useState("");
   const [key, setKey] = useState("");
   const [payload, setPayload] = useState("");
   const [keepHeaders, setKeepHeaders] = useState(true);
+  /*
+    重发到别的 topic 时，名字依旧是「已经存在的集合」——打错一个字母就是一条写进
+    自动建出来的新主题的消息，下游永远收不到。所以默认只给选；
+    没拿到主题列表时放开手输，否则这个弹窗在主题列表读失败时彻底不能用。
+  */
+  const strictTopic = topicNames !== null;
 
   const submit = () => {
     resend.mutate(
@@ -69,13 +76,24 @@ export function MessageResendDialog({ connectionId, message, onClose }: Props) {
         </dl>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Field label="目标 topic" hint="留空沿用原 topic">
-            <Input
+          <Field
+            label="目标 topic"
+            hint={strictTopic ? "留空沿用原 topic" : "主题列表未读到，可直接手填；留空沿用原 topic"}
+          >
+            <ComboInput
               value={topic}
-              onChange={(event) => setTopic(event.currentTarget.value)}
+              choices={topicNames ?? []}
+              strict={strictTopic}
+              allowEmpty
+              onValueChange={setTopic}
               placeholder={message.topic ?? "topic 名称"}
             />
           </Field>
+          {/*
+            key 不发候选：它不是「已存在的资源名」，而是一个业务值（订单号、用户 ID）。
+            列表里唯一那个已知的 key 就是这条消息自己的，把它做成下拉只会诱人
+            把重发做成「同一条再发一遍」。
+          */}
           <Field label="消息 key" hint="留空沿用原 key；换 key 会让分区落点变掉">
             <Input
               value={key}

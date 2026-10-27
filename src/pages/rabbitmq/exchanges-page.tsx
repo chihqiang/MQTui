@@ -8,6 +8,7 @@ import {
   Card,
   CardBody,
   CardHeader,
+  ComboInput,
   ConfirmDialog,
   DataTable,
   Empty,
@@ -282,6 +283,7 @@ export function ExchangesPage() {
         defaultSource={selected ?? data?.exchanges[0]?.name ?? ""}
         exchanges={data?.exchanges ?? []}
         queues={data?.queues ?? []}
+        bindings={data?.bindings ?? []}
         onClose={() => setBinding(false)}
       />
     </PageBody>
@@ -538,12 +540,15 @@ function CreateBindingModal({
   defaultSource,
   exchanges,
   queues,
+  bindings,
   onClose,
 }: {
   open: boolean;
   defaultSource: string;
   exchanges: ExchangeInfo[];
   queues: { name: string }[];
+  /** 已有绑定：routing key 的候选来自这里，不是凭空猜的。 */
+  bindings: BindingInfo[];
   onClose: () => void;
 }) {
   const { connectionId } = useParams();
@@ -623,25 +628,22 @@ function CreateBindingModal({
             </Select>
           </Field>
           <Field label={destinationKind === "queue" ? "目标队列" : "目标交换机"}>
-            <Input
+            {/*
+              目标名一律从现有资源里挑：绑定一个不存在的目标，管理 API 会建成功
+              （有些版本还会顺手把队列建出来），错在哪要到消息发不出去时才发现。
+              候选之外仍可手输 —— 交换机可以先建绑定、再建目标。
+            */}
+            <ComboInput
               value={spec.destination.name}
-              list="binding-destinations"
+              choices={(destinationKind === "queue" ? queues : exchanges)
+                .filter((item) => item.name)
+                .map((item) => ({ value: item.name, hint: destinationKind === "queue" ? undefined : "交换机" }))}
               required
               placeholder={destinationKind === "queue" ? "orders.queue" : "orders.retry"}
-              onChange={(event) =>
-                setSpec({
-                  ...spec,
-                  destination: { ...spec.destination, name: event.currentTarget.value },
-                })
+              onValueChange={(name) =>
+                setSpec({ ...spec, destination: { ...spec.destination, name } })
               }
             />
-            <datalist id="binding-destinations">
-              {(destinationKind === "queue" ? queues : exchanges)
-                .filter((item) => item.name)
-                .map((item) => (
-                  <option key={item.name} value={item.name} />
-                ))}
-            </datalist>
           </Field>
         </div>
 
@@ -653,10 +655,21 @@ function CreateBindingModal({
               : "topic 支持 * 与 # 通配；fanout 忽略此项"
           }
         >
-          <Input
+          {/*
+            routing key 的候选只取**同一个源交换机**上已经配过的那些：
+            跨交换机混在一起没有意义，`orders.*` 挂在 `orders.exchange` 上才是它的语义。
+          */}
+          <ComboInput
             value={spec.routingKey}
+            choices={[
+              ...new Set(
+                bindings
+                  .filter((item) => item.routingKey && item.source === spec.source)
+                  .map((item) => item.routingKey),
+              ),
+            ]}
             placeholder="order.created"
-            onChange={(event) => setSpec({ ...spec, routingKey: event.currentTarget.value })}
+            onValueChange={(routingKey) => setSpec({ ...spec, routingKey })}
           />
         </Field>
 

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router";
 
-import { Button, Field, Input, Modal, Select, Textarea } from "@/components/ui";
+import { Button, ComboInput, Field, Input, Modal, Select, Textarea } from "@/components/ui";
 import { useSaveParameter } from "@/hooks/use-parameters";
 import {
   COMPONENT_OPTIONS,
@@ -39,6 +39,7 @@ export function ParameterEditor({
   open,
   parameter,
   defaultVhost,
+  vhosts,
   canWrite,
   onClose,
 }: {
@@ -46,6 +47,8 @@ export function ParameterEditor({
   /** 非空表示编辑既有参数，空表示新建。 */
   parameter: ParameterInfo | null;
   defaultVhost: string;
+  /** 这台 broker 上出现过的 vhost；空数组时退化成普通输入框。 */
+  vhosts: string[];
   canWrite: boolean;
   onClose: () => void;
 }) {
@@ -170,10 +173,16 @@ export function ParameterEditor({
                 : "跟随业务 vhost，留空表示 `/`"
             }
           >
-            <Input
+            {/*
+              vhost 是「已存在的名字」里最不该手敲的一个：`/` 与 `prod` 打错，
+              服务端只会说「not_found」，还得回去翻控制台看正确的拼法。
+              候选里永远排第一的是 `/`（留空的含义），其余来自队列 / 交换机 / 参数。
+            */}
+            <ComboInput
               value={spec.vhost}
+              choices={vhosts}
               disabled={requiresDefaultVhost(spec.component)}
-              onChange={(event) => update({ vhost: event.currentTarget.value })}
+              onValueChange={(next) => update({ vhost: next })}
               placeholder="/"
             />
           </Field>

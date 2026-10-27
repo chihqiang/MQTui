@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { Badge, Button, Field, Input, Modal } from "@/components/ui";
+import { Badge, Button, ComboInput, Field, Modal } from "@/components/ui";
 import {
   useBatchDisposeMessages,
   useRetryStrandedMessages,
@@ -16,6 +16,10 @@ interface Props {
   onClose: () => void;
   /** 有消息真的被处置成功时回调，让列表把这几行从选中集里摘掉。 */
   onDisposed: (messageIds: string[]) => void;
+  /** 拓扑里确切的交换机名；`null` 表示没读到，目标交换机退回自由输入。 */
+  exchangeNames: string[] | null;
+  /** 同上：全局去重后的 routing key。 */
+  routingKeys: string[] | null;
 }
 
 /**
@@ -31,11 +35,16 @@ export function MessageBatchDisposalDialog({
   action,
   onClose,
   onDisposed,
+  exchangeNames,
+  routingKeys,
 }: Props) {
   const batch = useBatchDisposeMessages(connectionId);
   const retry = useRetryStrandedMessages(connectionId);
   const [exchange, setExchange] = useState("");
   const [routingKey, setRoutingKey] = useState("");
+  // 与单条处置同一个理由：这两个格子填的是拓扑里已经存在的名字，读不到时才放开手输。
+  const strictExchange = exchangeNames !== null;
+  const strictKey = routingKeys !== null;
 
   // 重试跑完之后以重试结果为准：它才是「现在还剩几条卡住」。
   const outcome = retry.data ?? batch.data;
@@ -122,17 +131,37 @@ export function MessageBatchDisposalDialog({
 
         {!outcome && action === "redeliver" ? (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Field label="目标交换机" hint="留空表示默认交换机（按队列名直接投递）">
-              <Input
+            <Field
+              label="目标交换机"
+              hint={
+                strictExchange
+                  ? "留空表示默认交换机（按队列名直接投递）"
+                  : "拓扑未读到，可直接手填交换机名；留空表示默认交换机"
+              }
+            >
+              <ComboInput
                 value={exchange}
-                onChange={(event) => setExchange(event.currentTarget.value)}
+                choices={exchangeNames ?? []}
+                strict={strictExchange}
+                allowEmpty
+                onValueChange={setExchange}
                 placeholder="例如 orders.exchange"
               />
             </Field>
-            <Field label="目标 routing key" hint="留空则每条沿用各自的原始 routing key">
-              <Input
+            <Field
+              label="目标 routing key"
+              hint={
+                strictKey
+                  ? "候选取自已有绑定；留空则每条沿用各自的原始 routing key"
+                  : "可直接手填；留空则每条沿用各自的原始 routing key"
+              }
+            >
+              <ComboInput
                 value={routingKey}
-                onChange={(event) => setRoutingKey(event.currentTarget.value)}
+                choices={routingKeys ?? []}
+                strict={strictKey}
+                allowEmpty
+                onValueChange={setRoutingKey}
                 placeholder="留空即原路重走"
               />
             </Field>

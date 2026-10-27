@@ -7,6 +7,7 @@ import {
   Card,
   CardBody,
   CardHeader,
+  ComboInput,
   Empty,
   ErrorState,
   Field,
@@ -15,6 +16,7 @@ import {
   Select,
 } from "@/components/ui";
 import { PageBody, PageHeader } from "@/components/layout/page-header";
+import { useConsumerGroups } from "@/hooks/use-consumer-groups";
 import { useCommitReset, useResetPhases, useResetPreview } from "@/hooks/use-offset-reset";
 import { useTopics } from "@/hooks/use-broker-data";
 import { errorMessage } from "@/lib/errors";
@@ -53,6 +55,16 @@ export function OffsetResetPage() {
   const [searchParams] = useSearchParams();
   const { data: topics } = useTopics(connectionId, true);
   /**
+   * 组名候选。这一页是全站唯一「敲错名字代价最大」的输入：组名打错，预览会说
+   * 「没有需要改动的分区」，用户很容易读成「这个组没问题」，而真相是查了个不存在的组。
+   * 一次拉 100 组（与列表页同页大小），超出部分照旧可以手输。
+   */
+  const { data: groupPage } = useConsumerGroups(connectionId, "");
+  const groupChoices = (groupPage?.pages[0]?.items ?? []).map((item) => ({
+    value: item.name,
+    hint: item.members > 0 ? `${item.members} 成员` : "无成员",
+  }));
+  /**
    * 组名可以由别的页面带过来（消费组详情里的「重置位点」）：
    * 那个组名是人刚刚在上一页看见的东西，不该让他记住再敲一遍。
    * 只认初始值 —— 之后用户自己改的以输入框为准。
@@ -89,10 +101,11 @@ export function OffsetResetPage() {
         <CardHeader title="条件" />
         <CardBody className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Field label="消费组">
-            <Input
+            <ComboInput
               value={group}
+              choices={groupChoices}
               placeholder="例如 orders-worker"
-              onChange={(event) => setGroup(event.currentTarget.value)}
+              onValueChange={setGroup}
             />
           </Field>
           <Field label="主题">

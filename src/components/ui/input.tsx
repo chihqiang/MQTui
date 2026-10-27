@@ -9,7 +9,7 @@ import {
 import { cn } from "@/lib/cn";
 import { IconClose, IconSearch } from "@/lib/icons";
 
-const FIELD_CLASS =
+export const FIELD_CLASS =
   "w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-(length:--text-app-body) text-slate-900 " +
   "shadow-xs transition-colors duration-(--motion-fast) " +
   "placeholder:text-meta hover:border-slate-300 " +

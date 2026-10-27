@@ -1,7 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 
-import { Button, Card, CardBody, CardHeader, Field, Input, Textarea } from "@/components/ui";
+import {
+  Button,
+  Card,
+  CardBody,
+  CardHeader,
+  ComboInput,
+  Field,
+  Textarea,
+} from "@/components/ui";
+import { useTopology } from "@/hooks/use-broker-data";
 import { PageBody, PageHeader } from "@/components/layout/page-header";
 import { useSessionStore } from "@/stores";
 import { useQueues, useTopics } from "@/hooks/use-broker-data";
@@ -25,9 +34,18 @@ export function ProducePage() {
   const connection = connections?.find((item) => item.id === connectionId);
   const isKafka = connection?.kind === "kafka";
 
+  const [target, setTarget] = useState("");
+  const [exchange, setExchange] = useState("");
+  const [key, setKey] = useState("");
+  const [payload, setPayload] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
   // 候选分批到：最近看过的排最前，完整的元数据列表跟在后面（支持手输不在列表里的名字）。
   const { data: topics } = useTopics(connectionId ?? undefined, Boolean(isKafka));
   const { data: queues } = useQueues(connectionId ?? undefined, connection?.kind === "rabbitMq");
+  // RabbitMQ 侧的 exchange 与 routing key 也来自拓扑：发消息最常踩的坑是把
+  // `order.created` 敲成 `order.create`，然后对着「发出去了但没人收到」发呆。
+  const { data: topology } = useTopology(connectionId ?? undefined, connection?.kind === "rabbitMq");
   const candidates = useMemo(() => {
     const recent =
       connection && connectionId
@@ -36,12 +54,24 @@ export function ProducePage() {
     const all = isKafka ? (topics ?? []).map((item) => item.name) : (queues ?? []).map((item) => item.name);
     return [...new Set([...recent, ...all])];
   }, [connection, connectionId, isKafka, topics, queues]);
-
-  const [target, setTarget] = useState("");
-  const [exchange, setExchange] = useState("");
-  const [key, setKey] = useState("");
-  const [payload, setPayload] = useState("");
-  const [submitting, setSubmitting] = useState(false);
+  const exchangeChoices = useMemo(
+    () =>
+      (topology?.exchanges ?? [])
+        .filter((item) => item.name)
+        .map((item) => ({ value: item.name, hint: item.exchangeType })),
+    [topology],
+  );
+  // routing key 候选跟着填好的 exchange 走；exchange 空着时给全部——那时用户还没决定往哪发。
+  const keyChoices = useMemo(
+    () => [
+      ...new Set(
+        (topology?.bindings ?? [])
+          .filter((item) => item.routingKey && (!exchange || item.source === exchange))
+          .map((item) => item.routingKey),
+      ),
+    ],
+    [topology, exchange],
+  );
 
   // 从消息页带着 `?target=` 过来时直接预填：那是用户刚刚在看的东西。
   // 只在参数变化时覆盖，不跟着每次输入重设 —— 否则用户改完名字又被打回原样。
@@ -93,26 +123,51 @@ export function ProducePage() {
           >
             <div className="grid grid-cols-2 gap-3">
               <Field label={`目标（${targetField}）`} hint={inherited ? "沿用消息页正在看的目标" : undefined}>
-                <Input
+                {/*
+                  目标框原来是 `<datalist>`：候选能弹，但只有「当前输入的子串」
+                  命中的那几条，且样式跟随系统。换成自绘下拉之后，点箭头能直接看到
+                  最近看过的目标 —— 「去这个 topic 发一条」本来就不该靠打字。
+                */}
+                <ComboInput
                   value={target}
-                  onChange={(event) => setTarget(event.currentTarget.value)}
-                  list="produce-targets"
+                  choices={candidates}
+                  onValueChange={setTarget}
                   placeholder="例如 orders.created"
                   required
                 />
-                <datalist id="produce-targets">
-                  {candidates.map((name) => (
-                    <option key={name} value={name} />
-                  ))}
-                </datalist>
               </Field>
-              <Field label="Exchange（仅 RabbitMQ）">
-                <Input value={exchange} onChange={(event) => setExchange(event.currentTarget.value)} />
+              {/*
+                Kafka 不用交换机，这一格以前存在但填了没用。不隐藏而是置灰：
+                两种中间件共用一张表单，藏掉会让表单在两个连接之间「长得不一样」。
+              */}
+              <Field
+                label="Exchange（仅 RabbitMQ）"
+                hint={isKafka ? "Kafka 不使用交换机" : "留空表示默认交换机"}
+              >
+                <ComboInput
+                  value={exchange}
+                  choices={exchangeChoices}
+                  disabled={isKafka}
+                  onValueChange={setExchange}
+                  placeholder={isKafka ? "-" : "orders.exchange"}
+                />
               </Field>
             </div>
 
-            <Field label="Key（可选）">
-              <Input value={key} onChange={(event) => setKey(event.currentTarget.value)} />
+            <Field
+              label={isKafka ? "Key（可选）" : "routing key（可选）"}
+              hint={
+                isKafka
+                  ? "同 key 落到同一分区；空着则轮询"
+                  : "候选取自已有绑定；空着按队列名直投默认交换机"
+              }
+            >
+              <ComboInput
+                value={key}
+                choices={isKafka ? [] : keyChoices}
+                onValueChange={setKey}
+                placeholder={isKafka ? "(无 key)" : "order.created"}
+              />
             </Field>
 
             <Field label="Payload">

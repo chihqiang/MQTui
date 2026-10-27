@@ -3,6 +3,7 @@ export { Button } from "./button";
 export { Card, CardBody, CardHeader } from "./card";
 export { GraphCanvas, type CanvasNode } from "./graph-canvas";
 export { GraphSkeleton } from "./graph-skeleton";
+export { ComboInput } from "./combo";
 export { Field, Input, SearchInput, Select, Textarea } from "./input";
 export { ConfirmDialog } from "./confirm-dialog";
 export { Callout, DescriptionGrid, SectionTitle, type DescriptionItem } from "./description";

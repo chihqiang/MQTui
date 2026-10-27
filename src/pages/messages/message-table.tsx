@@ -36,6 +36,8 @@ import {
 } from "@/lib/message-filter";
 import type { DisposalAction, MessageSummary } from "@/types";
 
+import { useTopics, useTopology } from "@/hooks/use-broker-data";
+import { exactChoices, routingKeyChoices } from "@/lib/choice";
 import { MessageBatchDisposalDialog } from "@/pages/messages/message-batch-disposal";
 import { MessageDisposalDialog } from "@/pages/messages/message-disposal";
 import { MessageResendDialog } from "@/pages/messages/message-resend";
@@ -133,6 +135,13 @@ export function MessageTable({
     setFilter(EMPTY_FILTER);
   }, [connectionId, target, partition]);
 
+  /*
+    处置 / 重发弹窗里的那几个空格填的是「已经存在的名字」（交换机、routing key、topic）。
+    候选在这里算一次，三个弹窗共用：每个弹窗各拉一遍拓扑，就是在同一个页面上
+    把同一份管理 API 请求打三次。
+
+    `null` 一路传下去是刻意的：它到弹窗里表示「没读到，放开手输」。
+  */
   // 处置弹窗：记录「哪条消息 + 哪个动作」，关掉即清空。
   const [disposal, setDisposal] = useState<{
     message: MessageSummary;
@@ -146,6 +155,14 @@ export function MessageTable({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [batch, setBatch] = useState<DisposalAction | null>(null);
   const selectable = Boolean(canDispose);
+
+  // 只在这三种弹窗会打开时拉：平时的消息列表根本用不上拓扑与主题清单。
+  const needsChoices = Boolean(disposal) || Boolean(batch) || Boolean(resend);
+  const { data: disposalTopology } = useTopology(connectionId, needsChoices);
+  const { data: disposalTopics } = useTopics(connectionId, needsChoices);
+  const exchangeNames = exactChoices(disposalTopology?.exchanges.map((item) => item.name));
+  const routingKeys = routingKeyChoices(disposalTopology?.bindings);
+  const topicNames = exactChoices(disposalTopics?.map((item) => item.name));
 
   // 换数据源时清空选中集：上一个 topic 的投递标签在新队列里毫无意义。
   useEffect(() => {
@@ -480,6 +497,8 @@ export function MessageTable({
           message={disposal.message}
           action={disposal.action}
           onClose={() => setDisposal(null)}
+          exchangeNames={exchangeNames}
+          routingKeys={routingKeys}
         />
       ) : null}
 
@@ -488,6 +507,8 @@ export function MessageTable({
           connectionId={connectionId}
           messages={selectedMessages}
           action={batch}
+          exchangeNames={exchangeNames}
+          routingKeys={routingKeys}
           onClose={() => setBatch(null)}
           onDisposed={(ids) =>
             setSelected((prev) => {
@@ -504,6 +525,7 @@ export function MessageTable({
           connectionId={connectionId}
           message={resend}
           onClose={() => setResend(null)}
+          topicNames={topicNames}
         />
       ) : null}
     </div>

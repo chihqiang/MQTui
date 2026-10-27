@@ -22,6 +22,7 @@ import {
 } from "@/components/ui";
 import { useHealth } from "@/hooks/use-health";
 import { useDeleteParameter, useParameters } from "@/hooks/use-parameters";
+import { useVhosts } from "@/hooks/use-vhosts";
 import { PageBody, PageHeader, PageToolbar } from "@/components/layout/page-header";
 import { errorMessage } from "@/lib/errors";
 import { failureText } from "@/lib/failure";
@@ -55,6 +56,8 @@ const PARAMETER_COLUMNS: DataTableColumn[] = [
 export function ParametersPage() {
   const { connectionId } = useParams();
   const { data, isLoading, error, refetch } = useParameters(connectionId);
+  // 新建参数时的 vhost 候选：编辑器里那一格是手敲的话，`/` 与业务 vhost 全靠记。
+  const vhosts = useVhosts(connectionId, true);
   const { canWrite } = useHealth(connectionId);
   // 过滤词存 URL：点进详情再返回时，刚打的字还在。
   const [keyword, setKeyword] = useListFilter();
@@ -186,6 +189,7 @@ export function ParametersPage() {
         open={creating || Boolean(editing)}
         parameter={editing}
         defaultVhost={defaultVhost}
+        vhosts={vhosts}
         canWrite={canWrite}
         onClose={() => {
           setCreating(false);
