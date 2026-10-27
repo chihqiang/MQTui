@@ -1,0 +1,35 @@
+@import "tailwindcss";
+
+/* 全局基础样式：深色是面板类工具的默认选择，减少长时间盯屏的疲劳。 */
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--color-slate-950);
+    color: var(--color-slate-100);
+    font-family:
+      ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC",
+      "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* 滚动条统一成细样式，避免默认滚动条破坏布局。 */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    border-radius: 4px;
+    background-color: var(--color-slate-700);
+  }
+}

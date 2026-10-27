@@ -1,0 +1,2 @@
+# 遵循 Google Rust Style Guide，行宽 100（中文注释场景下比 80 更实际）。
+max_width = 100

@@ -1,0 +1,358 @@
+//! Kafka 消息实现：按分区分配 + offset 拉取，天然支持游标翻页。
+//!
+//! 面板只读不写：消费者使用随机的 group id 且从不提交 offset，
+//! 避免把「看一眼」的行为写进业务消费组的位点。
+
+pub mod consumer_groups;
+pub mod dto;
+pub mod orphans;
+
+use std::collections::BTreeMap;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use rdkafka::Message;
+use rdkafka::consumer::{BaseConsumer, Consumer};
+use rdkafka::error::KafkaError;
+use rdkafka::util::Timeout;
+
+use crate::broker::kafka::KafkaClient;
+use crate::domain::{MessageDetail, MessagePage, MessageQuery, MessageSummary, SendRequest};
+use crate::error::{AppError, AppResult};
+
+use self::dto::summary_from_message;
+
+/// 单次拉取的最长等待时间。
+const FETCH_TIMEOUT: Duration = Duration::from_millis(1500);
+/// consumer group 前缀，只读消费者不会提交 offset。
+const GROUP_PREFIX: &str = "mqtui-inspect";
+
+/// 单分区单次最多读多少条，避免大分区把一页全占满、其他分区饿死。
+const PER_PARTITION_BATCH: usize = 20;
+
+/// 本次每个分区最多读多少条：按 limit 均摊，并受单分区上限约束。
+fn per_partition_batch(limit: usize, partitions: usize) -> usize {
+    if partitions == 0 {
+        return 0;
+    }
+    limit.div_ceil(partitions).clamp(1, PER_PARTITION_BATCH)
+}
+
+// 游标记录每个分区下一页从哪个 offset 开始读。
+// Kafka 的偏移是「每分区一条时间线」，单条 offset 无法表达多分区进度，
+// 因此按分区保存下一条待读位置，形如 `订单@0:12,3:1024`：
+// 位置以 `@` 与 topic 分隔，topic 本身允许包含 `@` 和 `:`。
+
+/// 把分区进度编码成游标，分区按升序输出，保证同一进度只对应一个字符串。
+fn encode_cursor(topic: &str, starts: &BTreeMap<i32, i64>) -> String {
+    let body = starts
+        .iter()
+        .map(|(partition, offset)| format!("{partition}:{offset}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    format!("{topic}@{body}")
+}
+
+/// 解析游标。以最后一个 `@` 切分，因此 topic 内出现 `@` 也能正确还原。
+fn parse_cursor(cursor: &str, topic: &str) -> AppResult<BTreeMap<i32, i64>> {
+    let invalid = || AppError::Invalid(format!("非法的游标: {cursor}"));
+
+    let Some((cursor_topic, body)) = cursor.rsplit_once('@') else {
+        return Err(invalid());
+    };
+    if cursor_topic != topic {
+        return Err(AppError::Invalid(format!(
+            "游标属于主题 {cursor_topic}，与当前主题 {topic} 不匹配"
+        )));
+    }
+
+    let mut starts = BTreeMap::new();
+    for item in body.split(',').filter(|item| !item.is_empty()) {
+        let (partition, offset) = item.split_once(':').ok_or_else(invalid)?;
+        let partition = partition.parse::<i32>().map_err(|_| invalid())?;
+        let offset = offset.parse::<i64>().map_err(|_| invalid())?;
+        starts.insert(partition, offset);
+    }
+    Ok(starts)
+}
+
+/// 在指定 topic 上拉取消息。
+///
+/// 分页语义是「从新到旧」：请求不带游标表示「加载最新」——丢掉历史位置，
+/// 每个分区从末尾往前读一批；带游标表示「加载更多」，从游标处继续往前读。
+pub async fn list(client: &KafkaClient, query: MessageQuery) -> AppResult<MessagePage> {
+    let limit = super::clamp_limit(query.limit);
+    let topic = query.target;
+
+    // 带游标的“加载更多”从游标位置续读；不带游标则对齐“最近消息”。
+    // 空串一并当成「没有游标」，免得前端把空值透传时被误判成非法游标。
+    let resume = query
+        .cursor
+        .as_deref()
+        .filter(|cursor| !cursor.is_empty())
+        .map(|cursor| parse_cursor(cursor, &topic))
+        .transpose()?;
+
+    let config = client.consumer_config(&format!("{GROUP_PREFIX}-{}", uuid::Uuid::new_v4()));
+    let consumer: BaseConsumer = config.create().map_err(AppError::from)?;
+    let worker = Arc::new(consumer);
+
+    let task_topic = topic.clone();
+    let (items, starts) = tokio::task::spawn_blocking(move || -> AppResult<_> {
+        let partitions = worker
+            .fetch_metadata(Some(&task_topic), Timeout::After(FETCH_TIMEOUT))
+            .map_err(AppError::from)?
+            .topics()
+            .first()
+            .map(|meta| meta.partitions().len())
+            .unwrap_or(0);
+
+        if partitions == 0 {
+            return Err(AppError::NotFound(format!("主题 {task_topic}")));
+        }
+
+        let mut starts = match resume {
+            Some(starts) => starts,
+            None => {
+                // 首次读取：每个分区从末尾往前 batch 条开始，符合“看最近消息”的习惯。
+                // 按分区均摊，避免 10 个分区时一次拉回 10 × limit 条。
+                let batch = per_partition_batch(limit, partitions) as i64;
+                let mut starts = BTreeMap::new();
+                for partition in 0..partitions as i32 {
+                    let (low, high) = watermarks(&worker, &task_topic, partition)?;
+                    starts.insert(partition, (high - batch).max(low));
+                }
+                starts
+            }
+        };
+
+        // 读满 limit 条，或者所有分区都追上水位为止。
+        let mut collected = Vec::with_capacity(limit);
+        while collected.len() < limit {
+            let (assignments, pending) = plan(&worker, &task_topic, &starts)?;
+            if pending == 0 {
+                // 所有分区都读尽了（此时 collected 为空，否则上面已经退出循环）。
+                break;
+            }
+            worker.assign(&assignments).map_err(AppError::from)?;
+
+            let deadline = Instant::now() + FETCH_TIMEOUT;
+            while collected.len() < limit && Instant::now() < deadline {
+                match worker.poll(FETCH_TIMEOUT) {
+                    Some(Ok(message)) => {
+                        // poll 之后位点已经前进：无论本条是否收下，游标都要往后推，
+                        // 否则“加载更多”会把同一条消息再取一遍。
+                        starts.insert(message.partition(), message.offset() + 1);
+                        collected.push(summary_from_message(&message));
+                    }
+                    // 分区读完是正常终止条件，不能当错误抛给前端。
+                    Some(Err(KafkaError::PartitionEOF(_))) => break,
+                    Some(Err(error)) => return Err(AppError::from(error)),
+                    None => break,
+                }
+            }
+        }
+
+        // 列表从新到旧更符合排查习惯：同一页内按时间倒序。
+        collected.sort_by_key(|item| std::cmp::Reverse(item.timestamp));
+
+        Ok((collected, starts))
+    })
+    .await
+    .map_err(|error| AppError::Internal(format!("Kafka 拉取任务失败: {error}")))??;
+
+    Ok(build_page(topic, items, starts))
+}
+
+/// 查询单个分区的水位。
+fn watermarks(worker: &BaseConsumer, topic: &str, partition: i32) -> AppResult<(i64, i64)> {
+    worker
+        .fetch_watermarks(topic, partition, Timeout::After(FETCH_TIMEOUT))
+        .map_err(AppError::from)
+}
+
+/// 按游标位置生成分区分配；顺带统计还有多少分区没读尽。
+///
+/// 水位是「当时」的快照，但游标是持久的，两者取大可以同时兼顾
+/// 新消息落盘与日志清理（retention）后被裁掉的旧位点。
+fn plan(
+    worker: &BaseConsumer,
+    topic: &str,
+    starts: &BTreeMap<i32, i64>,
+) -> AppResult<(rdkafka::TopicPartitionList, usize)> {
+    let mut assignments = rdkafka::TopicPartitionList::with_capacity(starts.len());
+    let mut pending = 0;
+
+    for (&partition, &next) in starts {
+        let (low, high) = watermarks(worker, topic, partition)?;
+        let offset = next.max(low);
+        if offset < high {
+            pending += 1;
+            assignments
+                .add_partition_offset(topic, partition, rdkafka::Offset::Offset(offset))
+                .map_err(AppError::from)?;
+        }
+    }
+
+    Ok((assignments, pending))
+}
+
+/// 组装分页结果。
+///
+/// `has_more` 与 `cursor` 必须同进退：游标是「还能不能往下读」的唯一凭证，
+/// 只给 has_more 不给 cursor 会让前端的「加载更多」点成空转。
+/// 因此这里只在确实读到了消息时才认为还有更旧的（下一次总会往前推一格），
+/// 读到空页说明所有分区都追上了水位，翻页到此为止。
+fn build_page(
+    topic: String,
+    items: Vec<MessageSummary>,
+    starts: BTreeMap<i32, i64>,
+) -> MessagePage {
+    let cursor = (!items.is_empty())
+        .then(|| encode_cursor(&topic, &starts))
+        .filter(|cursor| !cursor.is_empty());
+    let has_more = cursor.is_some();
+
+    MessagePage {
+        has_more,
+        cursor,
+        source: topic,
+        items,
+    }
+}
+
+/// 拉取单条消息详情。
+///
+/// 消息 ID 采用 `topic:partition:offset` 编码，可直接定位到具体 offset。
+pub async fn detail(client: &KafkaClient, id: &str) -> AppResult<MessageDetail> {
+    let (topic, partition, offset) = dto::parse_id(id)?;
+    let message_id = id.to_owned();
+
+    let config = client.consumer_config(&format!("{GROUP_PREFIX}-{}", uuid::Uuid::new_v4()));
+    let consumer: BaseConsumer = config.create().map_err(AppError::from)?;
+    let worker = Arc::new(consumer);
+
+    tokio::task::spawn_blocking(move || -> AppResult<_> {
+        let mut assignments = rdkafka::TopicPartitionList::with_capacity(1);
+        assignments
+            .add_partition_offset(&topic, partition, rdkafka::Offset::Offset(offset))
+            .map_err(AppError::from)?;
+        worker.assign(&assignments).map_err(AppError::from)?;
+
+        match worker.poll(FETCH_TIMEOUT) {
+            Some(Ok(message)) => Ok(dto::detail_from_message(&message)),
+            Some(Err(error)) => Err(AppError::from(error)),
+            None => Err(AppError::NotFound(message_id)),
+        }
+    })
+    .await
+    .map_err(|error| AppError::Internal(format!("Kafka 拉取任务失败: {error}")))?
+}
+
+/// 发送消息。
+pub async fn send(client: &KafkaClient, request: SendRequest) -> AppResult<String> {
+    let headers: Vec<(String, String)> = request
+        .headers
+        .iter()
+        .map(|header| (header.key.clone(), header.value.clone()))
+        .collect();
+
+    client
+        .send(
+            &request.target,
+            request.key.as_deref(),
+            request.payload.as_bytes(),
+            &headers,
+        )
+        .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cursor_roundtrip() {
+        let starts = BTreeMap::from([(0, 12), (3, 1024)]);
+        let cursor = encode_cursor("orders", &starts);
+        assert_eq!(cursor, "orders@0:12,3:1024");
+        assert_eq!(parse_cursor(&cursor, "orders").expect("解析失败"), starts);
+    }
+
+    #[test]
+    fn cursor_supports_topic_with_special_chars() {
+        let cursor = encode_cursor("ns:orders@v2", &BTreeMap::from([(1, 5)]));
+        assert_eq!(
+            parse_cursor(&cursor, "ns:orders@v2").expect("解析失败"),
+            BTreeMap::from([(1, 5)])
+        );
+    }
+
+    #[test]
+    fn cursor_rejects_topic_mismatch() {
+        let cursor = encode_cursor("orders", &BTreeMap::from([(0, 1)]));
+        assert!(parse_cursor(&cursor, "payments").is_err());
+    }
+
+    #[test]
+    fn cursor_rejects_garbage() {
+        assert!(parse_cursor("orders", "orders").is_err());
+        assert!(parse_cursor("orders@x:1", "orders").is_err());
+        assert!(parse_cursor("orders@0:1:2", "orders").is_err());
+    }
+
+    #[test]
+    fn per_partition_batch_is_fair_and_capped() {
+        assert_eq!(per_partition_batch(100, 4), 20);
+        assert_eq!(per_partition_batch(100, 1), 20);
+        assert_eq!(per_partition_batch(3, 4), 1);
+        assert_eq!(per_partition_batch(10, 0), 0);
+    }
+
+    #[test]
+    fn has_more_always_comes_with_cursor() {
+        // 页里有消息就必须给出游标，否则前端「加载更多」点不动。
+        let item = MessageSummary {
+            id: "orders:0:7".to_owned(),
+            key: None,
+            topic: Some("orders".to_owned()),
+            partition: Some(0),
+            offset: Some(7),
+            timestamp: None,
+            preview: "hi".to_owned(),
+            size: Some(2),
+            payload: None,
+        };
+        let page = build_page("orders".to_owned(), vec![item], BTreeMap::from([(0, 8)]));
+        assert_eq!(page.has_more, page.cursor.is_some());
+    }
+
+    #[test]
+    fn empty_page_has_no_cursor() {
+        let page = build_page("orders".to_owned(), Vec::new(), BTreeMap::from([(0, 7)]));
+        assert!(!page.has_more);
+        assert!(page.cursor.is_none());
+    }
+
+    #[test]
+    fn page_with_items_carries_cursor() {
+        let item = MessageSummary {
+            id: "orders:0:7".to_owned(),
+            key: None,
+            topic: Some("orders".to_owned()),
+            partition: Some(0),
+            offset: Some(7),
+            timestamp: None,
+            preview: "hi".to_owned(),
+            size: Some(2),
+            payload: None,
+        };
+        let page = build_page(
+            "orders".to_owned(),
+            vec![item],
+            BTreeMap::from([(0, 8), (1, 3)]),
+        );
+        assert!(page.has_more);
+        assert_eq!(page.cursor.as_deref(), Some("orders@0:8,1:3"));
+    }
+}

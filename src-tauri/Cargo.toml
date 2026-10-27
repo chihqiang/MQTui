@@ -1,8 +1,8 @@
 [package]
 name = "mqtui"
 version = "0.0.1"
-description = "A Tauri App"
-authors = ["you"]
+description = "MQTui - 面向 Kafka / RabbitMQ 的跨平台桌面管理与调试面板"
+authors = ["MQTui contributors"]
 edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -15,14 +15,32 @@ name = "mqtui_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build = { version = "2", features = [], optional = true }
+
+[features]
+# 桌面壳（Tauri）。关闭后只剩可独立测试的核心逻辑，便于在无图形环境下跑单测。
+default = ["desktop"]
+desktop = ["dep:tauri", "dep:tauri-build", "dep:tauri-plugin-opener"]
 
 [dependencies]
-tauri = { version = "2", features = [] }
-tauri-plugin-opener = "2"
+tauri = { version = "2", features = [], optional = true }
+tauri-plugin-opener = { version = "2", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-
+thiserror = "2"
+uuid = { version = "1", features = ["v4"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+rdkafka = { version = "0.39", features = ["cmake-build", "ssl", "zstd"] }
+lapin = "4"
+base64 = "0.22"
+# 仅用于 RabbitMQ 管理 HTTP API（AMQP 协议本身无法枚举队列）
+reqwest = { version = "0.13", default-features = false, features = [
+    "json",
+    "rustls",
+    "charset",
+] }
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]
