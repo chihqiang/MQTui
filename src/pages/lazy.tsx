@@ -46,6 +46,7 @@ const rabbitmq = {
   QueuesPage: lazyNamed(() => import("./rabbitmq/queues-page"), "QueuesPage"),
   ParametersPage: lazyNamed(() => import("./rabbitmq/parameters-page"), "ParametersPage"),
   PoliciesPage: lazyNamed(() => import("./rabbitmq/policies-page"), "PoliciesPage"),
+  AdminPage: lazyNamed(() => import("./rabbitmq/admin-page"), "AdminPage"),
 };
 
 const messages = {
@@ -73,5 +74,6 @@ export const {
   QueuesPage,
   ParametersPage,
   PoliciesPage,
+  AdminPage,
   MessagesPage,
 } = { ...connection, ...common, ...kafka, ...rabbitmq, ...messages };

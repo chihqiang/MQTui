@@ -1,5 +1,6 @@
 //! 领域模型：全部与具体中间件实现无关，前端类型定义与此一一对应。
 
+pub mod admin;
 pub mod broker;
 pub mod cluster;
 pub mod cluster_view;
@@ -28,6 +29,11 @@ pub mod topology;
 pub mod topology_graph;
 pub mod topology_insight;
 
+pub use admin::{
+    DEFAULT_VHOST, FULL_ACCESS, PasswordVerdict, PermissionInfo, RemovalBlock, SpecBlock, UserInfo,
+    UserSpec, UserTag, VhostInfo, VhostRow, assemble_vhosts, check_password,
+    check_user_removal as check_admin_user_removal, check_vhost_removal,
+};
 pub use broker::{
     BrokerCapability, BrokerKind, ConnectionConfig, ConnectionId, ConnectionSummary, KafkaAuth,
     KafkaConfig, KeyValue, Overview, QueueInfo, RabbitMqAuth, RabbitMqConfig, SaslMechanism,

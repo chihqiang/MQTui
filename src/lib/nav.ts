@@ -97,6 +97,12 @@ const NAV_LABELS: Record<
     description: "RabbitMQ 队列列表与堆积情况",
     Icon: IconQueues,
   },
+  admin: {
+    label: "账户",
+    path: "admin",
+    description: "vhost、用户、标签与 vhost 权限",
+    Icon: IconGroups,
+  },
   policies: {
     label: "策略",
     path: "policies",

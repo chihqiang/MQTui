@@ -15,6 +15,7 @@ export type BrokerCapability =
   | "offsetReset"
   | "orphanTopics"
   | "queues"
+  | "admin"
   | "policies"
   | "parameters"
   | "exchanges"

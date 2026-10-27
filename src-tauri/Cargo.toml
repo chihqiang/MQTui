@@ -35,6 +35,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rdkafka = { version = "0.39", features = ["cmake-build", "ssl", "zstd"] }
 lapin = "4"
 base64 = "0.22"
+# 只用来算 RabbitMQ 认的密码哈希（base64(salt + sha256(salt + password))）
+sha2 = "0.10"
+rand = "0.10"
 # 仅用于 RabbitMQ 管理 HTTP API（AMQP 协议本身无法枚举队列）
 reqwest = { version = "0.13", default-features = false, features = [
     "json",

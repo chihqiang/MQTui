@@ -24,6 +24,8 @@ export const queryKeys = {
   queues: (id: string) => ["connections", "detail", id, "queues"] as const,
   /** 策略快照：普通策略 + 操作员策略一次拉全。 */
   policies: (id: string) => ["connections", "detail", id, "policies"] as const,
+  /** 账户页快照：vhost 汇总 + 用户 + 权限，一次拉全。 */
+  admin: (id: string) => ["connections", "detail", id, "admin"] as const,
   /** 参数快照：联邦 / 铲子 / 运行时三类一次拉全。 */
   parameters: (id: string) => ["connections", "detail", id, "parameters"] as const,
   /** 策略预览：按表单内容缓存，改一个字符就该重算。 */

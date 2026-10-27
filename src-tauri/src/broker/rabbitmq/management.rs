@@ -16,9 +16,9 @@ use crate::domain::topology::{
 use crate::domain::topology_insight::QueueMetrics;
 use crate::domain::{
     CheckStatus, ConsumerLinks, DefinitionEntry, HealthCheck, KeyValue, OperatorPolicyInfo,
-    ParameterComponent, ParameterError, ParameterInfo, ParameterSnapshot, PolicyApplyTo,
-    PolicyInfo, PolicySnapshot, PolicySpec, QueueConsumer, QueueInfo, RabbitMqConfig,
-    WRITE_ACCESS_KEY, summarize_consumers,
+    ParameterComponent, ParameterError, ParameterInfo, ParameterSnapshot, PermissionInfo,
+    PolicyApplyTo, PolicyInfo, PolicySnapshot, PolicySpec, QueueConsumer, QueueInfo,
+    RabbitMqConfig, UserInfo, UserSpec, VhostInfo, WRITE_ACCESS_KEY, summarize_consumers,
 };
 use crate::error::{AppError, AppResult};
 
@@ -127,6 +127,63 @@ struct PermissionPayload {
     vhost: String,
     #[serde(default)]
     configure: String,
+    #[serde(default)]
+    write: String,
+    #[serde(default)]
+    read: String,
+}
+
+impl From<PermissionPayload> for PermissionInfo {
+    fn from(payload: PermissionPayload) -> Self {
+        Self {
+            user: payload.user,
+            vhost: payload.vhost,
+            configure: payload.configure,
+            write: payload.write,
+            read: payload.read,
+        }
+    }
+}
+
+/// `GET /api/users` 返回的一个用户。
+#[derive(Debug, Deserialize)]
+struct UserPayload {
+    name: String,
+    /// 管理 API 给的是字符串数组，`[]` 表示「不能登管理界面」。
+    #[serde(default)]
+    tags: Vec<String>,
+}
+
+/// `GET /api/vhosts` 返回的一个 vhost。
+#[derive(Debug, Deserialize)]
+struct VhostPayload {
+    name: String,
+    #[serde(default)]
+    description: String,
+    /// 给 shovel / federation 跟踪用的内部 vhost。
+    #[serde(default)]
+    tracing: bool,
+}
+
+/// `/api/vhosts/{name}` 之外的接口回的都是一个对象，但 `tracing` 字段
+/// 在老版本里可能缺席，所以这里全给默认值。
+impl From<UserPayload> for UserInfo {
+    fn from(payload: UserPayload) -> Self {
+        Self {
+            name: payload.name,
+            tags: payload.tags,
+        }
+    }
+}
+
+impl From<VhostPayload> for VhostInfo {
+    fn from(payload: VhostPayload) -> Self {
+        Self {
+            name: payload.name,
+            description: payload.description,
+            tracing: payload.tracing,
+        }
+    }
 }
 
 /// `GET /api/consumers` 返回的一条消费者记录。
@@ -342,6 +399,25 @@ impl ManagementClient {
                     .map_or(0.0, |details| details.rate),
             })
             .collect())
+    }
+
+    /// 每个 vhost 的队列数：`GET /api/queues` 按 `vhost` 归并。
+    ///
+    /// 与 `queue_metrics()` 分开：那边算路由要速率明细，这里只要条数，
+    /// 而且必须带 `vhost` 字段（`queue_metrics` 的载荷结构里没有它）。
+    pub async fn queue_counts(&self, config: &RabbitMqConfig) -> AppResult<Vec<(String, usize)>> {
+        let payload: Vec<QueuePayload> = self
+            .get_json("/api/queues", &config.auth.username, &config.auth.password)
+            .await?;
+
+        let mut counts: Vec<(String, usize)> = Vec::new();
+        for queue in payload {
+            match counts.iter_mut().find(|(name, _)| name == &queue.vhost) {
+                Some((_, count)) => *count += 1,
+                None => counts.push((queue.vhost, 1)),
+            }
+        }
+        Ok(counts)
     }
 
     /// 列出交换机。
@@ -901,6 +977,146 @@ impl ManagementClient {
                 config.auth.username, config.auth.vhost
             )),
         })
+    }
+
+    /// 全部 vhost（`GET /api/vhosts`）。
+    ///
+    /// 这是本文件里唯一不需要 vhost 段的资源：vhost 是别的资源的容器，
+    /// 它自己永远挂在根上。
+    pub async fn vhosts(&self, config: &RabbitMqConfig) -> AppResult<Vec<VhostInfo>> {
+        let payload: Vec<VhostPayload> = self
+            .get_json("/api/vhosts", &config.auth.username, &config.auth.password)
+            .await?;
+        Ok(payload.into_iter().map(VhostInfo::from).collect())
+    }
+
+    /// 新建 vhost。
+    ///
+    /// 管理 API 用 PUT：已存在时是「改描述」，不存在时是「新建」。
+    /// 这个语义要在界面上说清楚，否则「新建」一个同名 vhost 会静默变成改描述。
+    pub async fn put_vhost(
+        &self,
+        config: &RabbitMqConfig,
+        name: &str,
+        description: &str,
+    ) -> AppResult<()> {
+        let path = format!("/api/vhosts/{}", percent_encode(name));
+        let body = serde_json::json!({ "description": description });
+        self.put_json(&path, &config.auth.username, &config.auth.password, &body)
+            .await
+    }
+
+    /// 删除 vhost。
+    ///
+    /// 管理 API **没有** `if-empty` 这类守卫参数：一个 DELETE 下去，里面的队列、
+    /// 消息、权限、策略一起消失。所以「该不该拦」全部在 `domain::admin` 判，
+    /// 这里只负责发请求并把服务端的话原样透出来。
+    pub async fn delete_vhost(&self, config: &RabbitMqConfig, name: &str) -> AppResult<()> {
+        let path = format!("/api/vhosts/{}", percent_encode(name));
+        self.delete(&path, &config.auth.username, &config.auth.password)
+            .await
+    }
+
+    /// 全部用户（`GET /api/users`）。
+    ///
+    /// 响应里**不含密码哈希**（管理 API 从不返回它），这也是这里敢直接展示的原因。
+    pub async fn users(&self, config: &RabbitMqConfig) -> AppResult<Vec<UserInfo>> {
+        let payload: Vec<UserPayload> = self
+            .get_json("/api/users", &config.auth.username, &config.auth.password)
+            .await?;
+        Ok(payload.into_iter().map(UserInfo::from).collect())
+    }
+
+    /// 新建或修改用户。
+    ///
+    /// `password_hash` 只接受 RabbitMQ 自己的哈希格式（`base64(salt + sha256)`），
+    /// 传明文会被当成哈希存下来 —— 于是账号「建好了」，但谁也登不上。
+    /// 所以这里只走 `password`，把哈希拼接留在调用侧（`broker::rabbitmq::admin`）。
+    ///
+    /// `tags` 为空数组时是「不能登管理界面」，不是「默认权限」。
+    pub async fn put_user(
+        &self,
+        config: &RabbitMqConfig,
+        spec: &UserSpec,
+        password_hash: Option<&str>,
+    ) -> AppResult<()> {
+        let path = format!("/api/users/{}", percent_encode(spec.name.trim()));
+        let mut body = serde_json::json!({
+            "tags": spec.tags,
+        });
+        if let Some(hash) = password_hash {
+            body["password_hash"] = serde_json::Value::String(hash.to_owned());
+        }
+        self.put_json(&path, &config.auth.username, &config.auth.password, &body)
+            .await
+    }
+
+    /// 删除用户。连带删除该用户在所有 vhost 上的权限。
+    pub async fn delete_user(&self, config: &RabbitMqConfig, name: &str) -> AppResult<()> {
+        let path = format!("/api/users/{}", percent_encode(name));
+        self.delete(&path, &config.auth.username, &config.auth.password)
+            .await
+    }
+
+    /// 全部权限（`GET /api/permissions`，不按 vhost 过滤）。
+    ///
+    /// 权限页要看的是「谁在哪些 vhost 上有什么」，按当前连接的 vhost 过滤只会
+    /// 藏起另一半答案。受限账号上这个接口可能 403，由调用方降级。
+    pub async fn permissions(&self, config: &RabbitMqConfig) -> AppResult<Vec<PermissionInfo>> {
+        let payload: Vec<PermissionPayload> = self
+            .get_json(
+                "/api/permissions",
+                &config.auth.username,
+                &config.auth.password,
+            )
+            .await?;
+        Ok(payload.into_iter().map(PermissionInfo::from).collect())
+    }
+
+    /// 给某个用户在某个 vhost 上授权。
+    ///
+    /// 三段正则是**覆盖**语义，不是合并：没写的那段会被置空，等于「什么都不许」。
+    /// 所以编辑权限时必须把三段一起提交，界面上也不能只让人改其中一段。
+    pub async fn put_permission(
+        &self,
+        config: &RabbitMqConfig,
+        user: &str,
+        vhost: &str,
+        configure: &str,
+        write: &str,
+        read: &str,
+    ) -> AppResult<()> {
+        let path = format!(
+            "/api/permissions/{}/{}",
+            percent_encode(vhost),
+            percent_encode(user)
+        );
+        let body = serde_json::json!({
+            "configure": configure,
+            "write": write,
+            "read": read,
+        });
+        self.put_json(&path, &config.auth.username, &config.auth.password, &body)
+            .await
+    }
+
+    /// 撤销某个用户在某个 vhost 上的全部权限。
+    ///
+    /// 这是「停止访问」而不是「限制访问」：撤销之后该用户在这个 vhost 上
+    /// 什么都做不了，包括读自己已有的消息。
+    pub async fn delete_permission(
+        &self,
+        config: &RabbitMqConfig,
+        user: &str,
+        vhost: &str,
+    ) -> AppResult<()> {
+        let path = format!(
+            "/api/permissions/{}/{}",
+            percent_encode(vhost),
+            percent_encode(user)
+        );
+        self.delete(&path, &config.auth.username, &config.auth.password)
+            .await
     }
 
     /// 队列资源路径，清空与删除共用。

@@ -29,6 +29,7 @@ impl BrokerKind {
                 BrokerCapability::Cluster,
                 BrokerCapability::Topics,
                 BrokerCapability::ConsumerGroups,
+                BrokerCapability::OffsetReset,
                 BrokerCapability::OrphanTopics,
                 BrokerCapability::Messages,
                 BrokerCapability::Produce,
@@ -38,6 +39,7 @@ impl BrokerKind {
                 BrokerCapability::Cluster,
                 BrokerCapability::Runtime,
                 BrokerCapability::Queues,
+                BrokerCapability::Admin,
                 BrokerCapability::Policies,
                 BrokerCapability::Parameters,
                 BrokerCapability::Exchanges,
@@ -66,10 +68,21 @@ pub enum BrokerCapability {
     Topics,
     /// Kafka 消费组列表与滞后量。
     ConsumerGroups,
+    /// Kafka 消费组位点重置：预览对照表后按计划提交。
+    ///
+    /// 只有 Kafka 有这个概念（RabbitMQ 的队列没有「分区位点」可改），
+    /// 所以它必须是 Kafka 声明的 —— 否则路由和页面都在，菜单里却看不见。
+    OffsetReset,
     /// Kafka 无消费组主题：没有消费组在消费、消息仍在堆积的主题。
     OrphanTopics,
     /// RabbitMQ 队列列表。
     Queues,
+    /// RabbitMQ 账户管理：vhost、用户、权限。
+    ///
+    /// 三样都挂在管理 HTTP API 上（`/api/vhosts`、`/api/users`、`/api/permissions`），
+    /// AMQP 协议本身没有这些概念 —— 所以未配置管理地址时这一页会直接报错，
+    /// 而不是给一个空列表。
+    Admin,
     /// RabbitMQ 策略与操作员策略：TTL、死信、长度上限、镜像。
     Policies,
     /// RabbitMQ 参数：联邦（federation）、铲子（shovel）与运行时参数。
@@ -471,6 +484,117 @@ mod tests {
             !BrokerKind::Kafka
                 .capabilities()
                 .contains(&BrokerCapability::Runtime)
+        );
+    }
+
+    /// 每个能力变体的用途说明。
+    ///
+    /// 这里的 `match` 是**穷举**的：`BrokerCapability` 新增一个变体却忘了在下面
+    /// 登记，这段代码就编译不过。守卫测试因此不需要「记得更新」——
+    /// 编译器会先替你记得。
+    const fn capability_note(capability: BrokerCapability) -> &'static str {
+        match capability {
+            BrokerCapability::Overview => "概览",
+            BrokerCapability::Cluster => "集群",
+            BrokerCapability::Runtime => "运行时连接",
+            BrokerCapability::Topics => "主题",
+            BrokerCapability::ConsumerGroups => "消费组",
+            BrokerCapability::OffsetReset => "位点重置",
+            BrokerCapability::OrphanTopics => "无消费组主题",
+            BrokerCapability::Queues => "队列",
+            BrokerCapability::Admin => "账户",
+            BrokerCapability::Policies => "策略",
+            BrokerCapability::Parameters => "参数",
+            BrokerCapability::Exchanges => "交换机",
+            BrokerCapability::Consumers => "消费者",
+            BrokerCapability::Routing => "路由估算",
+            BrokerCapability::TopologyGraph => "拓扑图",
+            BrokerCapability::ConsumerGraph => "消费链路",
+            BrokerCapability::Messages => "消息",
+            BrokerCapability::Produce => "发送消息",
+        }
+    }
+
+    /// 全部能力，顺序不影响断言。
+    const ALL_CAPABILITIES: &[BrokerCapability] = &[
+        BrokerCapability::Overview,
+        BrokerCapability::Cluster,
+        BrokerCapability::Runtime,
+        BrokerCapability::Topics,
+        BrokerCapability::ConsumerGroups,
+        BrokerCapability::OffsetReset,
+        BrokerCapability::OrphanTopics,
+        BrokerCapability::Queues,
+        BrokerCapability::Admin,
+        BrokerCapability::Policies,
+        BrokerCapability::Parameters,
+        BrokerCapability::Exchanges,
+        BrokerCapability::Consumers,
+        BrokerCapability::Routing,
+        BrokerCapability::TopologyGraph,
+        BrokerCapability::ConsumerGraph,
+        BrokerCapability::Messages,
+        BrokerCapability::Produce,
+    ];
+
+    #[test]
+    fn every_capability_is_declared_by_some_kind() {
+        // 「写了没接上」的漏就是这么来的：路由、页面、后端命令都齐了，
+        // 但没人在 `capabilities()` 里声明，菜单里就永远看不见它。
+        for &capability in ALL_CAPABILITIES {
+            let declared = [BrokerKind::Kafka, BrokerKind::RabbitMq]
+                .iter()
+                .any(|kind| kind.capabilities().contains(&capability));
+            assert!(
+                declared,
+                "{}（{capability:?}）没有任何中间件声明，前端菜单里会看不见它",
+                capability_note(capability)
+            );
+        }
+    }
+
+    #[test]
+    fn no_kind_declares_a_capability_twice() {
+        // 重复声明会让前端菜单出现两个同名入口。
+        for kind in [BrokerKind::Kafka, BrokerKind::RabbitMq] {
+            let mut seen = std::collections::HashSet::new();
+            for &capability in kind.capabilities() {
+                assert!(
+                    seen.insert(capability),
+                    "{kind:?} 重复声明了 {}（{capability:?}）",
+                    capability_note(capability)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn admin_page_is_rabbitmq_only() {
+        // vhost / 用户 / 权限只存在于管理 HTTP API 上，Kafka 声明它就是骗人。
+        assert!(
+            BrokerKind::RabbitMq
+                .capabilities()
+                .contains(&BrokerCapability::Admin)
+        );
+        assert!(
+            !BrokerKind::Kafka
+                .capabilities()
+                .contains(&BrokerCapability::Admin)
+        );
+    }
+
+    #[test]
+    fn offset_reset_is_kafka_only() {
+        // 位点重置走 `as_kafka()?`，RabbitMQ 声明它就是骗人：菜单点进去只会报错。
+        assert!(
+            BrokerKind::Kafka
+                .capabilities()
+                .contains(&BrokerCapability::OffsetReset)
+        );
+        assert!(
+            !BrokerKind::RabbitMq
+                .capabilities()
+                .contains(&BrokerCapability::OffsetReset)
         );
     }
 

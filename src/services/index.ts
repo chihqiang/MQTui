@@ -1,3 +1,4 @@
+export { adminService } from "./admin-service";
 export { brokerService } from "./broker-service";
 export { clusterService } from "./cluster-service";
 export { consumerService } from "./consumer-service";
