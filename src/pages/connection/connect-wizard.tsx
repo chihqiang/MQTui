@@ -3,15 +3,15 @@ import { Button, Field, Input, Modal } from "@/components/ui";
 import { useOpenConnection } from "@/hooks/use-connections";
 import { usePluginKinds } from "@/hooks/use-plugin-kinds";
 import { cn } from "@/lib/cn";
+import { defaultConnection, endpointOf, withEndpoint } from "@/lib/connection-defaults";
 import { IconBack, IconForward, IconRepeat, IconServer } from "@/lib/icons";
 import { isTypingTarget } from "@/lib/keyboard";
 import { connectFailure, focusField, type ConnectFailure } from "@/lib/connect-failure";
 import { toAppError } from "@/lib/errors";
 import { BROKER_LABEL } from "@/lib/nav";
 import { clearDraft, readDraft, type SavedConnection } from "@/lib/session-storage";
-import type { BrokerKind, ConnectionConfig } from "@/types";
+import { BROKER_META, type BrokerKind, type ConnectionConfig } from "@/types";
 
-import { FORM_DEFAULTS } from "./connect-page";
 import { ConnectionFormKafka } from "./forms/kafka-form";
 import { ConnectionFormRabbitMq } from "./forms/rabbitmq-form";
 
@@ -268,7 +268,7 @@ export function ConnectWizard({
               openConnection.error
                 ? connectFailure(
                     toAppError(openConnection.error),
-                    endpointOf(draft, initialSaved ?? null),
+                    endpointLabel(draft, initialSaved ?? null),
                   )
                 : null
             }
@@ -335,11 +335,11 @@ function KindStep({
                   {plugin.displayName}
                 </span>
                 <span className="text-(length:--text-app-micro) text-meta">
-                  默认端口 {DEFAULT_PORT[plugin.kind]}
+                  默认端口 {BROKER_META[plugin.kind].port}
                 </span>
               </span>
               <span className="mt-1 block truncate text-(length:--text-app-meta) text-meta">
-                {KIND_SUMMARY[plugin.kind]}
+                {BROKER_META[plugin.kind].summary}
               </span>
             </span>
             <IconForward className="size-4 shrink-0 text-meta transition-colors group-hover:text-indigo-600" />
@@ -385,7 +385,7 @@ function FormStep({
   const initialConfig = saved
     ? saved.config
     : initialEndpoint
-      ? withEndpoint(kind, initialEndpoint)
+      ? baseWithEndpoint(kind, initialEndpoint)
       : null;
 
   return (
@@ -397,7 +397,7 @@ function FormStep({
         <span className="text-(length:--text-app-meta) text-secondary">
           正在配置 <span className="font-medium text-slate-800">{BROKER_LABEL[kind]}</span>
           {" · "}
-          {KIND_SUMMARY[kind]}
+          {BROKER_META[kind].summary}
         </span>
         {onChangeKind ? (
           <button
@@ -477,38 +477,10 @@ function FailureNotice({ failure }: { failure: ConnectFailure }) {
   );
 }
 
-/** 报错摘要里指认「刚才连的是哪儿」的那一段地址。 */
-function endpointOf(draft: Builder, saved: SavedConnection | null): string | undefined {
+/** 报错摘要里指认「刚才连的是哪儿」的那一段地址（`lib` 的 `endpointOf` 只认配置）。 */
+function endpointLabel(draft: Builder, saved: SavedConnection | null): string | undefined {
   const source = draft.saved ?? saved;
-  if (!source) return draft.endpoint ?? undefined;
-  const config = source.config;
-  return config.kind === "kafka" ? config.brokers.join(", ") : `${config.host}:${config.port}`;
-}
-
-/** 表单默认值 → 完整配置（`ConnectionConfig` 是邻接标签，`kind` 得自己补上）。 */
-function defaultsFor(kind: "kafka"): Extract<ConnectionConfig, { kind: "kafka" }>;
-function defaultsFor(kind: "rabbitMq"): Extract<ConnectionConfig, { kind: "rabbitMq" }>;
-function defaultsFor(kind: BrokerKind): ConnectionConfig {
-  if (kind === "kafka") {
-    return {
-      kind: "kafka",
-      brokers: [FORM_DEFAULTS.kafka.brokers],
-      tls: FORM_DEFAULTS.kafka.tls,
-      auth: { mechanism: FORM_DEFAULTS.kafka.mechanism, username: "", password: "" },
-      options: {},
-    };
-  }
-  return {
-    kind: "rabbitMq",
-    host: FORM_DEFAULTS.rabbitMq.host,
-    port: FORM_DEFAULTS.rabbitMq.port,
-    tls: FORM_DEFAULTS.rabbitMq.tls,
-    auth: {
-      username: FORM_DEFAULTS.rabbitMq.username,
-      password: FORM_DEFAULTS.rabbitMq.password,
-      vhost: FORM_DEFAULTS.rabbitMq.vhost,
-    },
-  };
+  return source ? endpointOf(source.config) : (draft.endpoint ?? undefined);
 }
 
 /**
@@ -517,23 +489,11 @@ function defaultsFor(kind: BrokerKind): ConnectionConfig {
  * 拿草稿（没有就用默认值）当底，只替换地址那一格：历史里没存口令，
  * 别的字段也都没存过 —— 编造出来的值会让用户以为那是他上次填的。
  */
-function withEndpoint(kind: BrokerKind, endpoint: string): ConnectionConfig {
+function baseWithEndpoint(kind: BrokerKind, endpoint: string): ConnectionConfig {
   const draft = readDraft(kind);
-  if (kind === "kafka") {
-    const base: Extract<ConnectionConfig, { kind: "kafka" }> =
-      (draft?.kind === "kafka" ? draft : null) ?? defaultsFor("kafka");
-    return { ...base, brokers: endpoint.split(",").map((item) => item.trim()).filter(Boolean) };
-  }
-  const base: Extract<ConnectionConfig, { kind: "rabbitMq" }> =
-    (draft?.kind === "rabbitMq" ? draft : null) ?? defaultsFor("rabbitMq");
-  // 历史里存的是 `host:port`，按最后一个冒号拆 —— 主机名可能带冒号的场景（IPv6）不在这里硬猜。
-  const index = endpoint.lastIndexOf(":");
-  const host = index > 0 ? endpoint.slice(0, index) : endpoint;
-  const port = index > 0 ? Number(endpoint.slice(index + 1)) : base.port;
-  return { ...base, host, port: Number.isFinite(port) ? port : base.port };
+  return withEndpoint(draft?.kind === kind ? draft : defaultConnection(kind), endpoint);
 }
 
-/** 一条保存过的记录 → 向导第二步的形态（带原名与原配置）。 */
 function savedToBuilder(saved: SavedConnection): Builder {
   return { kind: saved.config.kind, saved, name: saved.name };
 }
@@ -569,18 +529,6 @@ function focusKindList(root: ParentNode | null): void {
 
 /** 弹窗页脚的提交按钮靠 `form` 属性接回滚动区里的表单。 */
 const FORM_ID = "connect-form";
-
-/** 每种中间件的默认端口；只是提示，真实值由表单决定。 */
-const DEFAULT_PORT: Record<BrokerKind, string> = {
-  kafka: "9092",
-  rabbitMq: "15672（管理 API）",
-};
-
-/** 每种中间件一句人话。文案属于界面，不进后端清单。 */
-const KIND_SUMMARY: Record<BrokerKind, string> = {
-  kafka: "主题、分区、消费组与位点",
-  rabbitMq: "队列、交换机、绑定与消息处置",
-};
 
 /** 没填名字时的默认名：端点已经单列在记录行第二行，名字里不再重复地址。 */
 function defaultName(config: ConnectionConfig): string {

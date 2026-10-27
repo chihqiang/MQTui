@@ -1,10 +1,17 @@
 import { useEffect, useState } from "react";
 
 import { Field, Input, Select } from "@/components/ui";
+import { defaultConnection } from "@/lib/connection-defaults";
 import { readDraft, writeDraft } from "@/lib/session-storage";
-import type { ConnectionConfig, SaslMechanism, TlsMode } from "@/types";
+import {
+  SASL_OPTIONS,
+  TLS_OPTIONS,
+  type ConnectionConfig,
+  type SaslMechanism,
+  type TlsMode,
+} from "@/types";
 
-import { FORM_DEFAULTS, SASL_OPTIONS, SubmitRow, TLS_OPTIONS } from "../connect-page";
+import { SubmitRow } from "../connect-page";
 
 interface Props {
   /**
@@ -27,15 +34,7 @@ interface Props {
 /** 读取上次的草稿作为初值，没有则用默认值。 */
 function initial(): ConnectionConfig & { kind: "kafka" } {
   const draft = readDraft("kafka");
-  return (
-    draft ?? {
-      kind: "kafka",
-      brokers: [FORM_DEFAULTS.kafka.brokers],
-      tls: FORM_DEFAULTS.kafka.tls,
-      auth: { mechanism: FORM_DEFAULTS.kafka.mechanism, username: "", password: "" },
-      options: {},
-    }
-  );
+  return draft?.kind === "kafka" ? draft : defaultConnection("kafka");
 }
 
 /** Kafka 连接表单。字段变更即时写入 localStorage 草稿，误关页面不丢输入。 */

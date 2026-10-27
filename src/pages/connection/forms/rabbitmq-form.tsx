@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 
 import { Field, Input, Select } from "@/components/ui";
+import { defaultConnection } from "@/lib/connection-defaults";
 import { readDraft, writeDraft } from "@/lib/session-storage";
-import type { ConnectionConfig, TlsMode } from "@/types";
+import { TLS_OPTIONS, type ConnectionConfig, type TlsMode } from "@/types";
 
-import { FORM_DEFAULTS, SubmitRow, TLS_OPTIONS } from "../connect-page";
+import { SubmitRow } from "../connect-page";
 
 interface Props {
   /** 表单的 DOM id，见 Kafka 表单里的同类说明。 */
@@ -18,20 +19,7 @@ interface Props {
 
 function initial(): ConnectionConfig & { kind: "rabbitMq" } {
   const draft = readDraft("rabbitMq");
-  return (
-    draft ?? {
-      kind: "rabbitMq",
-      host: FORM_DEFAULTS.rabbitMq.host,
-      port: FORM_DEFAULTS.rabbitMq.port,
-      tls: FORM_DEFAULTS.rabbitMq.tls,
-      auth: {
-        username: FORM_DEFAULTS.rabbitMq.username,
-        password: FORM_DEFAULTS.rabbitMq.password,
-        vhost: FORM_DEFAULTS.rabbitMq.vhost,
-      },
-      managementUrl: undefined,
-    }
-  );
+  return draft?.kind === "rabbitMq" ? draft : defaultConnection("rabbitMq");
 }
 
 /** RabbitMQ 连接表单。字段变更即时写入 localStorage 草稿。 */

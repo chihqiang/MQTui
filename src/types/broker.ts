@@ -102,3 +102,38 @@ export interface QueueInfo {
   /** 队列中的消息数，仅管理 API 能提供。 */
   messages: number;
 }
+
+/** 一种中间件在界面上的固定说法：一句人话 + 表单里的默认端口。 */
+export interface BrokerKindMeta {
+  /** 一句人话，说这一种中间件能看什么。 */
+  summary: string;
+  /** 表单默认端口；Kafka 的「端口」只是地址里的提示，RabbitMQ 的是管理 API。 */
+  port: string;
+}
+
+/**
+ * 中间件的界面元信息。
+ *
+ * 首页的卡片与向导的第一步都在说同一件事（「Kafka / 主题、分区、消费组与位点 /
+ * 9092」），原先各页面自己抄了一份。抄出来的两份已经不一致了：向导里的 RabbitMQ
+ * 端口写成 `15672（管理 API）`，首页写成 `15672（管理 API）`，但 Kafka 的接线默认值
+ * 却在另外两处又写了一遍。这里放成一份，页面只负责排版。
+ */
+export const BROKER_META: Record<BrokerKind, BrokerKindMeta> = {
+  kafka: { summary: "主题、分区、消费组与位点", port: "9092" },
+  rabbitMq: { summary: "队列、交换机、绑定与消息处置", port: "15672（管理 API）" },
+};
+
+/** 连接表单里「TLS」下拉的选项。 */
+export const TLS_OPTIONS: { value: TlsMode; label: string }[] = [
+  { value: "disabled", label: "不启用" },
+  { value: "required", label: "强制 TLS" },
+];
+
+/** 连接表单里「SASL 机制」下拉的选项。 */
+export const SASL_OPTIONS: { value: SaslMechanism; label: string }[] = [
+  { value: "none", label: "无" },
+  { value: "plain", label: "PLAIN" },
+  { value: "scramSha256", label: "SCRAM-SHA-256" },
+  { value: "scramSha512", label: "SCRAM-SHA-512" },
+];

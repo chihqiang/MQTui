@@ -15,7 +15,6 @@ import { useOpenConnection } from "@/hooks/use-connections";
 import { usePluginKinds } from "@/hooks/use-plugin-kinds";
 import { cn } from "@/lib/cn";
 import {
-  brokerPortFor,
   canReconnect,
   displayName,
   mergeHistory,
@@ -24,6 +23,7 @@ import {
   secretStateOf,
   type ConnectionHistoryItem,
 } from "@/lib/connection-history";
+import { brokerMetaOf, defaultConnection, endpointOf, withEndpoint } from "@/lib/connection-defaults";
 import { BROKER_LABEL, brokerIcon } from "@/lib/nav";
 import { reconnectLabel } from "@/lib/reconnect";
 import { BROKER_TONE_CLASS, brokerTone } from "@/lib/visual";
@@ -36,7 +36,7 @@ import {
   readDraft,
   type SavedConnection,
 } from "@/lib/session-storage";
-import type { BrokerKind, ConnectionConfig, SaslMechanism, TlsMode } from "@/types";
+import type { BrokerKind, ConnectionConfig } from "@/types";
 
 import { ConnectWizard } from "./connect-wizard";
 
@@ -70,12 +70,6 @@ function toneClass(tone: ReturnType<typeof brokerTone>): string {
 /** 弹窗里那个表单的 id：页脚的提交按钮在 form 之外，用 `form` 属性指过来。 */
 const UNSAVED_FORM_ID = "unsaved-connection-form";
 
-/** 每种中间件一句人话 + 默认端口。文案属于界面，不进后端清单。 */
-const KIND_HINT: Record<BrokerKind, { summary: string; port: string }> = {
-  kafka: { summary: "主题、分区、消费组与位点", port: "9092" },
-  rabbitMq: { summary: "队列、交换机、绑定与消息处置", port: "15672（管理 API）" },
-};
-
 /**
  * 一条历史 + 现场补的账号口令 → 一份能提交的配置。
  *
@@ -87,58 +81,22 @@ function configForHistory(
   item: ConnectionHistoryItem,
   credential: { username: string; password: string },
 ): ConnectionConfig {
-  const draft = readDraft(item.kind as BrokerKind);
-  const base: ConnectionConfig = draft ?? formDefaults(item.kind as BrokerKind);
+  const kind = item.kind as BrokerKind;
+  const base = withEndpoint(readDraft(kind) ?? defaultConnection(kind), item.endpoint);
   if (base.kind === "kafka") {
     return {
       ...base,
-      brokers: item.endpoint.split(",").map((part) => part.trim()).filter(Boolean),
       auth: { ...base.auth, username: credential.username, password: credential.password },
     };
   }
-  const first = item.endpoint.split(",")[0]?.trim() ?? "";
-  const index = first.lastIndexOf(":");
   return {
     ...base,
-    host: index > 0 ? first.slice(0, index) : first,
-    port: brokerPortFor(item.kind, item.endpoint),
     auth: {
       ...base.auth,
       username: credential.username || base.auth.username,
       password: credential.password,
     },
   };
-}
-
-/** 表单默认值 → 一份完整配置（`ConnectionConfig` 是邻接标签，`kind` 得自己补上）。 */
-function formDefaults(kind: BrokerKind): ConnectionConfig {
-  if (kind === "kafka") {
-    return {
-      kind: "kafka",
-      brokers: [FORM_DEFAULTS.kafka.brokers],
-      tls: FORM_DEFAULTS.kafka.tls,
-      auth: { mechanism: FORM_DEFAULTS.kafka.mechanism, username: "", password: "" },
-      options: {},
-    };
-  }
-  return {
-    kind: "rabbitMq",
-    host: FORM_DEFAULTS.rabbitMq.host,
-    port: FORM_DEFAULTS.rabbitMq.port,
-    tls: FORM_DEFAULTS.rabbitMq.tls,
-    auth: {
-      username: FORM_DEFAULTS.rabbitMq.username,
-      password: FORM_DEFAULTS.rabbitMq.password,
-      vhost: FORM_DEFAULTS.rabbitMq.vhost,
-    },
-  };
-}
-
-/** 一条连接配置 → 人认得出的地址。历史与报错摘要共用同一份措辞。 */
-function endpointOf(config: ConnectionConfig): string {
-  return config.kind === "kafka"
-    ? config.brokers.join(", ")
-    : `${config.host}:${config.port}`;
 }
 
 /**
@@ -690,7 +648,7 @@ function KindCard({
   displayName: string;
   onPick: () => void;
 }) {
-  const hint = KIND_HINT[kind] ?? { summary: "", port: "" };
+  const hint = brokerMetaOf(kind);
   return (
     <button
       type="button"
@@ -883,33 +841,3 @@ export function SubmitRow({
     </label>
   );
 }
-
-/** 表单共用的默认值，集中在这里避免各表单各自硬编码。 */
-export const FORM_DEFAULTS = {
-  kafka: {
-    brokers: "127.0.0.1:9092",
-    mechanism: "none" as SaslMechanism,
-    tls: "disabled" as TlsMode,
-  },
-  rabbitMq: {
-    host: "127.0.0.1",
-    port: 5672,
-    tls: "disabled" as TlsMode,
-    username: "guest",
-    password: "guest",
-    vhost: "/",
-  },
-};
-
-/** 让 Select 的选项集中在同一处维护。 */
-export const TLS_OPTIONS: { value: TlsMode; label: string }[] = [
-  { value: "disabled", label: "不启用" },
-  { value: "required", label: "强制 TLS" },
-];
-
-export const SASL_OPTIONS: { value: SaslMechanism; label: string }[] = [
-  { value: "none", label: "无" },
-  { value: "plain", label: "PLAIN" },
-  { value: "scramSha256", label: "SCRAM-SHA-256" },
-  { value: "scramSha512", label: "SCRAM-SHA-512" },
-];
