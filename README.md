@@ -1,7 +1,71 @@
-# Tauri + React + Typescript
+# MQTui
 
-This template should help get you started developing with Tauri, React and Typescript in Vite.
+面向 Kafka / RabbitMQ 的跨平台桌面管理面板。把常见开源面板的高频功能收进一个轻量客户端，装好就能连上去看。
 
-## Recommended IDE Setup
+Windows / macOS / Linux 都能跑。除你填的 broker 之外不连任何服务，消息内容与口令只在本机流转。
 
-- [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+## 可以做什么
+
+**通用**
+
+- 连接管理：多连接并存，左侧一列到底的侧栏（中间件 → 连接 → 该连接的页面）；最近使用与已保存的连接都留在本机
+- 能力驱动菜单：Kafka 与 RabbitMQ 的菜单由后端能力声明生成 —— 集群没开某些接口，对应页面就不会出现
+- 连接健康：进页面探测一次，区分「连不上」与「看得见但改不了」，写操作按钮据此启停
+- 集群页（Kafka / RabbitMQ 共用）：节点存活、角色、承载量，外加一致性报警（Kafka 无 controller、副本掉队；RabbitMQ 水位告警）
+- 全局命令面板：`⌘K` / `Ctrl+K` 直接跳到任意页面或连接，最近用过的命令自动置顶
+
+**Kafka**
+
+- 消息浏览：虚拟滚动列表 + 详情（payload / headers / 位点），大 topic 也不卡
+- 消息发送：选 topic、填 key 与正文，支持 headers
+- 消息定位：按 key / 时间区间顺序扫描，**支持沿游标续扫**（不重读已看过的分区段）
+- 内容搜索：必须带时间区间，单次上限 5000 条；只填一端会自动补成等长窗口，命中按区间分段展示，可整段前后平移
+- 主题：列表过滤、分区布局与副本同步（掉队分区直接标红）、非默认配置项
+- 主题运维：新建、分区扩容（只增不减）、删除（内部主题不给按钮）
+- 配置项编辑：增量提交（未列出的项保持原样）、改前先看后果、清空即恢复默认
+- 分区热点：按需分析指定主题的分区分布，揪出「少数分区扛住绝大部分流量」的主题
+- 位点重置：先出逐分区对照表（重放多少条 / 跳过多少条），再手打确认串提交；有活跃成员会明确提醒
+
+**RabbitMQ**
+
+- 消息浏览与发送：exchange + routing key 投递
+- 队列：详情（速率 / 参数 / 绑定来源）、清空消息、删除非空校验、队列落在哪些节点、仲裁队列剩几个成员
+- 交换机与路由：新建交换机，查看绑定关系与拓扑图
+- 策略：TTL / 死信 / 长度上限 / 镜像规则下发，保存前预览影响面与优先级压制，操作员策略单独只读
+- 参数：联邦上游、上游集、铲子与运行时参数；提交前校验 JSON 形状与 vhost 语义
+- 消息处置：单条消息重投到指定交换机、移入队列声明的死信交换机（先发布确认，再丢弃原消息）
+- 消费者：断开连接默认拦下在途消息与面板自有消费者，需手打队列名确认
+- 运行时：连接 → 通道的聚合视图，预取打满 / 空转通道单独标色，可断开连接或关闭通道
+
+## 安全相关
+
+- 面板只跟你填的 broker 通信，没有云端账号体系，也没有遥测。
+- 默认只记非敏感字段（名字、地址、要不要口令）；只有你勾选「保存此连接」时，完整配置（含口令）才会写到本机存储，表单上会明确提示这一点。
+- 联邦 / 铲子这类参数里的 URI 口令在列表里就打码，截图外发不至于漏口令。
+- 破坏性操作不走 `window.confirm`：弹窗会写清「会失去什么」，删主题这类连带丢消息的动作还要求手打名称确认。
+
+## 安装
+
+**预编译安装包**：到 Releases 页下载对应平台的包 —— macOS `.dmg`、Windows `.msi` / `.exe`、Linux `.AppImage` / `.deb`。
+
+**从源码运行**：需要 Node.js、Rust 工具链与几个系统库（Tauri 2 + librdkafka 的编译依赖，构建时会用到 `cmake` / `pkg-config` / C 编译器）。逐个平台的安装命令见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
+
+```bash
+npm install
+npm run tauri dev     # 开发模式运行
+npm run tauri build   # 打本机安装包
+```
+
+## 上手
+
+1. 打开应用，选中间件类型（Kafka / RabbitMQ），填地址与认证信息。
+2. 保存连接后，侧栏会出现这台中间件可用的页面；连不上会在健康条上直接说明原因。
+3. `⌘K` / `Ctrl+K` 是万能入口，忘了某个功能在哪一页就搜它。
+
+## 技术栈
+
+Tauri 2 + Rust + React 19 + TypeScript + Tailwind CSS 4 + TanStack Query + Zustand。前后端通过 IPC 通信，不监听本地端口。
+
+## 许可
+
+[Apache-2.0](./LICENSE)
