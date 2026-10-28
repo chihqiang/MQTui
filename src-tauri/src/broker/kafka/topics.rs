@@ -41,10 +41,13 @@ pub struct RawPartition {
     pub in_sync_replicas: Vec<i32>,
     pub low: i64,
     pub high: i64,
+    /// 水位读到了没有。读不到时 `low` / `high` 是两个 0，`high - low` 也是 0 ——
+    /// 和「这个分区是空的」长得一模一样。
+    pub watermarks_read: bool,
 }
 
 impl RawPartition {
-    /// 转成领域模型。位点在水位查询失败时给 0，`messages()` 结果自然为 0。
+    /// 转成领域模型。水位查不到时位点给 0，但 `watermarks_read` 会说清那是「不知道」。
     pub fn into_info(self) -> TopicPartitionInfo {
         TopicPartitionInfo {
             partition: self.partition,
@@ -53,6 +56,7 @@ impl RawPartition {
             in_sync_replicas: self.in_sync_replicas,
             low: self.low,
             high: self.high,
+            watermarks_read: self.watermarks_read,
         }
     }
 }
@@ -157,14 +161,18 @@ pub fn admin_failure(action: &str, error: rdkafka::error::KafkaError) -> AppErro
     AppError::Broker(format!("{action}失败: {error}"))
 }
 
-/// 查询单个分区的水位，失败时退化为 `(0, 0)`。
+/// 查询单个分区的水位，同时说清读到了没有。
 ///
 /// 权限受限的账号能看到元数据却读不到水位，此时详情页仍应展示分区布局，
-/// 只是消息数显示不出来——比整页报错有用。
-fn watermarks(worker: &BaseConsumer, topic: &str, partition: i32) -> (i64, i64) {
-    worker
-        .fetch_watermarks(topic, partition, TIMEOUT)
-        .unwrap_or((0, 0))
+/// 只是消息数显示不出来——比整页报错有用。但「显示不出来」必须和
+/// 「这个分区是空的」分开：退化成 `(0, 0)` 之后 `high - low` 恰好是 0，
+/// 于是权限问题在界面上读起来就是「这些分区里没有消息」，
+/// 而页头那句「N 个分区 · M 条消息」会跟着一起变小，且看不出来少算过。
+fn watermarks(worker: &BaseConsumer, topic: &str, partition: i32) -> (i64, i64, bool) {
+    match worker.fetch_watermarks(topic, partition, TIMEOUT) {
+        Ok((low, high)) => (low, high, true),
+        Err(_) => (0, 0, false),
+    }
 }
 
 /// 阻塞读取主题布局：元数据 + 逐分区水位。
@@ -184,7 +192,7 @@ pub fn fetch_layout(worker: &BaseConsumer, topic: &str) -> AppResult<TopicDetail
         .partitions()
         .iter()
         .map(|partition| {
-            let (low, high) = watermarks(worker, topic, partition.id());
+            let (low, high, read) = watermarks(worker, topic, partition.id());
             RawPartition {
                 partition: partition.id(),
                 // 集群选主期间 leader 可能为 -1，`leader()` 会返回 None。
@@ -193,6 +201,7 @@ pub fn fetch_layout(worker: &BaseConsumer, topic: &str) -> AppResult<TopicDetail
                 in_sync_replicas: partition.isr().to_vec(),
                 low,
                 high,
+                watermarks_read: read,
             }
         })
         .collect();
@@ -408,6 +417,7 @@ mod tests {
             in_sync_replicas: isr.to_vec(),
             low,
             high,
+            watermarks_read: true,
         }
     }
 
@@ -427,7 +437,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             [0, 2]
         );
-        assert_eq!(detail.total_messages(), 3);
+        assert_eq!(detail.total_messages(), Some(3));
     }
 
     #[test]

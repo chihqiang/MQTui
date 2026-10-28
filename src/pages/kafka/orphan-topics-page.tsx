@@ -7,6 +7,7 @@ import {
   Card,
   CardBody,
   CardHeader,
+  Callout,
   Empty,
   ErrorState,
   Input,
@@ -201,6 +202,15 @@ function ScanResult({
         <p className="text-(length:--text-app-body) text-amber-400">
           以下主题在集群里不存在，已跳过：{data.missingTopics.join("、")}
         </p>
+      ) : null}
+      {/* 结论的证据不足时必须排在表格前面：表格本身不会显示「我没读到东西」，
+          而一张写满「无消费组」的表读起来就是「集群全线停摆」。 */}
+      {data.notes?.length ? (
+        <Callout tone="warning">
+          {data.notes.map((note) => (
+            <p key={note}>{note}</p>
+          ))}
+        </Callout>
       ) : null}
       {data.items.length ? (
         <Card>

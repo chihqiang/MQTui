@@ -102,6 +102,12 @@ pub struct OrphanTopicPage {
     /// 若用户选的主题在集群里已不存在，列出来提醒，而不是静默忽略。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub missing_topics: Vec<String>,
+    /// 这一屏的结论依赖哪些证据、哪些证据没拿到。
+    ///
+    /// 「没人在消费」是一个很强的断言，而它背后的位点表有可能压根没读到。
+    /// 证据不足时必须说出来，否则一张写满「无消费组」的表会被当成集群全线停摆。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub notes: Vec<String>,
 }
 
 #[cfg(test)]
@@ -127,6 +133,7 @@ mod tests {
             next_offset: None,
             scanned_topics: 1,
             missing_topics: Vec::new(),
+            notes: Vec::new(),
         };
         let json = serde_json::to_value(&page).expect("序列化失败");
         assert_eq!(json["items"][0]["detail"][0]["high"], 42);

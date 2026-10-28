@@ -32,7 +32,13 @@ import { MigrationPanel } from "@/components/broker/migration-panel";
 import { TopicConfigEditor } from "@/components/broker/topic-config-editor";
 import { TopicPurgePanel } from "@/components/broker/topic-purge-panel";
 import { TopicThroughputCard } from "@/components/broker/topic-throughput-card";
-import { PARTITION_COLUMNS } from "@/types/topic";
+import {
+  PARTITION_COLUMNS,
+  hasWatermarks,
+  partitionMessages,
+  totalMessages,
+  unknownWatermarkPartitions,
+} from "@/types/topic";
 import type { TopicDetail, TopicPartitionInfo } from "@/types";
 
 /**
@@ -69,8 +75,10 @@ export function TopicDetailPage() {
 
   const outOfSync =
     data?.partitions.filter((item) => item.replicas.length !== item.inSyncReplicas.length) ?? [];
-  const totalMessages =
-    data?.partitions.reduce((sum, item) => sum + Math.max(item.high - item.low, 0), 0) ?? 0;
+  // 「读不到水位」不能算成 0 条：页头这句是整页唯一的汇总结论，
+  // 把未知加进去得到的是一个偏小、却看不出来少算过的数字。
+  const messages = data ? totalMessages(data.partitions) : 0;
+  const unknown = data ? unknownWatermarkPartitions(data.partitions) : [];
 
   return (
     <PageBody>
@@ -88,7 +96,9 @@ export function TopicDetailPage() {
         }
         description={
           data
-            ? `${formatNumber(data.partitions.length)} 个分区 · ${formatNumber(totalMessages)} 条消息`
+            ? `${formatNumber(data.partitions.length)} 个分区 · ${
+                messages === undefined ? "消息数未知" : `${formatNumber(messages)} 条消息`
+              }`
             : "读取主题详情…"
         }
         back={
@@ -124,6 +134,15 @@ export function TopicDetailPage() {
           ) : null
         }
       />
+
+      {unknown.length ? (
+        // 水位读不到的分区必须点名：否则「消息数未知」会被当成一个抽象的 bug，
+        // 而它其实只跟这几个分区有关（权限、leader 迁移、请求超时）。
+        <Callout tone="warning">
+          分区 {unknown.join("、")} 的水位读不到（权限不足、leader 迁移中或请求超时），
+          它们的消息数是未知，不是 0 —— 页头的总量因此也不给具体数字。
+        </Callout>
+      ) : null}
 
       {error && data ? (
         <StaleNotice
@@ -219,9 +238,11 @@ function PartitionRow({ partition, topic }: { partition: TopicPartitionInfo; top
   const { connectionId } = useParams();
   const navigate = useNavigate();
   const inSync = partition.replicas.length === partition.inSyncReplicas.length;
-  const messages = Math.max(partition.high - partition.low, 0);
+  // 水位读不到时是 `undefined`，不是 0 —— 这一行下面要显示「未知」而不是「0」。
+  const messages = partitionMessages(partition);
   // 空分区没有可看的消息，不给按钮：点了只会得到一张空表。
-  const hasMessages = messages > 0;
+  // 但「读不到水位」要给按钮：那里的消息数未知，恰恰是该去看一眼的情况。
+  const canBrowse = messages === undefined || messages > 0;
 
   return (
     <TableRow className={inSync ? undefined : "bg-rose-50"}>
@@ -238,16 +259,16 @@ function PartitionRow({ partition, topic }: { partition: TopicPartitionInfo; top
         {partition.inSyncReplicas.join(", ") || "无"}
       </TableCell>
       <TableCell muted numeric>
-        {formatNumber(partition.low)}
+        {hasWatermarks(partition) ? formatNumber(partition.low) : "—"}
       </TableCell>
       <TableCell muted numeric>
-        {formatNumber(partition.high)}
+        {hasWatermarks(partition) ? formatNumber(partition.high) : "—"}
       </TableCell>
       <TableCell numeric className="text-slate-600">
-        {formatNumber(messages)}
+        {messages === undefined ? <span className="text-warning">未知</span> : formatNumber(messages)}
       </TableCell>
       <TableCell align="right">
-        {hasMessages ? (
+        {canBrowse ? (
           <Button
             size="xs"
             variant="ghost"

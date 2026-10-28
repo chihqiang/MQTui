@@ -39,6 +39,13 @@ export interface OrphanTopicPage {
   scannedTopics?: number;
   /** 用户点名但集群里不存在的主题。 */
   missingTopics?: string[];
+  /**
+   * 这份结论靠什么支撑、哪些证据没拿到。
+   *
+   * 「没人在消费」是个很强的断言，而它背后的位点表有可能压根没读到，
+   * 必须在这里说出来 —— 一张写满「无消费组」的表否则会被读成集群全线停摆。
+   */
+  notes?: string[];
 }
 
 /** 孤儿主题表的列。 */

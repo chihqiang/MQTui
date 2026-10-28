@@ -355,6 +355,7 @@ mod tests {
                     in_sync_replicas: vec![1],
                     low: *low,
                     high: *high,
+                    watermarks_read: true,
                 })
                 .collect(),
             configs: Vec::new(),

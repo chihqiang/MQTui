@@ -64,7 +64,7 @@ pub use config_compat::{
 };
 pub use consumer::{
     ConsumerGroupDetail, ConsumerGroupInfo, ConsumerGroupMember, ConsumerGroupOffset,
-    ConsumerGroupQuery,
+    ConsumerGroupQuery, group_has_committed, no_commit_detail,
 };
 pub use consumer_disconnect::{DisconnectRequest, DisconnectVerdict};
 pub use consumer_graph::{
@@ -130,8 +130,8 @@ pub use producer_guarantee::{
 };
 pub use quota::{
     QuotaEntityKind, QuotaEntry, QuotaGroup, QuotaSnapshot, ScramCredential, ScramMechanism,
-    ScramSnapshot, ScramUser, assemble_quota, assemble_scram, kind_of as quota_kind_of,
-    normalize_entity as normalize_quota_entity,
+    ScramSnapshot, ScramUser, assemble_quota, assemble_scram, byte_rate_text,
+    kind_of as quota_kind_of, normalize_entity as normalize_quota_entity,
 };
 pub use reassignment::{
     Layout as ReassignLayout, MigrationReport, PartitionMigration, PartitionProgress,

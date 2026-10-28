@@ -121,10 +121,22 @@ pub fn page_of(
     limit: usize,
     offset: usize,
 ) -> OrphanTopicPage {
+    page_with_notes(items, missing, Vec::new(), limit, offset)
+}
+
+/// 同上，并把「这份结论靠什么支撑」一起带上。
+pub fn page_with_notes(
+    items: Vec<OrphanTopic>,
+    missing: Vec<String>,
+    notes: Vec<String>,
+    limit: usize,
+    offset: usize,
+) -> OrphanTopicPage {
     let scanned_topics = items.len();
     let mut result = page(items, limit, offset);
     result.scanned_topics = scanned_topics;
     result.missing_topics = missing;
+    result.notes = notes;
     result
 }
 
@@ -157,21 +169,97 @@ pub fn is_internal(topic: &str) -> bool {
     topic.starts_with("__")
 }
 
-/// 查询全部消费组已提交位点，返回「主题 + 分区」集合。
-fn committed_partitions(
-    worker: &BaseConsumer,
-) -> AppResult<std::collections::HashSet<(String, i32)>> {
-    let committed = worker
-        .committed_offsets(TopicPartitionList::new(), TIMEOUT)
-        .map_err(|error| AppError::Broker(format!("查询消费组位点失败: {error}")))?;
+/// 「有人在读这个分区」的证据来源。
+///
+/// 两件事必须分开，因为它们的可靠性完全不同：
+///
+/// - **全部消费组的提交位点**：这才是「谁在读」的答案。但它要靠
+///   `committed_offsets(空表)` 列出全部已提交位点，而这一步只对当前 consumer
+///   的 `group.id` 名下的位点有意义 —— 见 `assess` 的说明。
+/// - **非空消费组名单**：退而求其次的旁证。一个组存在本身就说明有人连过、
+///   并且 broker 认了它（否则它不会出现在组列表里）。
+pub struct Consumption {
+    /// 提交过位点的分区。
+    committed: std::collections::HashSet<(String, i32)>,
+    /// 提交位点这一步是否真的做成了。`false` 时 `committed` 是空集，
+    /// 而空集**不能**读成「没人提交过」。
+    pub offsets_read: bool,
+    /// 至少有一个非空消费组。用来判断「一个位点都没读到」该怎么说。
+    pub groups_active: bool,
+}
 
-    let mut set = std::collections::HashSet::new();
-    for element in committed.elements() {
-        if element.offset().to_raw().is_some() {
-            set.insert((element.topic().to_owned(), element.partition()));
+impl Consumption {
+    /// 这个分区有没有消费组在消费。
+    ///
+    /// 两种口径，按证据强弱选：
+    /// - 位点表**读到了**：只认位点。有组活着不代表每个分区都有人在读，
+    ///   拿「有组「当「每个分区都有人读」会让真正没人消费的分区藏起来。
+    /// - 位点表**没读到**：退回「有组还活着」这个更弱的证据。宁可把有人在读的
+    ///   分区漏报成不堆积，也不能反过来 —— 那会把这一屏变成一整片假警报。
+    pub fn consumed(&self, topic: &str, partition: i32) -> bool {
+        if self.offsets_read {
+            self.committed.contains(&(topic.to_owned(), partition))
+        } else {
+            self.groups_active
         }
     }
-    Ok(set)
+}
+
+/// 读消费证据：全部消费组的提交位点 + 组是否活跃。
+///
+/// ## 为什么位点这一步经常做不成
+///
+/// `committed_offsets` 看的是**当前 consumer 的 `group.id`**。这个扫描用的
+/// consumer 的 `group.id` 是容器名（`mqtui-orphans`），一个真实集群上
+/// 不可能有这个名字的组 —— 于是位点表恒为空、错误码还是 0。
+/// 原来的代码把这份空表当成结论用：`consumed` 恒为 `false`，
+/// **每个有消息的分区都被判成「没人消费」**，界面上看起来像集群全线停摆。
+///
+/// 这里不再假装：位点表拿到就是真的证据，拿不到就明说拿不到，
+/// 退回「组是否活跃」这个更弱的口径，并把这件事写进结果的 `notes`。
+fn consumption(worker: &BaseConsumer) -> Consumption {
+    let offsets = worker
+        .committed_offsets(TopicPartitionList::new(), TIMEOUT)
+        .map(|list| {
+            list.elements()
+                .iter()
+                .filter(|element| element.offset().to_raw().is_some())
+                .map(|element| (element.topic().to_owned(), element.partition()))
+                .collect::<std::collections::HashSet<(String, i32)>>()
+        })
+        .ok();
+
+    let groups_active = worker
+        .fetch_group_list(None, TIMEOUT)
+        .map(|list| {
+            list.groups()
+                .iter()
+                .any(|group| !group.members().is_empty())
+        })
+        .unwrap_or(false);
+
+    Consumption {
+        offsets_read: offsets.as_ref().is_some_and(|set| !set.is_empty()),
+        committed: offsets.unwrap_or_default(),
+        groups_active,
+    }
+}
+
+/// 位点表读不到时，结论要降级成一句话。
+///
+/// 不说这句话的版本是：表格照常渲染、每个分区都写着「积压 N 条、无消费组」，
+/// 而真相是这份扫描根本没能读到任何位点。
+pub fn consumption_note(consumption: &Consumption) -> Option<String> {
+    if consumption.offsets_read {
+        return None;
+    }
+    Some(if consumption.groups_active {
+        "这次扫描没能读到任何已提交位点（本面板的 consumer 用的是自己的 group.id，         看不到别的组名下的位点），只能按「集群里还有活跃消费组」判断谁在读：         有组在跑时，这里不会列出任何主题。要按分区精确判断，请到消费组页面逐个查看"
+            .to_owned()
+    } else {
+        "这次扫描既没读到已提交位点，也没发现任何活跃消费组：         下面的「没有人消费」是一个偏保守的结论，请到消费组页面再确认一次"
+            .to_owned()
+    })
 }
 
 /// 候选主题列表：只拉元数据，不碰水位，几十毫秒就能返回。
@@ -213,9 +301,10 @@ pub async fn query(
         .await
         .map_err(|error| AppError::Internal(format!("无消费组主题查询失败: {error}")))??;
 
-    Ok(page_of(
+    Ok(page_with_notes(
         assemble(collected.entries),
         collected.missing,
+        collected.notes,
         clamp_limit(limit),
         offset.unwrap_or(0),
     ))
@@ -225,6 +314,7 @@ pub async fn query(
 struct Collected {
     entries: Vec<(String, Vec<PartitionFact>)>,
     missing: Vec<String>,
+    notes: Vec<String>,
 }
 
 /// 阻塞收集：元数据 → 按范围筛主题 → 水位 → 消费组位点。
@@ -248,12 +338,14 @@ fn collect(worker: &BaseConsumer, scope: &OrphanScanScope) -> AppResult<Collecte
     let mut collected = Collected {
         entries: Vec::with_capacity(targets.len()),
         missing,
+        notes: Vec::new(),
     };
     if targets.is_empty() {
         return Ok(collected);
     }
 
-    let consumed = committed_partitions(worker)?;
+    let consumption = consumption(worker);
+    collected.notes.extend(consumption_note(&consumption));
 
     for topic in metadata.topics() {
         if !targets.iter().any(|name| name == topic.name()) {
@@ -271,7 +363,7 @@ fn collect(worker: &BaseConsumer, scope: &OrphanScanScope) -> AppResult<Collecte
                 partition: partition.id(),
                 low,
                 high,
-                consumed: consumed.contains(&(topic.name().to_owned(), partition.id())),
+                consumed: consumption.consumed(topic.name(), partition.id()),
             });
         }
         collected.entries.push((topic.name().to_owned(), facts));
@@ -430,6 +522,54 @@ mod tests {
         assert_eq!(page.scanned_topics, 0);
         assert!(page.missing_topics.is_empty());
         assert!(page.items.is_empty());
+    }
+
+    #[test]
+    fn unreadable_offsets_do_not_mark_every_partition_orphan() {
+        // 回归：位点表恒为空（扫描用的 consumer 用的是容器名当 group.id，
+        // 读不到别的组名下的位点），旧代码把这份空集当结论 ——
+        // 每个有消息的分区都被判成「没人消费」，整屏看起来像集群停摆。
+        let consumption = Consumption {
+            committed: std::collections::HashSet::new(),
+            offsets_read: false,
+            groups_active: true,
+        };
+        assert!(consumption.consumed("orders", 0));
+        assert!(consumption_note(&consumption).is_some());
+    }
+
+    #[test]
+    fn readable_offsets_still_judge_per_partition() {
+        let mut committed = std::collections::HashSet::new();
+        committed.insert(("orders".to_owned(), 1));
+        let consumption = Consumption {
+            committed,
+            offsets_read: true,
+            groups_active: true,
+        };
+        // 位点表可读时只认位点：有活跃组不代表每个分区都有人在读。
+        assert!(consumption.consumed("orders", 1));
+        assert!(!consumption.consumed("orders", 0));
+        assert!(consumption_note(&consumption).is_none());
+    }
+
+    #[test]
+    fn note_wording_follows_whether_any_group_is_alive() {
+        let no_groups = Consumption {
+            committed: std::collections::HashSet::new(),
+            offsets_read: false,
+            groups_active: false,
+        };
+        let text = consumption_note(&no_groups).expect("读不到位点必须说明");
+        assert!(text.contains("没发现任何活跃消费组"));
+        // 有组在跑时说「不会列出任何主题」，而不是说「集群没人在消费」。
+        let with_groups = Consumption {
+            committed: std::collections::HashSet::new(),
+            offsets_read: false,
+            groups_active: true,
+        };
+        let text = consumption_note(&with_groups).expect("读不到位点必须说明");
+        assert!(text.contains("活跃消费组"));
     }
 
     #[test]

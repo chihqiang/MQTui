@@ -13,6 +13,46 @@ export interface TopicPartitionInfo {
   low: number;
   /** 末尾位点。 */
   high: number;
+  /**
+   * 水位读到了没有。
+   *
+   * 读不到时 `low` / `high` 都是 0，`high - low` 也恰好是 0 ——
+   * 「权限不足 / leader 迁移中」和「这个分区是空的」看起来一模一样。
+   * 缺省按 `true` 处理（后端老数据不带这个字段）。
+   */
+  watermarksRead?: boolean;
+}
+
+/** 这个分区的水位读到了没有。缺省视为读到了。 */
+export function hasWatermarks(partition: TopicPartitionInfo): boolean {
+  return partition.watermarksRead !== false;
+}
+
+/** 该分区可读条数；水位读不到时是 `undefined`，不是 0。 */
+export function partitionMessages(partition: TopicPartitionInfo): number | undefined {
+  if (!hasWatermarks(partition)) return undefined;
+  return Math.max(partition.high - partition.low, 0);
+}
+
+/**
+ * 主题消息总量；有分区水位读不到时是 `undefined`。
+ *
+ * 不给「部分之和」：那是把「少算了几个分区」当成总量报出去，
+ * 而读这个数的人正是拿它判断主题还剩多少消息。
+ */
+export function totalMessages(partitions: TopicPartitionInfo[]): number | undefined {
+  let total = 0;
+  for (const partition of partitions) {
+    const messages = partitionMessages(partition);
+    if (messages === undefined) return undefined;
+    total += messages;
+  }
+  return total;
+}
+
+/** 水位读不到的分区号，用于在页头点名。 */
+export function unknownWatermarkPartitions(partitions: TopicPartitionInfo[]): number[] {
+  return partitions.filter((item) => !hasWatermarks(item)).map((item) => item.partition);
 }
 
 export interface TopicDetail {

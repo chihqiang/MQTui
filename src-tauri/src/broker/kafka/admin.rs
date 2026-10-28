@@ -186,6 +186,25 @@ pub fn fetch_detail(worker: &BaseConsumer, group_name: &str) -> AppResult<Consum
         owned.dedup();
         partitions = owned;
     }
+
+    // 两个来源都是空：要么组名写错，要么这个组确实什么都没提交过。
+    //
+    // 以前这里直接往下走，撞上 `fetch_committed_offsets` 的「没有可查询的分区」，
+    // 界面把后端错误原文摆给用户看。而组名打错一个字母时，那句话读起来
+    // 完全像「这个组的成员没分配分区」—— 排查方向立刻跑到消费端去。
+    //
+    // 先把「这个组存不存在」问清楚：存在就照实说它没提交过，不存在就直说组名不对。
+    if partitions.is_empty() {
+        let empty_view = assemble_assignment(group);
+        return Err(if crate::domain::group_has_committed(group.state()) {
+            AppError::Broker(crate::domain::no_commit_detail(group_name, &empty_view))
+        } else {
+            AppError::NotFound(format!(
+                "消费组 {group_name} 不存在：可能是组名写错了，\
+                 也可能是这个组从来没提交过位点（新建后还没消费过）"
+            ))
+        });
+    }
     let offsets = fetch_committed_offsets(worker, group_name, &partitions)?;
 
     Ok(assemble_detail(

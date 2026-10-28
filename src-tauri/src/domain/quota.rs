@@ -83,9 +83,7 @@ impl QuotaEntry {
     /// 值的人话：字节速率带单位，百分比与纯数不加。
     pub fn value_text(&self) -> String {
         match self.key.as_str() {
-            "producer_byte_rate" | "consumer_byte_rate" => {
-                format!("{}/s", byte_rate_text(self.value))
-            }
+            "producer_byte_rate" | "consumer_byte_rate" => byte_rate_text(self.value),
             "request_percentage" => format!("{}%", trim_number(self.value)),
             _ => trim_number(self.value),
         }
@@ -93,11 +91,24 @@ impl QuotaEntry {
 }
 
 /// 字节速率：`1048576` 读成 `1.00 MB`，而不是让用户自己数零。
-fn byte_rate_text(value: f64) -> String {
+///
+/// 公开是因为 broker 配置里的 `quota.producer.default` 同样是字节速率，
+/// 而它在另一条路径上被拼成文字（见 `message::kafka::quota`）。两处各写一份
+/// 缩放逻辑，就会出现「同一份数据，一处读成 `1.00 MB/s`、一处读成裸 `1048576`」——
+/// 后者是那一屏唯一的实义内容，读成裸数字容易被当成「条数」。
+pub fn byte_rate_text(value: f64) -> String {
     if !value.is_finite() || value < 0.0 {
         return "未知".to_owned();
     }
-    const UNITS: [&str; 4] = ["B", "KB", "MB", "GB"];
+    format!("{}/s", byte_rate_per_second(value))
+}
+
+/// 字节速率不带 `/s` 的读数（单位换算是同一套）。
+pub fn byte_rate_per_second(value: f64) -> String {
+    if !value.is_finite() || value < 0.0 {
+        return "未知".to_owned();
+    }
+    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
     let mut scale = value;
     let mut unit = 0;
     while scale >= 1024.0 && unit + 1 < UNITS.len() {

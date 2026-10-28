@@ -24,12 +24,39 @@ pub struct TopicPartitionInfo {
     pub low: i64,
     /// 末尾位点（最新可写）。
     pub high: i64,
+    /// 水位读到了没有。
+    ///
+    /// 读不到时 `low` / `high` 都是 0，而 `high - low` 恰好是 0 —— 于是
+    /// 「权限不足 / leader 迁移中 / 请求超时」在界面上长得和「这个分区是空的」
+    /// 一模一样。主题详情页的整页结论（「N 个分区 · M 条消息」）就是这些数加起来的，
+    /// 一个读不到的分区会把总量悄悄拉低，没人看得出少算过。
+    ///
+    /// 默认 `true`：早先的调用方（以及序列化回来的老数据）没有这个字段，
+    /// 把「没提」读成「读不到」会让所有测试与缓存一起变成未知。
+    #[serde(default = "default_watermarks_read")]
+    pub watermarks_read: bool,
+}
+
+/// `watermarks_read` 的缺省值：没提这件事时按「读到了」处理。
+fn default_watermarks_read() -> bool {
+    true
 }
 
 impl TopicPartitionInfo {
-    /// 该分区当前可读的消息条数。
-    pub fn messages(&self) -> i64 {
-        (self.high - self.low).max(0)
+    /// 这个分区的水位读到了没有。读不到时任何条数结论都不该成立。
+    pub const fn has_watermarks(&self) -> bool {
+        self.watermarks_read
+    }
+}
+
+impl TopicPartitionInfo {
+    /// 该分区当前可读的消息条数；水位读不到时是 `None`。
+    ///
+    /// 返回 `Option` 而不是 0：0 是一个结论（「这个分区空了」），
+    /// 而读不到水位是「不知道」。面板上把不知道显示成 0，会让人以为
+    /// 消息被消费光了或者被 retention 清掉了 —— 于是去查一个并不存在的问题。
+    pub fn messages(&self) -> Option<i64> {
+        self.has_watermarks().then(|| (self.high - self.low).max(0))
     }
 
     /// 是否所有副本都同步。单副本主题恒为真。
@@ -63,12 +90,21 @@ pub struct TopicDetail {
 }
 
 impl TopicDetail {
-    /// 全部可读消息总量。
-    pub fn total_messages(&self) -> i64 {
+    /// 全部可读消息总量；有分区水位读不到时是 `None`（部分之和不是总量）。
+    pub fn total_messages(&self) -> Option<i64> {
         self.partitions
             .iter()
             .map(TopicPartitionInfo::messages)
             .sum()
+    }
+
+    /// 水位读不到的分区号。界面据此说「这几个分区的条数是未知」。
+    pub fn unknown_watermarks(&self) -> Vec<i32> {
+        self.partitions
+            .iter()
+            .filter(|item| !item.has_watermarks())
+            .map(|item| item.partition)
+            .collect()
     }
 
     /// 分区数。
@@ -429,13 +465,14 @@ mod tests {
             in_sync_replicas: isr.to_vec(),
             low,
             high,
+            watermarks_read: true,
         }
     }
 
     #[test]
     fn partition_reports_lag_and_sync() {
         let healthy = partition(&[1, 2], &[1, 2], 10, 25);
-        assert_eq!(healthy.messages(), 15);
+        assert_eq!(healthy.messages(), Some(15));
         assert!(healthy.is_in_sync());
 
         let degraded = partition(&[1, 2], &[1], 10, 25);
@@ -443,7 +480,7 @@ mod tests {
 
         // 位点被 retention 回退时不能给出负的消息数。
         let shrunk = partition(&[1], &[1], 30, 10);
-        assert_eq!(shrunk.messages(), 0);
+        assert_eq!(shrunk.messages(), Some(0));
     }
 
     #[test]
@@ -466,13 +503,49 @@ mod tests {
     }
 
     #[test]
+    fn unknown_watermarks_are_not_zero_messages() {
+        // 回归：水位读不到时低位点与高位点都退化成 0，`high - low` 也恰好是 0 ——
+        // 「权限不足 / leader 迁移中」在界面上和「这个分区是空的」一模一样。
+        // 页头那句「N 个分区 · M 条消息」是这些数加出来的，一个读不到的分区
+        // 会把总量悄悄拉低，而没人看得出少算过。
+        let mut detail = detail("orders", false);
+        let known = partition(&[1], &[1], 0, 10);
+        let unknown = TopicPartitionInfo {
+            watermarks_read: false,
+            ..partition(&[1], &[1], 0, 0)
+        };
+        detail.partitions = vec![known.clone(), unknown.clone()];
+
+        assert_eq!(unknown.messages(), None, "读不到不等于 0 条");
+        assert_eq!(known.messages(), Some(10));
+        // 部分之和不是总量：宁可说「不知道」，也不能报一个偏小的数。
+        assert_eq!(detail.total_messages(), None);
+        assert_eq!(detail.unknown_watermarks(), vec![0]);
+    }
+
+    #[test]
+    fn watermarks_read_defaults_to_true_when_absent() {
+        // 老数据 / 老调用方不带这个字段：读成「读不到」会让所有缓存变成未知。
+        let json = serde_json::json!({
+            "partition": 3,
+            "replicas": [1],
+            "inSyncReplicas": [1],
+            "low": 0,
+            "high": 7
+        });
+        let info: TopicPartitionInfo = serde_json::from_value(json).expect("反序列化失败");
+        assert!(info.watermarks_read);
+        assert_eq!(info.messages(), Some(7));
+    }
+
+    #[test]
     fn detail_sums_messages_and_health() {
         let mut detail = detail("orders", false);
         detail.partitions = vec![
             partition(&[1, 2], &[1, 2], 0, 10),
             partition(&[2, 3], &[2], 5, 8),
         ];
-        assert_eq!(detail.total_messages(), 13);
+        assert_eq!(detail.total_messages(), Some(13));
         assert_eq!(detail.partition_count(), 2);
         assert!(!detail.is_healthy());
     }
