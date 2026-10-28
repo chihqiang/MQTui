@@ -8,6 +8,7 @@
 
 import type {
   DefinitionEntry,
+  ImpactConfidence,
   PolicyApplyTo,
   PolicyInfo,
   PolicySpec,
@@ -160,12 +161,31 @@ export function describeDefinition(definition: DefinitionEntry[]): string {
   return rest > 0 ? `${head} · +${rest}` : head;
 }
 
-/** 影响面文案。估算值一律带「约」，不让它看起来像精确数字。 */
-export function describeImpact(impact: { queues: number; exchanges: number }): string {
+/**
+ * 影响面文案。估算值一律带「约」，不让它看起来像精确数字。
+ *
+ * 读不准时口径要跟着变：
+ * - `unreadable` 的数量是**上界**（后端按「全量」给），说「约 N 个」等于把猜的说成事实；
+ * - `complex` 可能偏大也可能偏小，只能提示别当真。
+ */
+export function describeImpact(impact: {
+  queues: number;
+  exchanges: number;
+  confidence?: ImpactConfidence;
+}): string {
+  const suffix =
+    impact.confidence === "unreadable"
+      ? "（最多；模式里没有可比的字面量，实际可能一个都不命中）"
+      : impact.confidence === "complex"
+        ? "（模式里有字符类或转义，可能偏大也可能偏小）"
+        : "";
+
   const parts: string[] = [];
-  if (impact.queues > 0) parts.push(`约 ${impact.queues} 个队列`);
-  if (impact.exchanges > 0) parts.push(`约 ${impact.exchanges} 个交换机`);
-  return parts.length ? `将影响 ${parts.join("、")}` : "当前没有资源命中这个模式";
+  const lead = impact.confidence === "unreadable" ? "最多影响" : "约";
+  if (impact.queues > 0) parts.push(`${lead} ${impact.queues} 个队列`);
+  if (impact.exchanges > 0) parts.push(`${lead} ${impact.exchanges} 个交换机`);
+  if (!parts.length) return "当前没有资源命中这个模式";
+  return `将影响 ${parts.join("、")}${suffix}`;
 }
 
 /**

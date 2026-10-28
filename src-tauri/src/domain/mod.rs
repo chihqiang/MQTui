@@ -112,9 +112,9 @@ pub use partition_hotspot::{
     PartitionLoad, PartitionSpread, hotspots as pick_hotspots, summarize as summarize_partitions,
 };
 pub use policy::{
-    DefinitionEntry, ImpactEstimate, OperatorPolicyInfo, PolicyApplyTo, PolicyInfo, PolicyRemoval,
-    PolicySnapshot, PolicySpec, PriorityConflict, effective_pattern, estimate_impact,
-    overflow_hint, suppressed_by,
+    DefinitionEntry, ImpactConfidence, ImpactEstimate, OperatorPolicyInfo, PolicyApplyTo,
+    PolicyInfo, PolicyRemoval, PolicySnapshot, PolicySpec, PriorityConflict, effective_pattern,
+    estimate_impact, overflow_hint, removal_caveats, suppressed_by,
 };
 pub use quota::{
     QuotaEntityKind, QuotaEntry, QuotaGroup, QuotaSnapshot, ScramCredential, ScramMechanism,

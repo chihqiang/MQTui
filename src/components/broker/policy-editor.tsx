@@ -15,7 +15,7 @@ import {
   validateSpec,
   type DefinitionRow,
 } from "@/lib/policy";
-import type { PolicyInfo, PolicySpec } from "@/types/policy";
+import type { ImpactConfidence, PolicyInfo, PolicySpec } from "@/types/policy";
 
 /**
  * 策略编辑弹窗。
@@ -248,7 +248,14 @@ function PreviewBlock({
   error,
   pending,
 }: {
-  preview: { impact: { queues: number; exchanges: number }; conflicts: { name: string; priority: number; detail: string }[]; caveats: string[] } | undefined;
+  preview:
+    | {
+        impact: { queues: number; exchanges: number; confidence: ImpactConfidence };
+        conflicts: { name: string; priority: number; detail: string }[];
+        caveats: string[];
+        patternNote?: string | null;
+      }
+    | undefined;
   error: string | null;
   pending: boolean;
 }) {
@@ -262,7 +269,7 @@ function PreviewBlock({
     );
   }
 
-  const { impact, conflicts, caveats } = preview;
+  const { impact, conflicts, caveats, patternNote } = preview;
 
   return (
     <div className="flex flex-col gap-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-(length:--text-app-body)">
@@ -271,6 +278,15 @@ function PreviewBlock({
         <span className="text-amber-700">{describeImpact(impact)}</span>
         <span className="ml-1 text-slate-500">（按名称估算，实际命中以服务端为准）</span>
       </p>
+
+      {/* 模式读不准时，「约 N 个」这个数字本身就是不可信的，必须单独说一句：
+          说「约 1 个」和说「我不知道」，对看确认框的人是两件事。 */}
+      {patternNote ? (
+        <p className="flex items-start gap-1.5 text-amber-700">
+          <Badge tone="warning">估不准</Badge>
+          <span className="flex-1">{patternNote}</span>
+        </p>
+      ) : null}
 
       {conflicts.length ? (
         <div className="flex flex-col gap-1">

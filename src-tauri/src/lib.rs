@@ -81,6 +81,7 @@ pub fn run() {
             commands::policy::list_policies,
             commands::policy::get_policy,
             commands::policy::preview_policy,
+            commands::policy::preview_policy_removal,
             commands::policy::save_policy,
             commands::policy::delete_policy,
             commands::parameter::list_parameters,

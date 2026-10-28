@@ -49,11 +49,20 @@ export interface PolicySpec {
   definition: DefinitionEntry[];
 }
 
+/**
+ * 影响面估算的可靠程度。
+ *
+ * `literal` 之外都说明「这个数字不完全可信」：`complex` 是模式里有字符类 / 转义，
+ * `unreadable` 是压根没有可比字面量（此时 `queues` / `exchanges` 是上界）。
+ */
+export type ImpactConfidence = "literal" | "complex" | "unreadable";
+
 /** 影响面估算。`exact` 恒为 false：命中判定在服务端，这边只给数量级。 */
 export interface ImpactEstimate {
   queues: number;
   exchanges: number;
   exact: boolean;
+  confidence: ImpactConfidence;
 }
 
 export interface PriorityConflict {
@@ -67,6 +76,16 @@ export interface PolicyPreview {
   impact: ImpactEstimate;
   conflicts: PriorityConflict[];
   caveats: string[];
+  /** 模式读不准时的说明。缺省表示影响面可信。 */
+  patternNote?: string | null;
+}
+
+/** 删除前的后果预检。 */
+export interface PolicyRemovalPreview {
+  /** 删掉后会退回默认的设置项。 */
+  caveats: string[];
+  /** 同范围里优先级更低、删除后会接替生效的策略。 */
+  successors: string[];
 }
 
 /** 策略表的列。操作员策略少一列「操作」—— 用户改不了它们。 */

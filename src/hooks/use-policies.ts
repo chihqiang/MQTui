@@ -51,6 +51,17 @@ export function useSavePolicy(connectionId: string | undefined) {
   });
 }
 
+/**
+ * 删除策略前的后果预检。只在确认框打开时跑。
+ *
+ * 不缓存也不复用：策略可能刚被人改过，拿旧快照说「只会失去 TTL」是在猜。
+ */
+export function usePolicyRemovalPreview(connectionId: string | undefined) {
+  return useMutation({
+    mutationFn: (name: string) => policyService.previewPolicyRemoval(connectionId as string, name),
+  });
+}
+
 /** 删除策略。 */
 export function useDeletePolicy(connectionId: string | undefined) {
   const queryClient = useQueryClient();

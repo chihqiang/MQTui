@@ -132,33 +132,38 @@ impl PolicySpec {
         if pattern == ".*" {
             notes.push("匹配模式为空，等价于 `.*`：会命中当前及以后创建的全部资源".to_owned());
         }
-        match self.apply_to {
-            PolicyApplyTo::All => {
-                notes.push("生效范围是队列 + 交换机，同名资源会一起被改".to_owned());
-            }
-            PolicyApplyTo::Queues if self.touches_exchange_only_key() => {
-                notes.push(
-                    "定义里有只对交换机有效的项（如 `alternate-exchange`），对队列不产生效果"
-                        .to_owned(),
-                );
-            }
-            _ => {}
+        if self.apply_to == PolicyApplyTo::All {
+            notes.push("生效范围是队列 + 交换机，同名资源会一起被改".to_owned());
         }
+        notes.extend(self.definition_caveats());
         notes.push(
             "策略只对「之后声明」的资源生效：已存在的队列要重新声明或重启消费者才会套用".to_owned(),
         );
         notes
     }
 
-    fn touches_exchange_only_key(&self) -> bool {
-        self.definition
-            .iter()
-            .any(|entry| EXCHANGE_ONLY_KEYS.contains(&entry.key.trim()))
+    /// 定义项里那些「提交成功、但什么都不做」的组合。
+    ///
+    /// 管理 API 对它们一律返回 204：策略建好了、`GET /api/policies` 也看得到，
+    /// 于是界面上一切正常。真正的效果要等下一次排查时才被发现不存在。
+    fn definition_caveats(&self) -> Vec<String> {
+        let mut notes = Vec::new();
+        let has = |key: &str| self.definition.iter().any(|entry| entry.key.trim() == key);
+
+        // `alternate-exchange` 只对交换机有意义：写进 `apply-to: queues` 是无操作。
+        if self.apply_to == PolicyApplyTo::Queues && has("alternate-exchange") {
+            notes.push(
+                "`alternate-exchange` 只对交换机生效，作用范围选「队列」时它不起作用".to_owned(),
+            );
+        }
+        if self.apply_to == PolicyApplyTo::Exchanges && (has("ha-mode") || has("ha-params")) {
+            notes.push(
+                "`ha-mode` / `ha-params` 是队列级参数，作用范围选「交换机」时不产生效果".to_owned(),
+            );
+        }
+        notes
     }
 }
-
-/// 只对交换机有意义的策略键。写进 `apply-to: queues` 不会报错，只是什么都不做。
-const EXCHANGE_ONLY_KEYS: &[&str] = &["alternate-exchange"];
 
 /// 空模式按 `.*` 处理。管理 API 自己也这么做，但界面上必须写出来。
 pub fn effective_pattern(pattern: &str) -> &str {
@@ -330,6 +335,44 @@ impl PolicyRemoval {
     }
 }
 
+/// 删掉一条策略时，界面必须说清「失去什么」。
+///
+/// 策略是唯一的声明来源：删掉之后资源不会自动回到「安全默认值」，
+/// 而是退回**类型默认**（经典队列没有 TTL、没有长度上限，消息会一直堆到磁盘告急）。
+/// 最容易被当成「删了就等于恢复原样」的那几项，单独列出来。
+pub fn removal_caveats(definition: &[DefinitionEntry]) -> Vec<String> {
+    let has = |key: &str| definition.iter().any(|entry| entry.key.trim() == key);
+    let mut notes = Vec::new();
+
+    let mut lost = Vec::new();
+    if has("x-message-ttl") || has("message-ttl") {
+        lost.push("消息过期时间");
+    }
+    if has("x-max-length")
+        || has("max-length")
+        || has("x-max-length-bytes")
+        || has("max-length-bytes")
+    {
+        lost.push("队列长度上限");
+    }
+    if has("alternate-exchange") {
+        lost.push("备选交换机（无法路由的消息会重新变成静默丢弃）");
+    }
+    if has("ha-mode") || has("ha-params") {
+        lost.push("镜像配置（经典镜像队列会退回单节点）");
+    }
+    if has("max-priority") || has("x-max-priority") {
+        // 优先级上限是声明期参数：删掉策略不会把已有队列的优先级「取消」，
+        // 只有重新声明的队列才会失去它 —— 说清楚了才不会有人以为改完立刻生效。
+        lost.push("优先级上限（仅对之后重新声明的队列生效）");
+    }
+    if !lost.is_empty() {
+        notes.push(format!("删除后这些设置会退回默认：{}", lost.join("、")));
+    }
+    notes.push("策略删除不影响已经存在的消息，只改变之后的行为".to_owned());
+    notes
+}
+
 /// 操作员策略（operator policy）的领域模型。
 ///
 /// 它和普通 policy 长得像，但语义完全不同：普通 policy 由用户定义、可被更高优先级覆盖，
@@ -362,12 +405,11 @@ pub struct PolicySnapshot {
 /// 正则模式的「骨架」：去掉锚点与捕获分组，只留下要匹配的内容。
 ///
 /// RabbitMQ 的策略 pattern 是正则，但这里不编译它（本地与 Java 的正则方言
-/// 不完全一致，本地错杀比放过更糟）。去掉的是那些「不参与匹配字符」的符号，
-/// 剩下的字面量用于「名字里有没有它」这类粗判。
+/// 不完全一致，本地错杀比放过更糟）。去掉的只是那几类「不参与匹配字符」的写法。
 ///
-/// 保留 `.` 与 `*`：它们是「任意字符 / 任意重复」，留下的字面量仍是它们的子序列。
-/// `$(?)` 这类「可选锚点」要整体去掉 —— 只剥最外层的 `$` 会剩下一个 `$` 字面量，
-/// 于是 `.*` 反而被读成「名字里含 `$`」，影响面报成 0。
+/// 注意这里**不碰** `.*` 与字符类：它们是通配，硬删会把 `orders.*` 变成
+/// 「名字里含 orders」；硬留又会把 `orders.*` 当成「名字里含 `orders.`」。
+/// 两者的处理都在 `trailing_literal` 里按位置做，而不是在这一层抹平。
 fn pattern_core(pattern: &str) -> String {
     pattern
         .trim()
@@ -378,17 +420,161 @@ fn pattern_core(pattern: &str) -> String {
         .to_owned()
 }
 
+/// 影响面拿不准的原因。
+///
+/// 三种情况都会让「约 N 个」不可信，而它们在界面上长得完全一样（都是一个数字），
+/// 所以必须单独说出来：说「约 1 个」和说「我不知道」，对看确认框的人是两件事。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ImpactConfidence {
+    /// 只有字面量（含 `.*`），估算可靠。
+    Literal,
+    /// 模式里有字符类、转义序列、量词或分组，估算可能偏大也会偏小。
+    Complex,
+    /// 完全没有可比字面量（如 `\d+`、`[a-z]{3}`），返回的数量是按「全量」给的上界。
+    Unreadable,
+}
+
+impl ImpactConfidence {
+    pub const fn is_reliable(self) -> bool {
+        matches!(self, Self::Literal)
+    }
+
+    /// 给用户的一句话。`None` 表示无需额外提示。
+    pub const fn note(self) -> Option<&'static str> {
+        match self {
+            Self::Literal => None,
+            Self::Complex => Some(
+                "模式里有字符类或转义（`[]`、`\\d` 之类），本地估算可能偏大也可能偏小，命中范围以服务端为准",
+            ),
+            Self::Unreadable => {
+                Some("模式里没有可比的字面量，下面给的是「最多命中多少」，实际可能一个都不命中")
+            }
+        }
+    }
+}
+
 /// 按模式粗略估算这条策略会命中多少资源，用于确认框里的「影响面」。
 ///
-/// 这里只做子串/前后缀的启发式匹配，不编译正则：目标是给一个数量级，
-/// 不是精确结果。真正的命中判定在服务端，面板估错了反而更糟，
-/// 所以结果带 `exact: false` 标记，界面上写「约」。
+/// 这里不编译正则：目标是给一个数量级，不是精确结果。真正的命中判定在服务端，
+/// 面板估错了反而更糟，所以结果带 `exact: false` 与 `confidence`，
+/// 界面上写「约」，并在拿不准时说明为什么拿不准。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImpactEstimate {
     pub queues: usize,
     pub exchanges: usize,
     pub exact: bool,
+    /// 估算的可靠程度。非 `Literal` 时界面必须显示 `confidence` 的说明。
+    pub confidence: ImpactConfidence,
+}
+
+/// 模式里的一段比对依据。`|` 的每个分支各得一份。
+struct Segment {
+    literal: String,
+    /// 分支以 `^` 开头：只命中以字面量开头的名字。
+    anchored_start: bool,
+    /// 分支以 `$` 结尾且字面量是最后一段：只命中以字面量结尾的名字。
+    anchored_end: bool,
+    /// 分支是否以 `.` / `.*` 收尾。收尾的是通配，字面量就不能当后缀用：
+    /// `orders.*` 里 `orders` 是前缀，只有当它是「分支末尾」时反过来才是错的。
+    trailing_wildcard: bool,
+}
+
+/// 按 `|` 切成若干分支。`\|` 是转义的竖线，属于字面量，不切。
+fn split_alternatives(pattern: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut start = 0;
+    let mut escaped = false;
+    for (index, ch) in pattern.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match ch {
+            '\\' => escaped = true,
+            '|' => {
+                parts.push(&pattern[start..index]);
+                start = index + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(&pattern[start..]);
+    parts
+}
+
+/// 分支里最后一个「必须连续出现」的字面量。
+///
+/// 只有全部由可读字符与通配组成时才认：碰到 `[]`、`\d`、`{2,3}` 这类结构
+/// 就返回 `None` —— 那时任何子串判断都只是猜，宁可整条分支不给字面量。
+/// 返回（字面量, 是否以通配收尾）。`None` 表示这条分支读不出来。
+fn trailing_literal(core: &str) -> Option<(String, bool)> {
+    let mut literal = String::new();
+    let mut trailing_wildcard = false;
+    let mut chars = core.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            // `.` 后面跟 `*` 是「任意字符重复」；其它 `.` 是「任意一个字符」，
+            // 两者都会打断「连续字面量」，但已经攒下的字面量仍然有效 ——
+            // `orders.*` 的 `orders` 是前缀，`s.*xs` 的 `xs` 是后缀。
+            '.' => {
+                if chars.peek() == Some(&'*') {
+                    chars.next();
+                }
+                // `.` / `.*` 是单个（或任意多个）任意字符，不打断前面攒下的
+                // 「必须连续」的字面量：`orders.*` 的 `orders` 照样是前缀。
+                trailing_wildcard = true;
+            }
+            '*' | '+' | '?' | '^' | '$' => {
+                // `*` 让前一个字面量重复任意次，含义已不可比（`orders*` 不是
+                // 「含 orders」），所以清空；但 `?` 只是可缺省，`orders?` 仍以
+                // orders 开头，保留字面量只影响精度，不影响方向。
+                if ch == '*' {
+                    literal.clear();
+                }
+                trailing_wildcard = true;
+            }
+            // 字符类、转义序列、区间量词：整条分支放弃。
+            '[' | ']' | '{' | '}' => return None,
+            // 反斜杠开头的转义序列（`\\d`、`\\.`）读不出可比字面量，整条分支放弃。
+            '\\' => return None,
+            other => {
+                literal.push(other);
+                trailing_wildcard = false;
+            }
+        }
+    }
+    if literal.is_empty() {
+        return None;
+    }
+    Some((literal, trailing_wildcard))
+}
+
+/// 一条分支的命中方式。锚点来自骨架：`^` / `$` 在 `pattern_core` 里已被剥掉，
+/// 所以这里看的是原始分支的两端。
+fn segment_matches(segment: &Segment, name: &str) -> bool {
+    // 锚点按「分支自己」算，不按整条模式算：`^a|b` 的 `b` 不受 `^` 约束，
+    // 拿整条模式的首尾去判会让每个分支都被锚住，结果整体偏大。
+    if segment.anchored_start && segment.anchored_end {
+        return name == segment.literal;
+    }
+    if segment.anchored_start {
+        return name.starts_with(&segment.literal);
+    }
+    if segment.anchored_end {
+        return name.ends_with(&segment.literal);
+    }
+    // 分支以 `.` / `.*` 收尾：字面量后面还允许有别的内容，
+    // `orders.*` 是「以 orders. 开头」，不是「名字里含 orders」。
+    if segment.trailing_wildcard {
+        // `.` / `.*` 都要有后续内容才算：`orders.*` 匹配 `orders.` 之后还有东西的
+        // 名字，光秃秃的 `orders` 在正则里也不命中 `orders.*`。
+        return name.len() > segment.literal.len()
+            && name.starts_with(segment.literal.as_str())
+            && name.as_bytes()[segment.literal.len()] == b'.';
+    }
+    name.contains(segment.literal.as_str())
 }
 
 /// 估算影响面。`pattern` 为空 / `.*` 时直接返回全量。
@@ -399,39 +585,69 @@ pub fn estimate_impact(
     exchange_names: &[String],
 ) -> ImpactEstimate {
     let pattern = effective_pattern(pattern);
-    // 去掉锚点与转义后再看是不是「匹配一切」：`.*`、`^.*$` 都是全量。
     let core = pattern_core(pattern);
-    // 只剩 `.` 与 `*` 就是「任意字符重复若干次」，即全量。
+
+    // 只有 `.` 与 `*` 就是「任意字符重复若干次」，即全量。这种模式是可读的：
+    // 结论本身就是「全部」，不需要再解释。
+    // 空 core 也算「全部」：`pattern_core` 把 `^$` 这类剥成空串，
+    // 而空模式在 RabbitMQ 里就是匹配一切。
     let blanket = core.chars().all(|ch| matches!(ch, '*' | '.'));
-    // `$` 结尾时必须匹配到名字末尾，`^` 开头时必须从名字开头开始 ——
-    // 这两件事在「影响面」上很要命：`^orders` 只命中以 orders 开头的，
-    // 而 `orders$` 只命中以它结尾的，两者都不等于「名字里含 orders」。
-    let anchored_start = pattern.starts_with('^');
-    let anchored_end = pattern.ends_with('$');
-    let literal = core.replace('*', "");
-    // 一个 `|` 分支就是一份独立的命中条件：`^a|b` 里的 `b` 不受锚点约束。
-    let alternatives: Vec<&str> = literal
-        .split('|')
-        .map(str::trim)
-        .filter(|part| !part.is_empty())
-        .collect();
+
+    // 锚点必须从「切分前」的分支上读：`pattern_core` 会剥掉首尾的 `^` / `$`。
+    let source_parts = split_alternatives(pattern);
+    let core_parts = split_alternatives(&core);
+
+    let mut confidence = ImpactConfidence::Literal;
+    let mut segments: Vec<Segment> = Vec::new();
+    for (index, part) in core_parts.iter().enumerate() {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+        let source = source_parts[index].trim();
+        match trailing_literal(part) {
+            Some((literal, trailing_wildcard)) => segments.push(Segment {
+                literal,
+                anchored_start: source.starts_with('^'),
+                // `orders$` 的 `$` 紧贴字面量，是「必须以它结尾」；
+                // `orders.*` 的尾巴是通配，`$` 只在 `.*` 之后才算锚住末尾。
+                anchored_end: source.ends_with('$') && !trailing_wildcard,
+                trailing_wildcard,
+            }),
+            // 全量模式（`.*` / `^.*$`）没有字面量是正常的：它的结论就是「全部」，
+            // 不需要再解释。其余读不出来的分支才降级：`\d+` 若按字面量 `d` 去比，
+            // 会把名字里带 d 的队列全算进去，比不报更误导。
+            None => {
+                if !blanket {
+                    confidence = ImpactConfidence::Unreadable;
+                }
+            }
+        }
+    }
+
+    // 分支里的 `[]` / `\` / `{}` 会走到上一条，剩下的「结构字符」在这里兜底：
+    // 它们不影响字面量提取（`.` 与 `*` 已在 `trailing_literal` 里处理），
+    // 但说明这个模式比「字面量 + 通配」更复杂，估算要标注。
+    if confidence == ImpactConfidence::Literal
+        && core
+            .chars()
+            .any(|ch| matches!(ch, '[' | ']' | '\\' | '{' | '}' | '+' | '?'))
+    {
+        confidence = ImpactConfidence::Complex;
+    }
+
     let hit = |name: &str| {
         if blanket {
             return true;
         }
-        if alternatives.is_empty() {
-            // 只剩 `.` / `[]` 这类结构，没有可比的字面量：宁可算作命中，
-            // 让人去核对，也不要显示「一个都不影响」。
+        if segments.is_empty() {
+            // 读不出任何字面量：宁可算作命中，让人去核对（此时 `Unreadable`
+            // 已经在界面上说明「这是上界」），也不要显示「一个都不影响」。
             return true;
         }
-        alternatives
+        segments
             .iter()
-            .any(|part| match (anchored_start, anchored_end) {
-                (true, true) => name == *part,
-                (true, false) => name.starts_with(part),
-                (false, true) => name.ends_with(part),
-                (false, false) => name.contains(part),
-            })
+            .any(|segment| segment_matches(segment, name))
     };
 
     let queues = match apply_to {
@@ -451,6 +667,7 @@ pub fn estimate_impact(
         queues,
         exchanges,
         exact: false,
+        confidence,
     }
 }
 
@@ -717,13 +934,138 @@ mod tests {
         let loose = estimate_impact("orders", PolicyApplyTo::Queues, &queues, &[]);
         assert_eq!(loose.queues, 3, "没有锚点就是子串匹配");
 
-        // `.*` 只是正则里的「任意字符重复」，不该被当成字面的两个字符。
+        // `.*` 是「从 orders. 开始」：`orders.new` / `orders.old` 命中，
+        // `audit.orders` 不命中。以前把 `.*` 一律删掉，`audit.orders` 也被算进来了。
         let star = estimate_impact("orders.*", PolicyApplyTo::Queues, &queues, &[]);
-        assert_eq!(star.queues, 2);
+        assert_eq!(star.queues, 2, "`orders.*` 只命中以 orders. 开头的");
 
         // 分支：任一条命中就算命中，锚点只约束它所在的那一条。
         let branch = estimate_impact("^orders|audit", PolicyApplyTo::Queues, &queues, &[]);
         assert_eq!(branch.queues, 3);
+    }
+
+    #[test]
+    fn character_classes_and_escapes_are_marked_unreliable() {
+        // 回归：以前把模式里的 `^ $ . *` 一律删掉再当子串去比，
+        // `[a-z]+\\.orders` 会被删成 `.orders`，于是「名字里含 .orders」——
+        // 一个数量级都算不出来的结论被写成「约 N 个」。
+        let queues = vec![
+            "orders.new".to_owned(),
+            "orders.old".to_owned(),
+            "audit.orders".to_owned(),
+        ];
+
+        let class = estimate_impact("[a-z]+\\\\.orders", PolicyApplyTo::Queues, &queues, &[]);
+        assert_eq!(class.confidence, ImpactConfidence::Unreadable);
+        assert!(!class.confidence.is_reliable());
+        assert!(class.confidence.note().is_some(), "读不准时必须说明");
+        // 读不准时给「上界」而不是 0：0 会被读成「一个都不影响」。
+        assert_eq!(class.queues, queues.len());
+
+        // 转义点号同样读不出来。
+        let escaped = estimate_impact("orders\\\\.new", PolicyApplyTo::Queues, &queues, &[]);
+        assert_eq!(escaped.confidence, ImpactConfidence::Unreadable);
+    }
+
+    #[test]
+    fn trailing_dot_star_means_prefix_not_contains() {
+        // 回归：`orders.*` 以前把 `.*` 删掉剩下 `orders`，按子串比把
+        // `audit.orders` 也算进来。正则里它是「以 orders. 开头」。
+        let queues = vec![
+            "orders.new".to_owned(),
+            "audit.orders".to_owned(),
+            "orders".to_owned(),
+        ];
+        let star = estimate_impact("orders.*", PolicyApplyTo::Queues, &queues, &[]);
+        assert_eq!(star.queues, 1, "只有 orders.new 以 orders. 开头");
+        assert_eq!(star.confidence, ImpactConfidence::Literal);
+    }
+
+    #[test]
+    fn reliable_estimate_needs_no_note() {
+        let queues = vec!["orders.new".to_owned()];
+        let plain = estimate_impact("^orders", PolicyApplyTo::Queues, &queues, &[]);
+        assert_eq!(plain.confidence, ImpactConfidence::Literal);
+        assert!(plain.confidence.note().is_none(), "字面量模式不该多嘴");
+        assert!(plain.confidence.is_reliable());
+
+        // 全量模式同样是可靠结论：它就是「全部」。
+        let blanket = estimate_impact(".*", PolicyApplyTo::Queues, &queues, &[]);
+        assert_eq!(blanket.confidence, ImpactConfidence::Literal);
+    }
+
+    #[test]
+    fn exchange_only_keys_are_called_out_when_scope_ignores_them() {
+        // 这些组合服务端一律 204，界面上看不出任何异常 —— 只能在确认框里说，
+        // 否则「策略建好了但什么都不做」要到下次排查才发现。
+        let spec = |apply_to: PolicyApplyTo, key: &str| PolicySpec {
+            name: "p".to_owned(),
+            pattern: "^orders".to_owned(),
+            priority: 1,
+            apply_to,
+            definition: vec![DefinitionEntry {
+                key: key.to_owned(),
+                value: "x".to_owned(),
+            }],
+        };
+
+        let wrong_scope = spec(PolicyApplyTo::Queues, "alternate-exchange");
+        assert!(
+            wrong_scope
+                .caveats()
+                .iter()
+                .any(|note| note.contains("alternate-exchange")),
+            "作用范围选队列时 alternate-exchange 不起作用，必须说出来"
+        );
+
+        let ha_on_exchange = spec(PolicyApplyTo::Exchanges, "ha-mode");
+        assert!(
+            ha_on_exchange
+                .caveats()
+                .iter()
+                .any(|note| note.contains("ha-mode")),
+            "作用范围选交换机时镜像参数不产生效果，必须说出来"
+        );
+
+        // 键与范围对得上时不该多加一句：狼来了喊多了，真出事那句也没人看。
+        let right_scope = spec(PolicyApplyTo::Queues, "x-message-ttl");
+        assert!(
+            !right_scope
+                .caveats()
+                .iter()
+                .any(|note| note.contains("不产生效果") || note.contains("不起作用"))
+        );
+    }
+
+    #[test]
+    fn removal_caveats_name_what_goes_back_to_default() {
+        let definition = vec![
+            DefinitionEntry {
+                key: "x-message-ttl".to_owned(),
+                value: "60000".to_owned(),
+            },
+            DefinitionEntry {
+                key: "x-max-length".to_owned(),
+                value: "1000".to_owned(),
+            },
+            DefinitionEntry {
+                key: "alternate-exchange".to_owned(),
+                value: "ae".to_owned(),
+            },
+        ];
+        let notes = removal_caveats(&definition);
+        assert!(notes.iter().any(|note| note.contains("消息过期时间")));
+        assert!(notes.iter().any(|note| note.contains("队列长度上限")));
+        assert!(notes.iter().any(|note| note.contains("备选交换机")));
+        // 「删除不影响已有消息」是这段话的另一半：不说清楚，人会以为会丢消息。
+        assert!(
+            notes
+                .iter()
+                .any(|note| note.contains("不影响已经存在的消息"))
+        );
+
+        // 空定义也要有基线说明，而不是返回空列表。
+        assert!(!removal_caveats(&[]).is_empty());
     }
 
     #[test]

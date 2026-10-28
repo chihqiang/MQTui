@@ -8,7 +8,7 @@ use tauri::State;
 
 use crate::domain::{
     ConnectionId, ImpactEstimate, PolicyInfo, PolicyRemoval, PolicySnapshot, PolicySpec,
-    PriorityConflict, estimate_impact, suppressed_by,
+    PriorityConflict, estimate_impact, removal_caveats, suppressed_by,
 };
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
@@ -26,6 +26,24 @@ pub struct PolicyPreview {
     pub conflicts: Vec<PriorityConflict>,
     /// 策略语义本身的注意事项，确认框里逐条展示。
     pub caveats: Vec<String>,
+    /// 模式本身读不准时的说明（字符类 / 转义 / 无可比字面量）。
+    ///
+    /// 单独放一个字段而不是塞进 `caveats`：它解释的是「上面那个数字有多可信」，
+    /// 和「策略语义上有什么坑」是两件事，混在一起会让人跳过它。
+    pub pattern_note: Option<String>,
+}
+
+/// 删除前要看的后果。只读，不写任何东西。
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PolicyRemovalPreview {
+    /// 这条策略当前的定义项里，删掉后会「退回默认」的那些。
+    pub caveats: Vec<String>,
+    /// 同范围内、优先级更低因而长期没生效的策略。
+    ///
+    /// 删掉这条之后它们会**接替生效** —— 这通常不是删策略的人预期的结果：
+    /// 他以为「去掉限制」，实际是「换成了另一条更松或更紧的规则」。
+    pub successors: Vec<String>,
 }
 
 /// 读出全部策略（含操作员策略）。
@@ -64,10 +82,54 @@ pub async fn preview_policy(
         .collect();
 
     let caveats = spec.caveats();
+    let impact = estimate_impact(&spec.pattern, spec.apply_to, &queue_names, &exchange_names);
     Ok(PolicyPreview {
-        impact: estimate_impact(&spec.pattern, spec.apply_to, &queue_names, &exchange_names),
+        impact,
         conflicts: suppressed_by(&spec, &snapshot.policies),
         caveats,
+        pattern_note: impact.confidence.note().map(str::to_owned),
+    })
+}
+
+/// 删除策略前的后果预检。只读。
+#[tauri::command]
+pub async fn preview_policy_removal(
+    state: State<'_, AppState>,
+    id: ConnectionId,
+    name: String,
+) -> AppResult<PolicyRemovalPreview> {
+    let connection = state.connections.get(&id).await?;
+    let snapshot = connection.as_rabbitmq()?.policies().await?;
+
+    // 找不到就直说：删一条不存在的策略，服务端也会返回 404，
+    // 但那时用户已经确认过一次「删除」了。
+    let policy = snapshot
+        .policies
+        .iter()
+        .find(|item| item.name == name)
+        .ok_or_else(|| AppError::NotFound(format!("策略 {name} 不存在")))?;
+
+    // 接替者必须同 scope 才可能接手：`apply-to: queues` 的策略不接管交换机。
+    let successors = snapshot
+        .policies
+        .iter()
+        .filter(|other| {
+            other.name != policy.name
+                && other.vhost == policy.vhost
+                && other.apply_to == policy.apply_to
+                && other.priority <= policy.priority
+        })
+        .map(|other| {
+            format!(
+                "`{}`（优先级 {}，模式 `{}`）会在这条删除后接手同一范围",
+                other.name, other.priority, other.pattern
+            )
+        })
+        .collect();
+
+    Ok(PolicyRemovalPreview {
+        caveats: removal_caveats(&policy.definition),
+        successors,
     })
 }
 

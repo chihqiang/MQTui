@@ -119,3 +119,21 @@ test("impact text always reads as an estimate", () => {
   expect(describeImpact({ queues: 0, exchanges: 2 })).toMatch(/约 2 个交换机/);
   expect(describeImpact({ queues: 0, exchanges: 0 })).toMatch(/没有资源命中/);
 });
+
+test("unreadable impact says upper bound, not a number", () => {
+  // 回归：`unreadable` 时后端给的是「最多命中多少」，前端照旧写「将影响约 N 个队列」
+  // 会把它当成事实。这里要求带出上界口径，并提示真正命中以服务端为准。
+  const text = describeImpact({ queues: 3, exchanges: 0, confidence: "unreadable" });
+  expect(text, "读不出字面量时必须说明这是上界").toMatch(/最多/);
+  expect(text).toMatch(/3/);
+
+  // `complex` 只提示可能偏大也可能偏小，不夸大成上界。
+  const complex = describeImpact({ queues: 2, exchanges: 0, confidence: "complex" });
+  expect(complex).toMatch(/约 2 个队列/);
+  expect(complex).toMatch(/可能/);
+  expect(complex).not.toMatch(/最多/);
+
+  // 可靠估算不多嘴，否则提示会变成噪音。
+  const literal = describeImpact({ queues: 2, exchanges: 0, confidence: "literal" });
+  expect(literal).toBe("将影响 约 2 个队列");
+});

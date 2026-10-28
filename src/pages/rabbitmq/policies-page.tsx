@@ -21,10 +21,11 @@ import {
 import { FilterBar } from "@/components/broker";
 import { PageBody, PageHeader, PageToolbar } from "@/components/layout/page-header";
 import { useHealth } from "@/hooks/use-health";
-import { useDeletePolicy, usePolicies } from "@/hooks/use-policies";
-import { errorMessage } from "@/lib/errors";
+import { useDeletePolicy, usePolicies, usePolicyRemovalPreview } from "@/hooks/use-policies";
+
 import { failureText } from "@/lib/failure";
 import { APPLY_TO_TONE, describeDefinition } from "@/lib/policy";
+import { errorMessage } from "@/lib/errors";
 import { APPLY_TO_LABEL, OPERATOR_POLICY_COLUMNS, POLICY_COLUMNS } from "@/types/policy";
 import type { OperatorPolicyInfo, PolicyApplyTo, PolicyInfo } from "@/types/policy";
 
@@ -217,9 +218,16 @@ function PolicyRow({
 }) {
   const { connectionId } = useParams();
   const remove = useDeletePolicy(connectionId);
+  const preflight = usePolicyRemovalPreview(connectionId);
   const [confirming, setConfirming] = useState(false);
 
   const writeHint = canWrite ? undefined : "当前账号没有管理 API 写权限";
+
+  const openConfirm = () => {
+    setConfirming(true);
+    // 预检只回答「会失去什么、谁会接手」；读不到不等于不能删，所以失败不拦路。
+    preflight.mutate(name);
+  };
 
   return (
     <TableRow>
@@ -252,7 +260,7 @@ function PolicyRow({
             variant="ghost"
             disabled={!canWrite || remove.isPending}
             title={writeHint}
-            onClick={() => setConfirming(true)}
+            onClick={openConfirm}
           >
             删除
           </Button>
@@ -267,17 +275,80 @@ function PolicyRow({
           loading={remove.isPending}
           confirmLabel="删除"
           description={
-            <>
-              删除策略 <span className="font-mono text-slate-800">{name}</span>。
-              删除只是停止下发，不会动已有的消息；但已套用这条规则的队列不会退回默认值，
-              除非重新声明。
-            </>
+            <div className="flex flex-col gap-2">
+              <p>
+                删除策略 <span className="font-mono text-slate-800">{name}</span>。
+                删除只是停止下发，不会动已有的消息。
+              </p>
+              <RemovalPreview
+                pending={preflight.isPending}
+                error={preflight.error ? errorMessage(preflight.error) : null}
+                caveats={preflight.data?.caveats}
+                successors={preflight.data?.successors}
+              />
+            </div>
           }
           onConfirm={() => remove.mutate(name, { onSettled: () => setConfirming(false) })}
           onClose={() => setConfirming(false)}
         />
       ) : null}
     </TableRow>
+  );
+}
+
+/**
+ * 删除弹窗里的后果区。
+ *
+ * 三件事必须分开说，混成一段就会被跳过：
+ * 1. 哪些设置会**退回默认**（不是「恢复原样」—— 队列会一直堆到磁盘告急）；
+ * 2. 哪条策略会**接手**同一范围（删完可能换成另一套规则，那通常不是预期的）；
+ * 3. 读不到时的说法 —— 「不确定」不等于「没影响」。
+ */
+function RemovalPreview({
+  pending,
+  error,
+  caveats,
+  successors,
+}: {
+  pending: boolean;
+  error: string | null;
+  caveats: string[] | undefined;
+  successors: string[] | undefined;
+}) {
+  if (pending) {
+    return <p className="text-slate-500">正在检查这条策略删掉之后会发生什么…</p>;
+  }
+  if (error) {
+    return (
+      <p className="text-amber-700">
+        检查失败：{error}
+        <br />
+        这不代表没有影响，只代表现在看不出来 —— 提交仍会照常执行。
+      </p>
+    );
+  }
+  if (!caveats) return null;
+
+  return (
+    <div className="flex flex-col gap-1 rounded-md border border-slate-200 bg-slate-50 p-3">
+      {caveats.map((note) => (
+        <p key={note} className="text-slate-600">
+          · {note}
+        </p>
+      ))}
+      {successors && successors.length ? (
+        <>
+          <p className="mt-1 text-amber-700">删除后同一范围会被这些策略接手：</p>
+          {successors.map((note) => (
+            <p key={note} className="text-slate-500">
+              · {note}
+            </p>
+          ))}
+        </>
+      ) : (
+        <p className="text-slate-500">同范围内没有别的策略会接手</p>
+      )}
+    </div>
   );
 }
 
