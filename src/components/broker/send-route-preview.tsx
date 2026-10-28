@@ -1,5 +1,6 @@
 import { Badge, Callout } from "@/components/ui";
 import { IconRefresh } from "@/lib/icons";
+import { emptyRouteHint } from "@/lib/produce";
 import type { SendRoute } from "@/types/message";
 
 /**
@@ -8,9 +9,11 @@ import type { SendRoute } from "@/types/message";
  * 放在发送按钮旁边而不是弹窗里 —— 它的作用是「发之前看一眼」，
  * 需要点开才看得见的东西，没人会点。
  *
- * 三种状态说的话完全不同，混在一起就等于什么都没说：
+ * 四种状态说的话完全不同，混在一起就等于什么都没说：
  * - 算出来了：列出队列名，顺带标出经过交换机间转发才到的那几个；
  * - 算出来是空的：这是唯一「发出去等于丢」的情形，必须显眼；
+ * - 数据不全（`bindingsKnown` 为假）：空的队列列表只代表「查不到」，
+ *   不能顺着说「没人收得到」—— 那会让人去改一条本来没问题的消息；
  * - 算不出来（管理 API 不可用）：照实说明，不装作「没人收得到」。
  */
 export function SendRoutePreview({
@@ -52,7 +55,9 @@ export function SendRoutePreview({
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between gap-2">
         <span className="text-(length:--text-app-meta) text-slate-500">
-          这条消息会投到 {route.queues.length} 个队列
+          {route.bindingsKnown === false
+            ? "无法确认这条消息会投到哪些队列"
+            : `这条消息会投到 ${route.queues.length} 个队列`}
         </span>
         <button
           type="button"
@@ -66,6 +71,13 @@ export function SendRoutePreview({
       </div>
 
       {route.warning ? <Callout tone="warning">{route.warning}</Callout> : null}
+
+      {/* 空列表本身不显眼，却最容易被误读，所以两种含义都单独说一句。 */}
+      {route.queues.length === 0 ? (
+        <Callout tone={route.bindingsKnown === false ? "info" : "danger"}>
+          {emptyRouteHint(route)}
+        </Callout>
+      ) : null}
 
       {route.queues.length > 0 ? (
         <ul className="flex flex-col gap-1">

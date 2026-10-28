@@ -11,6 +11,7 @@ import {
   contentFieldProblem,
   exchangeName,
   kafkaKey,
+  emptyRouteHint,
   sendBlockers,
   toHeaders,
 } from "./produce.ts";
@@ -106,4 +107,20 @@ test("header 名候选可敲可点，去重后仍是纯值列表", () => {
   expect(HEADER_NAMES.some((item) => item.value === "trace-id")).toBeTruthy();
   expect(HEADER_NAMES.every((item) => item.hint.length > 0)).toBeTruthy();
   expect(CONTENT_ENCODINGS.some((item) => item.value === "gzip")).toBeTruthy();
+});
+
+test("空路由：数据不全时说「没法核对」，不说「会丢」", () => {
+  const hint = emptyRouteHint({
+    exchange: "t",
+    queues: [],
+    bindingsKnown: false,
+  });
+  expect(hint).toContain("没法核对");
+  expect(hint).toContain("不代表消息会丢");
+});
+
+test("空路由：数据齐备时才敢说消息会被丢弃", () => {
+  const hint = emptyRouteHint({ exchange: "t", queues: [] });
+  expect(hint).toContain("丢弃");
+  expect(hint).not.toContain("没法核对");
 });

@@ -158,6 +158,13 @@ export interface SendRoute {
   /** 交换机类型；交换机不存在时缺省。 */
   exchangeType?: string;
   warning?: string;
+  /**
+   * 判断所依据的事实是否齐备。
+   *
+   * `false` 时 `queues` 为空只代表「算不出来」，不代表「没人会收到」。
+   * 缺省视为 `true`（后端老版本不会带这个字段）。
+   */
+  bindingsKnown?: boolean;
 }
 
 /**

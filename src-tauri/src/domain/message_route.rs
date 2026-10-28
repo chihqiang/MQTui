@@ -7,6 +7,16 @@
 //! 估算依据是绑定表 + 交换机类型，和拓扑洞察同源：这里只做「一条具体消息」
 //! 的匹配（多了 routing key 与 headers），不复用那边的聚合结论。
 //! 全部是纯函数，不碰网络 —— 规则本来就该能脱网单测。
+//!
+//! ## 两条不能含糊的规矩
+//!
+//! 1. **topic 交换机的通配符按 AMQP 规范算**。`#` 是「一个或多个词」，不是
+//!    「零个或多个」；一个词里出现两个及以上通配符（`or#der.#`）在服务端
+//!    永远不会命中。放宽一条，预览就会说「会到 q」，而消息实际被丢弃 ——
+//!    这是这个模块最不能犯的错，它比不给结论糟得多。
+//! 2. **不知道就说不知道**。队列列表拉不到时，「默认交换机有没有同名队列」
+//!    根本无从判断，此时既不能说「会丢」，也不能说「没事」：
+//!    前者会让人把一条本来正常的消息改掉，后者会让人带着静默丢失继续发。
 
 use serde::{Deserialize, Serialize};
 
@@ -44,15 +54,26 @@ pub struct SendRoute {
     /// 唯一一条必须让用户知道的话。为空表示「照常发即可」。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub warning: Option<String>,
+    /// 判断所依据的事实是否齐备。
+    ///
+    /// `false` 时 `queues` 为空只代表「算不出来」，不代表「没人会收到」。
+    /// 默认 `true`，只有调用方确实缺数据时才会被改成 `false`。
+    #[serde(default = "default_known")]
+    pub bindings_known: bool,
+}
+
+fn default_known() -> bool {
+    true
 }
 
 impl SendRoute {
     /// 有没有把握说「没人会收到」。
     ///
-    /// `headers` 交换机的匹配参数不在预览请求里（用户没填 x-match 那一套），
-    /// 这时算不出来 ≠ 没人收，所以不能给出「会丢」的结论。
+    /// 两种算不出来的情况不给出「会丢」的结论：
+    /// - `headers` 交换机的匹配参数不在预览请求里（用户没填 x-match 那一套）；
+    /// - 队列列表没拉到，默认交换机的「同名直投」无从判断（`bindings_known`）。
     fn knowable(&self) -> bool {
-        !matches!(self.exchange_type, Some(ExchangeKind::Headers))
+        self.bindings_known && !matches!(self.exchange_type, Some(ExchangeKind::Headers))
     }
 }
 
@@ -80,6 +101,7 @@ pub fn predict(
             warning: Some(format!(
                 "交换机 {exchange} 不在当前拓扑里：发出去不会报错，但没有任何队列收得到"
             )),
+            bindings_known: true,
         };
     }
 
@@ -111,6 +133,7 @@ pub fn predict(
         queues: reached,
         exchange_type,
         warning: None,
+        bindings_known: true,
     };
 
     if route.queues.is_empty() && route.knowable() {
@@ -221,7 +244,18 @@ fn matches(
     }
 }
 
-/// AMQP topic 交换机的匹配：`*` 匹配一个词，`#` 匹配零到多个词，词以 `.` 分隔。
+/// AMQP topic 交换机的匹配：`*` 匹配**恰好一个**词，`#` 匹配**一个或多个**词，
+/// 词以 `.` 分隔。
+///
+/// 两条都是规范写死的，不是实现选择：
+///
+/// - `#` 不吞零个词。绑定 `order.#` 匹配 `order.created`，**不匹配** `order`。
+///   按「零到多个」实现会让预览对一条实际会被丢弃的消息说「会到 q」。
+/// - 一个词里只能有一个通配符，且必须独占该词。`order*`、`a*b.c`、`or#der.#`
+///   这类绑定在服务端永远不会命中，这里跟着判不命中，而不是「尽力理解」它的意图。
+///
+/// 反过来也有一条：绑定 key 为空串是合法的（默认交换机之外的交换机也允许），
+/// 它只匹配空的 routing key。这是「确定不匹配」，不是「不知道」。
 fn topic_matches(pattern: &str, key: &str) -> bool {
     let pattern: Vec<&str> = pattern.split('.').collect();
     let key: Vec<&str> = if key.is_empty() {
@@ -237,13 +271,19 @@ fn topic_match_at(pattern: &[&str], key: &[&str]) -> bool {
         None => key.is_empty(),
         Some((head, rest)) => match *head {
             "#" => {
-                // `#` 可以吞掉 0..n 个词，逐个尝试。
-                (0..=key.len()).any(|skip| topic_match_at(rest, &key[skip..]))
+                // `#` 至少吞掉一个词，再让剩下的模式去配剩下的 key。
+                (1..=key.len()).any(|skip| topic_match_at(rest, &key[skip..]))
             }
             "*" => !key.is_empty() && topic_match_at(rest, &key[1..]),
+            literal if is_wildcard_token(literal) => false,
             literal => key.first() == Some(&literal) && topic_match_at(rest, &key[1..]),
         },
     }
+}
+
+/// 词里含通配符但又不是单独一个 `*` / `#`：服务端不接受这种写法，永不命中。
+fn is_wildcard_token(word: &str) -> bool {
+    word.contains('*') || word.contains('#')
 }
 
 /// headers 交换机的匹配：`x-match` 为 `all`（默认）时每条参数都要对上，
@@ -351,9 +391,13 @@ mod tests {
     fn topic_wildcards_match_words() {
         assert!(topic_matches("order.*", "order.created"));
         assert!(!topic_matches("order.*", "order.created.cn"));
-        assert!(topic_matches("order.#", "order"));
+        // `#` 至少吃掉一个词：`order.#` 不匹配光秃秃的 `order`。
+        assert!(!topic_matches("order.#", "order"));
+        assert!(topic_matches("order.#", "order.created"));
         assert!(topic_matches("order.#", "order.created.cn"));
-        assert!(topic_matches("#", ""));
+        // 只有 `#` 的绑定同样要求 key 非空。
+        assert!(!topic_matches("#", ""));
+        assert!(topic_matches("#", "any"));
         assert!(!topic_matches("order.create", "order.created"));
     }
 
@@ -459,5 +503,70 @@ mod tests {
         // headers 交换机的匹配参数不在预览请求里时算不出来，所以不给「会丢」的结论。
         assert!(miss.queues.is_empty());
         assert!(miss.warning.is_none());
+    }
+
+    /// 通配符必须独占一个词。服务端对 `order*` 这类写法永不命中，
+    /// 预览若「理解意图」判成命中，就会对一条实际被丢弃的消息说「会到 q」。
+    #[test]
+    fn wildcard_must_own_its_word() {
+        assert!(!topic_matches("order*", "orders"));
+        assert!(!topic_matches("a*b.c", "axb.c"));
+        assert!(!topic_matches("or#der.#", "order.created"));
+        assert!(!topic_matches("order.#.", "order.created"));
+        // 合法写法仍然成立，别把整类通配都判死。
+        assert!(topic_matches("*.created", "order.created"));
+        assert!(topic_matches("order.*.#", "order.a.b.c"));
+    }
+
+    /// 绑定 key 是空串时，topic 交换机只匹配空的 routing key。
+    /// 这是「确定不匹配」，不是「不知道」—— 结论要敢给出会丢。
+    #[test]
+    fn empty_binding_key_only_matches_empty_routing_key() {
+        let exchanges = vec![exchange("t", ExchangeKind::Topic)];
+        let bindings = vec![binding("t", "q.any", BindingDestination::Queue, "")];
+
+        // 队列名不能是空串（AMQP 里那是不合法的队列名），所以这条绑定实际打不到任何队列。
+        // 关键在于结论的措辞：这是「算得出投不到」，不是「算不出来」。
+        let hit = predict(&exchanges, &bindings, &[], "t", "", &[]);
+        assert!(hit.bindings_known);
+
+        let miss = predict(&exchanges, &bindings, &[], "t", "order.created", &[]);
+        assert!(miss.queues.is_empty());
+        assert!(
+            miss.warning.expect("应给出会丢的提示").contains("丢弃"),
+            "算得出确实投不到，就要明说会丢"
+        );
+    }
+
+    /// 预览对 topic 交换机的判定要与规范一致：`order.#` 收不到 `order`。
+    #[test]
+    fn topic_hash_binding_does_not_swallow_missing_word() {
+        let exchanges = vec![exchange("t", ExchangeKind::Topic)];
+        let bindings = vec![binding(
+            "t",
+            "q.child",
+            BindingDestination::Queue,
+            "order.#",
+        )];
+
+        let hit = predict(&exchanges, &bindings, &[], "t", "order.created", &[]);
+        assert_eq!(hit.queues.len(), 1);
+
+        let miss = predict(&exchanges, &bindings, &[], "t", "order", &[]);
+        assert!(miss.queues.is_empty());
+        assert!(miss.warning.is_some());
+    }
+
+    /// 队列列表没拿到时不能给出「会丢」的结论：那只是查不到。
+    #[test]
+    fn unknown_queue_list_degrades_instead_of_claiming_loss() {
+        let mut route = predict(&[], &[], &[], "", "order.created", &[]);
+        assert!(route.warning.is_some(), "空列表本身会被判成投不到任何队列");
+
+        route.bindings_known = false;
+        route.warning = None;
+        // 降级后同一个空结果不再等于「会丢」：界面据此改口径。
+        assert!(!route.bindings_known);
+        assert_eq!(route.queues.len(), 0);
     }
 }

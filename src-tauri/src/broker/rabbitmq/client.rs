@@ -204,18 +204,42 @@ impl RabbitMqClient {
 
         let exchanges = management.exchanges(&self.config).await?;
         let bindings = management.bindings(&self.config).await?;
-        // 队列只用来判断默认交换机的「同名直投」；拉不到也不该把预览整页打掉。
-        let queues = management.queues(&self.config).await.unwrap_or_default();
-        let names: Vec<String> = queues.into_iter().map(|queue| queue.name).collect();
+        // 队列只用来判断默认交换机的「同名直投」。拉不到时**不能退化成空列表**：
+        // 空列表会让预测得出「这个 key 没有同名队列 → 消息会被丢弃」，
+        // 而真实情况只是查不到。用户照着这句话改 routing key，改的是一条本来就好的消息。
+        // 所以这里明确记下「没拿到」，由 `SendRoute.bindings_known` 把结论降级。
+        let (names, queues_known) = match management.queues(&self.config).await {
+            Ok(queues) => (
+                queues
+                    .into_iter()
+                    .map(|queue| queue.name)
+                    .collect::<Vec<_>>(),
+                true,
+            ),
+            Err(_) => (Vec::new(), false),
+        };
 
-        Ok(predict_send_route(
+        let mut route = predict_send_route(
             &exchanges,
             &bindings,
             &names,
             exchange,
             routing_key,
             headers,
-        ))
+        );
+        if !queues_known && exchange.is_empty() {
+            route.bindings_known = false;
+            // 默认交换机的全部结论都建立在队列列表上，所以这里连「已经算出命中」也不认：
+            // 那份命中来自一份不完整的列表，不能当作投递保证。
+            route.queues.clear();
+            route.warning = Some(
+                "队列列表没读到（可能没有读队列的权限）：无法核对这个 key 有没有同名队列，\
+                 不代表消息会丢 —— 以服务端回执为准"
+                    .to_owned(),
+            );
+        }
+
+        Ok(route)
     }
 
     /// 拉取队列中的消息。

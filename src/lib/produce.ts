@@ -7,7 +7,7 @@
  * 所以表单按中间件分开，判断与组装都放在这里，让页面只画字段。
  */
 
-import type { MessageHeader } from "../types/message.ts";
+import type { MessageHeader, SendRoute } from "../types/message.ts";
 
 /** 投递模式：broker 只认这两个值，其余数字会被 lapin 悄悄忽略。 */
 export const DELIVERY_MODES = [
@@ -173,4 +173,18 @@ export function sendBlockers(input: {
     contentFieldProblem("内容类型", input.contentType ?? "") ??
     contentFieldProblem("内容编码", input.contentEncoding ?? "")
   );
+}
+
+/**
+ * 发送预览里「一个队列都没算到」的那句话。
+ *
+ * 两种情况都给空列表，含义却相反：数据齐备时说「没人会收到」，那是唯一
+ * 「发了等于丢」的情形；数据不齐时只能说「没法核对」。
+ * 用一句话盖住两种，用户会照着「会丢」去改一条本来正常的消息。
+ */
+export function emptyRouteHint(route: SendRoute): string {
+  if (route.bindingsKnown === false) {
+    return "队列列表没读到，没法核对这条消息会不会有人收 —— 这不代表消息会丢";
+  }
+  return "没有任何队列会收到这条消息：publish 会成功，消息随即被丢弃";
 }
