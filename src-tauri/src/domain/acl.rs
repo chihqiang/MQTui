@@ -893,6 +893,73 @@ pub fn plan_delete(existing: &[AclEntry], requested: &[AclEntry]) -> AclChangePl
     }
 }
 
+/// 规则 A 的资源名字是否覆盖规则 B 的。
+///
+/// 这是「按过滤器语义比」的地基：`DeleteAcls` 收的是过滤器，服务端回的
+/// `matching_acls` 是**实际命中并删掉的**那几条 ACL 内容，而不是请求本身。
+/// 拿 binding 逐字相等去对，前缀规则（`payments-`）永远对不上自己 ——
+/// 服务端从没回过一条「名字是 `payments-` 的 ACL」，它回的是 `payments-orders`。
+pub fn resource_covers(wide: &AclEntry, narrow: &AclEntry) -> bool {
+    if wide.resource_type != narrow.resource_type {
+        return false;
+    }
+    // 集群级资源的名字没有区分度，同类型即同资源。
+    if wide.resource_type == AclResourceType::Cluster {
+        return true;
+    }
+    covers_name(wide, narrow)
+}
+
+/// 不看资源类型的版本：回执比对时两边都来自同一批请求，但 `Broker`/`Cluster`
+/// 在协议里共用 `BROKER`，名字又都是 `kafka-cluster`，逐字比会漏。
+fn covers_name(wide: &AclEntry, narrow: &AclEntry) -> bool {
+    match wide.pattern {
+        AclPattern::Wildcard => true,
+        AclPattern::Prefixed => match narrow.pattern {
+            // `payments-*` 这个名字本身以 `payments-` 打头：前缀能匹配到前缀。
+            AclPattern::Prefixed => narrow.resource_name.starts_with(&wide.resource_name),
+            AclPattern::Literal => narrow.resource_name.starts_with(&wide.resource_name),
+            AclPattern::Wildcard => false,
+        },
+        // 精确匹配只认「存盘名字相同」。通配存盘就是 `Literal` + 名字 `*`，
+        // 所以 `*` 能命中通配规则；反过来不行。
+        AclPattern::Literal => match narrow.pattern {
+            AclPattern::Literal => narrow.resource_name == wide.resource_name,
+            AclPattern::Prefixed => false,
+            AclPattern::Wildcard => wide.resource_name == "*",
+        },
+    }
+}
+
+/// 主体是否覆盖：`User:*` 命中所有人，其余按字面量比。
+fn principal_covers(wide: &str, narrow: &str) -> bool {
+    wide == narrow || wide == "User:*"
+}
+
+/// 来源主机是否覆盖：`*` 不限来源。
+fn host_covers(wide: &str, narrow: &str) -> bool {
+    wide == narrow || wide == "*"
+}
+
+/// 操作是否覆盖：`All` 一条覆盖其余全部。
+fn operation_covers(wide: AclOperation, narrow: AclOperation) -> bool {
+    wide == narrow || wide == AclOperation::All
+}
+
+/// 这条 ACL 会不会被这门过滤器删掉。
+///
+/// 判据是「过滤器覆盖了它」，不是「它等于过滤器」：`DeleteAcls` 按覆盖关系命中。
+/// 写成纯函数而非直接比 binding，是因为回执里带的是命中结果 —— 两边的形状
+/// 本来就不一样，硬比只会得到「每条都回执不一致」。
+pub fn filter_matches(wanted: &AclEntry, hit: &AclEntry) -> bool {
+    resource_covers(wanted, hit)
+        && principal_covers(&wanted.principal, &hit.principal)
+        && host_covers(&wanted.host, &hit.host)
+        && operation_covers(wanted.operation, hit.operation)
+        // 权限位从来没有通配，`ANY` 只存在于请求里，服务端回的一定是具体值。
+        && wanted.permission == hit.permission
+}
+
 /// 两条规则的界面指纹，用于表格 key 与勾选状态。顺序固定，别改。
 pub fn entry_fingerprint(entry: &AclEntry) -> String {
     format!(
@@ -928,6 +995,84 @@ mod tests {
             operation,
             permission,
         }
+    }
+
+    #[test]
+    fn filter_matching_is_about_coverage_not_equality() {
+        // DeleteAcls 收的是过滤器，回执里带的是**命中的 ACL** —— 两者形状不同，
+        // 逐字比会把一次成功的前缀删除报成「回执不一致」。
+        let prefixed = entry(
+            AclResourceType::Topic,
+            "payments-",
+            AclPattern::Prefixed,
+            "User:alice",
+            AclOperation::Read,
+            AclPermission::Allow,
+        );
+        let hit = entry(
+            AclResourceType::Topic,
+            "payments-orders",
+            AclPattern::Literal,
+            "User:alice",
+            AclOperation::Read,
+            AclPermission::Allow,
+        );
+        assert!(filter_matches(&prefixed, &hit));
+        assert!(filter_matches(&prefixed, &prefixed));
+        // 名字不在前缀里、操作不同、权限不同，都不该被这门过滤器认领。
+        assert!(!filter_matches(
+            &hit,
+            &entry(
+                AclResourceType::Topic,
+                "orders",
+                AclPattern::Literal,
+                "User:alice",
+                AclOperation::Read,
+                AclPermission::Allow,
+            )
+        ));
+        assert!(!filter_matches(
+            &prefixed,
+            &entry(
+                AclResourceType::Topic,
+                "payments-orders",
+                AclPattern::Literal,
+                "User:alice",
+                AclOperation::Write,
+                AclPermission::Allow,
+            )
+        ));
+        assert!(!filter_matches(
+            &prefixed,
+            &entry(
+                AclResourceType::Topic,
+                "payments-orders",
+                AclPattern::Literal,
+                "User:alice",
+                AclOperation::Read,
+                AclPermission::Deny,
+            )
+        ));
+    }
+
+    #[test]
+    fn wildcard_principal_and_host_cover_everything() {
+        let orders = entry(
+            AclResourceType::Topic,
+            "orders",
+            AclPattern::Literal,
+            "User:alice",
+            AclOperation::Read,
+            AclPermission::Allow,
+        );
+        let everyone = AclEntry {
+            principal: "User:*".to_owned(),
+            operation: AclOperation::All,
+            ..orders.clone()
+        };
+        assert!(filter_matches(&everyone, &orders));
+        // 方向性：谁都能删的过滤器命中 alice 的规则，反之不成立。
+        assert!(!filter_matches(&orders, &everyone));
     }
 
     #[test]

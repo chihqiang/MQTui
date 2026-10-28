@@ -167,6 +167,19 @@ fn report_of(
     {
         notes.push("部分规则在提交前就已经不在集群上，删除时没有命中任何一条".to_owned());
     }
+    // 成功但没给出命中条数（`matched = 0` 且不是删除）只能来自「跳过」路径，
+    // 这里不重复提示；删除那条已经在上面单独说过了。
+    let unconfirmed: Vec<&str> = outcomes
+        .iter()
+        .filter(|item| !item.ok && item.message.contains("回执条数与请求不一致"))
+        .map(|item| item.entry.principal.as_str())
+        .collect();
+    if !unconfirmed.is_empty() {
+        notes.push(format!(
+            "有 {} 条规则的删除回执对不上（服务端返回的结果里没有它们的命中记录），这一批的实际结果请以刷新后的列表为准",
+            unconfirmed.len()
+        ));
+    }
     AclWriteReport {
         outcomes,
         applied,

@@ -233,38 +233,86 @@ fn write_delete(client: &KafkaClient, entries: &[AclEntry]) -> AppResult<Vec<Acl
     let responses = unsafe { bindings::rd_kafka_DeleteAcls_result_responses(result, &mut count) };
     let receipts = unsafe { delete_receipts(responses, count) };
 
-    // 回执与请求不是按下标对齐的：协议只保证「每个过滤器一条回执」，
-    // 而回执里带的是**实际命中的 ACL 内容**。按下标取会让 A 规则的命中数
-    // 安到 B 规则头上 —— 比不提示更糟。所以这里按内容把回执匹配回请求。
+    Ok(match_delete_receipts(entries, &receipts))
+}
+
+/// 把删除回执按**过滤器语义**匹配回请求。
+///
+/// 三件事让「按下标对齐」和「按 binding 逐字比」都不成立：
+///
+/// 1. 协议只保证「每个过滤器一条回执」，不保证顺序；
+/// 2. 回执里带的是 `matching_acls` —— **实际命中的 ACL 内容**，不是请求本身。
+///    前缀规则 `payments-` 命中的是 `payments-orders`，两者名字不相等；
+/// 3. 命中为空的成功回执（这条规则本来就不在集群上）没有内容可比，
+///    按内容比会把它安给第一条还没配上的规则。
+///
+/// 所以先按内容认领（能证明的那几条先落位），剩下的空回执再按顺序补给
+/// 仍无回执的请求。宁可按顺序猜，也不要让某条规则拿到别人的命中数。
+fn match_delete_receipts(
+    entries: &[AclEntry],
+    receipts: &[DeleteReceipt<'_>],
+) -> Vec<AclWriteOutcome> {
     let mut used = vec![false; receipts.len()];
-    let mut each = Vec::with_capacity(entries.len());
-    for entry in entries {
-        match receipts
+    let mut owner: Vec<Option<usize>> = vec![None; entries.len()];
+
+    // 第一轮：命中内容能证明归属的回执，按内容认领。
+    for (receipt_index, receipt) in receipts.iter().enumerate() {
+        if receipt.error.is_some() || receipt.matched.is_empty() {
+            continue;
+        }
+        let candidate = entries
             .iter()
             .enumerate()
-            .position(|(index, receipt)| !used[index] && receipt.matches(entry))
-        {
-            Some(index) => {
-                used[index] = true;
-                let receipt = &receipts[index];
+            .position(|(entry_index, entry)| owner[entry_index].is_none() && receipt.covers(entry));
+        let Some(entry_index) = candidate else {
+            continue;
+        };
+        owner[entry_index] = Some(receipt_index);
+        used[receipt_index] = true;
+    }
+
+    // 第二轮：剩下的空回执没有内容可比，按顺序补给还没配上的请求。
+    let mut next = 0usize;
+    for slot in &mut owner {
+        if slot.is_some() {
+            continue;
+        }
+        while next < receipts.len() && used[next] {
+            next += 1;
+        }
+        if next < receipts.len() && receipts[next].matched.is_empty() {
+            *slot = Some(next);
+            used[next] = true;
+        }
+    }
+
+    entries
+        .iter()
+        .enumerate()
+        .map(|(entry_index, entry)| match owner[entry_index] {
+            Some(receipt_index) => {
+                let receipt = &receipts[receipt_index];
                 let mut item = outcome_of(entry, receipt.error, "删除");
                 // 命中条数：0 说明这条规则本来就没了，>1 说明过滤器比想象中宽。
                 item.matched = receipt.matched.len();
-                each.push(item);
+                if item.ok && item.matched == 0 {
+                    // 服务端回的「没命中」是真的，但空回执本身证明不了它属于哪条请求。
+                    item.message = "集群上找不到这条规则（可能刚被别人删过）".to_owned();
+                }
+                item
             }
-            // 找不到能对上的回执：可能是服务端根本没回，也可能是回执条数与请求
-            // 对不上。两种都说「刷新确认」，绝不编一个「已删除」。
+            // 找不到能对上的回执：服务端没回，或回执条数与请求对不上。
+            // 两种都说「刷新确认」，绝不编一个「已删除」。
             None => {
                 let mut item = outcome_of(entry, None, "删除");
                 item.ok = false;
                 item.matched = 0;
                 item.message =
                     "服务端没有返回这条规则的结果（回执条数与请求不一致），请刷新确认".to_owned();
-                each.push(item);
+                item
             }
-        }
-    }
-    Ok(each)
+        })
+        .collect()
 }
 
 /// 一条删除回执：过滤器的错误、命中的 ACL、以及命中的条数。
@@ -275,34 +323,14 @@ struct DeleteReceipt<'a> {
 }
 
 impl DeleteReceipt<'_> {
-    /// 这条回执是不是某个精确过滤器产生的。
+    /// 这条回执是不是由 `entry` 构造的那个过滤器产生的。
     ///
-    /// 只有「请求本身就是精确过滤器」时才谈得上匹配：`DeleteAcls` 的过滤器
-    /// 留空表示「这一类都要」，而这种请求本来就不该出现在面板上。
-    fn matches(&self, entry: &AclEntry) -> bool {
-        self.matched.iter().all(|hit| same_binding(hit, entry))
-    }
-}
-
-/// 两条规则是否指同一条 ACL。
-///
-/// 通配在 Kafka 里是「精确匹配 + 名字 `*`」，而 `AclEntry` 把名字清空、
-/// 用 `pattern == Wildcard` 表达 —— 两边都归一化之后才比得准。
-fn same_binding(hit: &AclEntry, wanted: &AclEntry) -> bool {
-    hit.resource_type == wanted.resource_type
-        && normalize_name(hit) == normalize_name(wanted)
-        && hit.pattern == wanted.pattern
-        && hit.principal == wanted.principal
-        && hit.host == wanted.host
-        && hit.operation == wanted.operation
-        && hit.permission == wanted.permission
-}
-
-fn normalize_name(entry: &AclEntry) -> &str {
-    if entry.pattern == AclPattern::Wildcard {
-        "*"
-    } else {
-        entry.resource_name.as_str()
+    /// 不能按 binding 逐字比：回执里装的是**命中的 ACL**，前缀规则命中的是
+    /// 具体主题，名字天然不相等。判据必须是「过滤器覆盖了命中项」。
+    fn covers(&self, entry: &AclEntry) -> bool {
+        self.matched
+            .iter()
+            .all(|hit| crate::domain::acl::filter_matches(entry, hit))
     }
 }
 
@@ -899,13 +927,34 @@ mod tests {
         }
     }
 
+    fn receipt(matched: Vec<AclEntry>) -> DeleteReceipt<'static> {
+        DeleteReceipt {
+            error: None,
+            matched,
+            _marker: std::marker::PhantomData,
+        }
+    }
+
     #[test]
     fn wildcard_name_does_not_match_literal_star_topic() {
-        // 通配是「精确匹配 + 名字 `*`」，而 literally 叫 `*` 的主题是另一条规则。
+        // 通配在 Kafka 里存盘是「精确匹配 + 名字 `*`」，所以删通配时服务端回的
+        // 命中项名字就是 `*` —— 这里必须认出来，否则每次删通配都报「回执不一致」。
         let wildcard = entry("", AclPattern::Wildcard, AclOperation::Read);
         let literal_star = entry("*", AclPattern::Literal, AclOperation::Read);
-        assert!(!same_binding(&wildcard, &literal_star));
-        assert!(same_binding(&wildcard, &wildcard.clone()));
+        assert!(crate::domain::acl::filter_matches(&wildcard, &literal_star));
+        // 反过来不成立：删一条叫 `orders` 的规则，命中项绝不会是通配。
+        let orders = entry("orders", AclPattern::Literal, AclOperation::Read);
+        assert!(!crate::domain::acl::filter_matches(&orders, &wildcard));
+        // 通配主体 / `All` 操作也是覆盖关系，不是相等关系。
+        let everyone = AclEntry {
+            principal: "User:*".to_owned(),
+            operation: AclOperation::All,
+            ..wildcard.clone()
+        };
+        assert!(crate::domain::acl::filter_matches(
+            &everyone,
+            &entry("orders", AclPattern::Literal, AclOperation::Read)
+        ));
     }
 
     #[test]
@@ -913,20 +962,58 @@ mod tests {
         // 服务端回执顺序与请求顺序不一致时，按下标对齐会把 A 的命中数安到 B 头上。
         let a = entry("orders", AclPattern::Literal, AclOperation::Read);
         let b = entry("payments", AclPattern::Literal, AclOperation::Write);
-        // 回执数组是 [b, a]：b 命中两条（过滤器比想象中宽），a 命中一条。
-        let receipts = [(b.clone(), 2usize), (a.clone(), 1usize)];
-        let mut used = vec![false; receipts.len()];
-        let mut found = Vec::new();
-        for wanted in [&a, &b] {
-            let index = receipts
-                .iter()
-                .enumerate()
-                .position(|(index, (hit, _))| !used[index] && same_binding(hit, wanted))
-                .expect("每条请求都该对上一条回执");
-            used[index] = true;
-            found.push(receipts[index].1);
-        }
-        assert_eq!(found, vec![1, 2]);
+        let receipts = [receipt(vec![b.clone()]), receipt(vec![a.clone()])];
+        let outcomes = match_delete_receipts(&[a, b], &receipts);
+        assert!(outcomes.iter().all(|item| item.ok));
+        assert_eq!(outcomes[0].matched, 1);
+        assert_eq!(outcomes[1].matched, 1);
+    }
+
+    #[test]
+    fn prefixed_delete_receipt_matches_the_concrete_hits() {
+        // 前缀规则的过滤器命中的是具体主题，名字与请求天然不相等 ——
+        // 按 binding 逐字比会得出「回执不一致」，而这其实是一次成功的删除。
+        let prefixed = entry("payments-", AclPattern::Prefixed, AclOperation::Read);
+        let receipts = [receipt(vec![
+            entry("payments-orders", AclPattern::Literal, AclOperation::Read),
+            entry("payments-refunds", AclPattern::Literal, AclOperation::Read),
+        ])];
+        let outcomes = match_delete_receipts(&[prefixed], &receipts);
+        assert!(outcomes[0].ok);
+        assert_eq!(outcomes[0].matched, 2);
+    }
+
+    #[test]
+    fn empty_success_receipts_are_not_claimed_by_content() {
+        // 空回执「对得上任何请求」。按内容认领会把它安给第一条规则，
+        // 后面那条真正命中的回执反而无处可去。
+        let gone = entry("gone", AclPattern::Literal, AclOperation::Read);
+        let live = entry("live", AclPattern::Literal, AclOperation::Read);
+        let receipts = [
+            receipt(Vec::new()),
+            receipt(vec![entry("live", AclPattern::Literal, AclOperation::Read)]),
+        ];
+        let outcomes = match_delete_receipts(&[gone, live], &receipts);
+        assert!(outcomes.iter().all(|item| item.ok));
+        // 命中为 0 的那条要说「本来就没了」，不能说「已删除」。
+        assert_eq!(outcomes[0].matched, 0);
+        assert!(outcomes[0].message.contains("找不到"));
+        assert_eq!(outcomes[1].matched, 1);
+        assert_eq!(outcomes[1].message, "已删除");
+    }
+
+    #[test]
+    fn a_receipt_that_matches_nothing_leaves_the_request_unclaimed() {
+        // 回执内容对不上任何请求：不能编一个「已删除」，只能说刷新确认。
+        let wanted = entry("orders", AclPattern::Literal, AclOperation::Read);
+        let receipts = [receipt(vec![entry(
+            "somebody-elses",
+            AclPattern::Literal,
+            AclOperation::Read,
+        )])];
+        let outcomes = match_delete_receipts(&[wanted], &receipts);
+        assert!(!outcomes[0].ok);
+        assert!(outcomes[0].message.contains("刷新确认"));
     }
 
     #[test]
