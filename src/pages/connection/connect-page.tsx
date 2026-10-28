@@ -10,7 +10,7 @@ import {
   IconTrash,
 } from "@/lib/icons";
 
-import { Badge, Button, Card, Field, Input, Modal } from "@/components/ui";
+import { Badge, Button, Card, ConfirmDialog, Field, Input, Modal } from "@/components/ui";
 import { useOpenConnection } from "@/hooks/use-connections";
 import { usePluginKinds } from "@/hooks/use-plugin-kinds";
 import { cn } from "@/lib/cn";
@@ -23,6 +23,7 @@ import {
 } from "@/lib/connection-history";
 import { brokerMetaOf } from "@/lib/connection-defaults";
 import { configForHistory, historyOf, toneClass } from "@/lib/connect-form";
+import { removalOf } from "@/lib/connection-history";
 import { BROKER_LABEL, brokerIcon } from "@/lib/nav";
 import { reconnectLabel } from "@/lib/reconnect";
 import { brokerTone } from "@/lib/visual";
@@ -77,6 +78,14 @@ export function ConnectPage() {
    */
   const [ask, setAsk] = useState<ConnectionHistoryItem | null>(null);
   /**
+   * 待确认删除的那一行。
+   *
+   * 这张表里每隔几十像素就有一个「删除」，而它旁边常亮的是「重连」——
+   * 点偏一格就把一台机器的参数弄丢了，下次只能重新填一遍。
+   * 所以删除先问一句「删的是哪台」，确认了再动手。
+   */
+  const [removing, setRemoving] = useState<ConnectionHistoryItem | null>(null);
+  /**
    * 顶栏「＋」是唯一一个「跳转 + 立刻弹窗」的入口：页面会在脚下换掉，
    * 再盖一层弹窗，用户很容易以为刚才那下点空了。这里留一条可关闭的提示，
    * 把「你现在停在哪一步」写出来。
@@ -128,13 +137,6 @@ export function ConnectPage() {
     setConnectTarget({ kind: entry.config.kind, saved: entry });
   }, []);
 
-  const removeSaved = useCallback((entry: SavedConnection) => {
-    // 删记录只删「保存过的配置」，`recent-connections` 里那台机器还在 —— 两者是
-    // 两件事（「存了参数」vs「连过」），所以那张行会退回成「参数不在本机」的样子。
-    deleteSavedConnection(entry.id);
-    setHistory(historyOf(listSavedConnections()));
-  }, []);
-
   /**
    * 「就连这一次」：历史里记得主机、端口、账号，唯独没有口令 —— 补上口令再连，
    * 不做任何落盘（这条记录的语义就是「参数不在本机」，别偷偷替人改成保存）。
@@ -161,10 +163,22 @@ export function ConnectPage() {
     [connectOnce],
   );
 
-  /** 从历史里删掉一条「只是连过」的地址：它没有配置可删，删的是这条记忆。 */
-  const forgetRecent = useCallback((kind: BrokerKind, endpoint: string) => {
-    forgetConnection({ kind, endpoint });
+  /**
+   * 行上的删除按钮：一条路走到底 —— 删掉的就是这一行，不是这个名字。
+   *
+   * 以前这里只删 `saved-connections`，`recent-connections` 里那台机器还在，
+   * 于是点了删除，行没消失、只是退回成「缺口令」的样子，看着像没删掉。
+   *
+   * 这一行背后可能是「保存过的记录」「连过的地址」或者两者都有（合并成一行），
+   * 点删除都只该少这一行。所以按 `removalOf` 给出的清单逐项清，而不是让
+   * 调用点去猜该删哪一样 —— 猜错的那一次，就是「点一个、删了一片」。
+   */
+  const removeEntry = useCallback((item: ConnectionHistoryItem) => {
+    const removal = removalOf(item);
+    if (removal.savedId) deleteSavedConnection(removal.savedId);
+    if (removal.recent) forgetConnection(removal.recent);
     setHistory(historyOf(listSavedConnections()));
+    setRemoving(null);
   }, []);
 
   /**
@@ -264,11 +278,7 @@ export function ConnectPage() {
                       onReconnect={() => entry && reconnect(entry)}
                       onEdit={() => entry && editSaved(entry)}
                       onOpen={() => setAsk(item)}
-                      onRemove={() =>
-                        entry
-                          ? removeSaved(entry)
-                          : forgetRecent(item.kind as BrokerKind, item.endpoint)
-                      }
+                      onRemove={() => setRemoving(item)}
                     />
                   </li>
                 );
@@ -343,6 +353,30 @@ export function ConnectPage() {
 
       {/* 缺口令那一行点开后的小弹窗：就地补个口令接一次，或者去填全部参数。
           两个动作都写清各自要补什么 —— 前者只缺口令，后者还能改 TLS / SASL / vhost。 */}
+      {/* 删除前问一句。文案只回答一件事：删的是哪台、删完还剩什么 ——
+          「配置留在本机」和「这台机器上的数据」不是一回事，别让人以为删记录等于删了集群。 */}
+      <ConfirmDialog
+        open={removing !== null}
+        title="从连接记录里删除"
+        danger
+        confirmLabel="删除记录"
+        description={
+          removing ? (
+            <div className="flex flex-col gap-1.5">
+              <span className="font-mono text-(length:--text-app-meta) break-all text-slate-700">
+                {removing.endpoint}
+              </span>
+              <span>
+                删掉的是本机这条记录（名字、地址与存下的口令）。只影响这一个连接，
+                其他记录不动；已经打开的那条会话也不受影响。
+              </span>
+            </div>
+          ) : null
+        }
+        onConfirm={() => removing && removeEntry(removing)}
+        onClose={() => setRemoving(null)}
+      />
+
       {ask ? (
         <UnsavedConnectionDialog
           item={ask}

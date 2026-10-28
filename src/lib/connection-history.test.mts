@@ -15,6 +15,7 @@ import {
   isAutomaticName,
   mergeHistory,
   previewOf,
+  removalOf,
   secretLabelOf,
   secretStateOf,
 } from "./connection-history.ts";
@@ -193,4 +194,54 @@ test("保存过的配置：noAuth 与口令两者任一即可重连", () => {
   };
   const items = mergeHistory([plain], []);
   expect(canReconnect(items[0])).toBe(true);
+});
+
+test("同名但地址不同的记录，是两行", () => {
+  // 两台机器都叫「生产」很常见。以前保存时按「类型 + 名字」认标识，
+  // 后存的会顶掉先存的；即便侥幸都留下，合并时也该各占一行。
+  const items = mergeHistory(
+    [
+      saved("kafka:prod@10.0.0.1:9092", "生产", "10.0.0.1:9092", 200),
+      saved("kafka:prod@10.0.0.2:9092", "生产", "10.0.0.2:9092", 100),
+    ],
+    []
+  );
+  expect(items.length).toBe(2);
+  expect(items.map((item) => item.endpoint)).toEqual(["10.0.0.1:9092", "10.0.0.2:9092"]);
+});
+
+test("地址里多出来的空格与尾部逗号不影响判重", () => {
+  // Kafka 的 brokers 是拼出来的字符串，手删节点很容易留下「a:9092,」。
+  const items = mergeHistory(
+    [saved("kafka:p@10.0.0.1:9092", "p", "10.0.0.1:9092", 100)],
+    [{ ...recent("p", " 10.0.0.1:9092 ,", 200) }]
+  );
+  expect(items.length, "同一个集群被算成了两行").toBe(1);
+  expect(items[0].at).toBe(200);
+});
+
+test("删除一行时，要清的记录与记忆都指向这一行", () => {
+  const items = mergeHistory(
+    [
+      saved("kafka:a@10.0.0.1:9092", "a", "10.0.0.1:9092", 100),
+      saved("kafka:a@10.0.0.2:9092", "a", "10.0.0.2:9092", 100),
+    ],
+    [recent("b", "10.0.0.3:9092", 300)]
+  );
+  const target = items.find((item) => item.endpoint === "10.0.0.2:9092");
+  expect(target).toBeDefined();
+  const removal = removalOf(target!);
+  // 删的是这一条记录的 id，不是「叫 a 的那些」。
+  expect(removal.savedId).toBe("kafka:a@10.0.0.2:9092");
+  expect(removal.recent?.endpoint).toBe("10.0.0.2:9092");
+});
+
+test("保存过又连过的同一台机器：删一行要两样都清，否则行会退回成缺口令的样子", () => {
+  const items = mergeHistory(
+    [saved("kafka:p@10.0.0.1:9092", "p", "10.0.0.1:9092", 100)],
+    [recent("p", "10.0.0.1:9092", 200)]
+  );
+  const removal = removalOf(items[0]);
+  expect(removal.savedId).toBe("kafka:p@10.0.0.1:9092");
+  expect(removal.recent).toEqual({ kind: "kafka", endpoint: "10.0.0.1:9092" });
 });

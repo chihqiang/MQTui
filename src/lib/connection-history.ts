@@ -10,6 +10,8 @@
  * 只在行上标出口令在不在 —— 一条记录是不是「我的」，不该由它存过没存过来定义。
  */
 
+import type { BrokerKind } from "../types/broker.ts";
+
 /** 首页要展示的一条历史。`savedId` 非空表示还能直接重连。 */
 export interface ConnectionHistoryItem {
   key: string;
@@ -99,6 +101,30 @@ export function displayName(
 }
 
 /**
+ * 一条记录的归一标识：`kind@地址`。
+ *
+ * 地址里的空格与末尾逗号先吃掉 —— Kafka 的 `brokers` 是 `["a:9092, b:9092"]` 拼出来的，
+ * 保存时手打的空格、删到一半留下的逗号都会让同一个集群算出两个 key，
+ * 首页于是摆出两行一模一样的机器：删掉一行，另一行还在。
+ */
+export function connectionKey(kind: string, endpoint: string): string {
+  const normalized = endpoint
+    .split(",")
+    .map((part) => part.trim())
+    .filter((part) => part !== "")
+    .join(", ");
+  return `${kind}@${normalized}`;
+}
+
+/** 两条记录是不是「界面上同一行」。合并与删除必须用同一把尺子。 */
+export function sameConnection(
+  a: { kind: string; endpoint: string },
+  b: { kind: string; endpoint: string },
+): boolean {
+  return connectionKey(a.kind, a.endpoint) === connectionKey(b.kind, b.endpoint);
+}
+
+/**
  * 合并两份历史。
  *
  * 判重按 `kind + endpoint`：反过来（按名字）会把「同一个地址改过名字」算两条。
@@ -112,7 +138,7 @@ export function mergeHistory(
   const items = new Map<string, ConnectionHistoryItem>();
 
   for (const entry of saved) {
-    const key = `${entry.kind}@${entry.endpoint}`;
+    const key = connectionKey(entry.kind, entry.endpoint);
     items.set(key, {
       key,
       name: entry.name,
@@ -126,7 +152,7 @@ export function mergeHistory(
   }
 
   for (const entry of recent) {
-    const key = `${entry.kind}@${entry.endpoint}`;
+    const key = connectionKey(entry.kind, entry.endpoint);
     const existing = items.get(key);
     if (existing) {
       // 保存过的记录名与地址以记录为准，只把时间抬到最近一次连接。
@@ -214,4 +240,30 @@ export function brokerPortFor(kind: string, endpoint: string): number {
   const port = Number(endpoint.split(",")[0]?.trim().split(":").pop());
   if (Number.isInteger(port) && port > 0) return port;
   return kind === "rabbitMq" ? 5672 : 9092;
+}
+
+/** 历史里的一行要怎么删：删记录、删记忆，或者两样都删。 */
+export interface HistoryRemoval {
+  /** 要删掉的已保存记录（按 id 精确删）。 */
+  savedId: string | null;
+  /** 要忘掉的「连过」记忆；按 `kind + endpoint` 判，和合并口径一致。 */
+  recent: { kind: BrokerKind; endpoint: string } | null;
+}
+
+/**
+ * 点某一行的删除时，到底该清掉哪些东西。
+ *
+ * 首页那张表是两份数据（`saved-connections` / `recent-connections`）合出来的：
+ * 一条「保存过」的记录删掉之后，如果它的地址还在 recent 里，这一行不会消失，
+ * 只会退回成「缺口令」的样子 —— 用户点了删除、屏幕上的行没动，很自然会再点一次。
+ * 所以这里把两件事一起做，按钮的行为才对得上「删掉这一行」。
+ *
+ * 保存过、但已经对不上历史行的那份记录（老版本 `kind:name` 的 id）也算进来：
+ * 它本来就在这一行背后，留着只会让下次重连读到旧地址。
+ */
+export function removalOf(item: ConnectionHistoryItem): HistoryRemoval {
+  return {
+    savedId: item.savedId,
+    recent: { kind: item.kind as BrokerKind, endpoint: item.endpoint },
+  };
 }
