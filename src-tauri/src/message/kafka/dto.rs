@@ -79,7 +79,7 @@ fn headers_to_headers<H: Headers>(headers: &H) -> Vec<MessageHeader> {
             let value = header.value?;
             Some(MessageHeader {
                 key: header.key.to_owned(),
-                value: String::from_utf8_lossy(value).into_owned(),
+                value: Some(String::from_utf8_lossy(value).into_owned()),
             })
         })
         .collect()

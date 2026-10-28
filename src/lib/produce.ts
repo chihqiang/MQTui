@@ -30,12 +30,25 @@ export interface HeaderRow {
  * 把表单行收成请求里的 headers。
  *
  * 空 key 直接丢掉而不是报错：用户点了「加一行」又改主意，是很正常的事。
- * 值允许为空串 —— AMQP 里「有这个 header，值为空」和「没有这个 header」是两回事。
+ *
+ * 值的空串按「没有值」发出去（`value: null`，AMQP 侧是 `void`），
+ * 不是空字符串：面板发的是 `longstr`，空串与 `void` 在 headers 交换机上
+ * 匹配到的绑定完全不同，消费端读到的也是两回事。
  */
 export function toHeaders(rows: readonly HeaderRow[]): MessageHeader[] {
   return rows
     .filter((row) => row.key.trim() !== "")
-    .map((row) => ({ key: row.key.trim(), value: row.value }));
+    .map((row) => ({ key: row.key.trim(), value: row.value === "" ? null : row.value }));
+}
+
+/**
+ * 表单行的指纹：只用来判断「这份 headers 跟上次是不是同一份」。
+ *
+ * 直接把行数组塞进 react-query 的 queryKey，每次渲染都是新数组字面量，
+ * 缓存键永远不相等，「改完再算」就变成「一直在算」。
+ */
+export function headerFingerprint(rows: readonly HeaderRow[]): string {
+  return JSON.stringify(toHeaders(rows).map((item) => [item.key, item.value]));
 }
 
 /**
@@ -185,6 +198,9 @@ export function sendBlockers(input: {
 export function emptyRouteHint(route: SendRoute): string {
   if (route.bindingsKnown === false) {
     return "队列列表没读到，没法核对这条消息会不会有人收 —— 这不代表消息会丢";
+  }
+  if ((route.headersUnknownParameters ?? []).length > 0) {
+    return "绑定上有参数没法按值核对（数字、布尔这类），算不出这条消息会不会有人收 —— 这不代表消息会丢";
   }
   return "没有任何队列会收到这条消息：publish 会成功，消息随即被丢弃";
 }

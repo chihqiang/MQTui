@@ -354,14 +354,37 @@ pub struct Overview {
 #[serde(rename_all = "camelCase")]
 pub struct KeyValue {
     pub key: String,
+    /// 展示用的值：字符串去引号，其余按 JSON 形态。
     pub value: String,
+    /// 值是字符串字面量。缺省为 `true`。
+    ///
+    /// 服务端的值有类型（数字、布尔、嵌套表），而这里只保留了它的渲染形态。
+    /// 少一个类型标记，`render_json("3")` 与 `render_json(3)` 就长得一模一样，
+    /// 而「拿字符串去比数字」比出来的结论是猜的。
+    #[serde(default = "default_text_value")]
+    pub text: bool,
+}
+
+fn default_text_value() -> bool {
+    true
 }
 
 impl KeyValue {
+    /// 值来自一段文本。
     pub fn new(key: impl Into<String>, value: impl Into<String>) -> Self {
         Self {
             key: key.into(),
             value: value.into(),
+            text: true,
+        }
+    }
+
+    /// 值不是字符串字面量：数字、布尔、嵌套表、数组、null。
+    pub fn typed(key: impl Into<String>, value: impl Into<String>) -> Self {
+        Self {
+            key: key.into(),
+            value: value.into(),
+            text: false,
         }
     }
 }

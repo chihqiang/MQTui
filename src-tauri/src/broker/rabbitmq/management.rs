@@ -596,7 +596,15 @@ impl ManagementClient {
                     arguments: binding
                         .arguments
                         .into_iter()
-                        .map(|(key, value)| KeyValue::new(key, render_json(&value)))
+                        .map(|(key, value)| {
+                            // 类型要留着：字符串 `"3"` 与数字 `3` 渲染后几乎一样，
+                            // 而 headers 交换机按「哪个值」匹配，差一个类型就不是同一条规则。
+                            if value.is_string() {
+                                KeyValue::new(key, render_json(&value))
+                            } else {
+                                KeyValue::typed(key, render_json(&value))
+                            }
+                        })
                         .collect(),
                 })
             })

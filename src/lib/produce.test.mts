@@ -12,6 +12,7 @@ import {
   exchangeName,
   kafkaKey,
   emptyRouteHint,
+  headerFingerprint,
   sendBlockers,
   toHeaders,
 } from "./produce.ts";
@@ -23,8 +24,32 @@ test("空 key 的 header 行被丢掉", () => {
       { key: "empty", value: "" },
     ])).toEqual([
       { key: "trace-id", value: "abc" },
-      { key: "empty", value: "" },
+      // 空值发成 null（AMQP 的 void），不是空串。
+      { key: "empty", value: null },
     ]);
+});
+
+test("同一份 headers 的指纹稳定，改一个值就变", () => {
+  const rows = [{ key: "trace-id", value: "abc" }];
+  expect(headerFingerprint(rows)).toBe(headerFingerprint([...rows]));
+  expect(headerFingerprint(rows)).not.toBe(headerFingerprint([{ key: "trace-id", value: "abd" }]));
+  // 空 key 的行本来就不发出去，指纹里也不该出现。
+  expect(headerFingerprint([...rows, { key: "  ", value: "x" }])).toBe(headerFingerprint(rows));
+});
+
+test("空路由：有一条绑定参数比不了，结论也算不出来", () => {
+  const hint = emptyRouteHint({
+    exchange: "h",
+    queues: [],
+    headersUnknownParameters: ["h/q.h:retry"],
+  });
+  expect(hint).toContain("没法按值核对");
+  expect(hint).toContain("不代表消息会丢");
+});
+
+test("空路由：参数都比得了，才敢说消息会被丢弃", () => {
+  const hint = emptyRouteHint({ exchange: "h", queues: [], headersUnknownParameters: [] });
+  expect(hint).toContain("丢弃");
 });
 
 test("Kafka 空 key 降级成 undefined，不是空串", () => {

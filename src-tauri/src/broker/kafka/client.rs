@@ -112,7 +112,7 @@ impl KafkaClient {
         topic: &str,
         key: Option<&str>,
         payload: &[u8],
-        headers: &[(String, String)],
+        headers: &[(String, Option<String>)],
     ) -> AppResult<String> {
         let mut record = FutureRecord::<str, [u8]>::to(topic).payload(payload);
         if let Some(key) = key {
@@ -146,7 +146,7 @@ impl KafkaClient {
         topic: &str,
         key: Option<&str>,
         payload: &[u8],
-        headers: &[(String, String)],
+        headers: &[(String, Option<String>)],
     ) -> AppResult<DeliveryReceipt> {
         let producer = self.resend_producer()?;
 
@@ -341,13 +341,18 @@ pub struct DeliveryReceipt {
 }
 
 /// 把成对的头转换成 rdkafka 的 owned headers。
-fn owned_headers(headers: &[(String, String)]) -> rdkafka::message::OwnedHeaders {
+/// 组装 record headers。
+///
+/// 值为 `None` 时写成「没有值」的 header（Kafka 协议允许 `value` 为 null），
+/// 而不是一个空串 —— 两者在消费端是两种不同的判断。表单里的空值
+/// 就是「这个 key 存在但没有值」，透传过去即可。
+fn owned_headers(headers: &[(String, Option<String>)]) -> rdkafka::message::OwnedHeaders {
     headers.iter().fold(
         rdkafka::message::OwnedHeaders::new(),
         |headers, (name, value)| {
             headers.insert(rdkafka::message::Header {
                 key: name.as_str(),
-                value: Some(value.as_bytes()),
+                value: value.as_deref().map(str::as_bytes),
             })
         },
     )

@@ -234,7 +234,7 @@ mod tests {
             payload: b"{\"id\":1001}".to_vec(),
             headers: vec![MessageHeader {
                 key: "trace-id".to_owned(),
-                value: "abc".to_owned(),
+                value: Some("abc".to_owned()),
             }],
         }
     }

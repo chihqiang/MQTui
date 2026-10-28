@@ -17,6 +17,10 @@
 //! 2. **不知道就说不知道**。队列列表拉不到时，「默认交换机有没有同名队列」
 //!    根本无从判断，此时既不能说「会丢」，也不能说「没事」：
 //!    前者会让人把一条本来正常的消息改掉，后者会让人带着静默丢失继续发。
+//! 3. **headers 交换机的匹配按绑定参数的类型算**，不按它们的字符串形态。
+//!    绑定参数是 AMQP 字段表，值有类型；表单里的值永远是字符串。
+//!    拿字符串去比一个数字、布尔或嵌套表，比出来的「不匹配」是猜的，
+//!    而它会被说成「消息会被丢弃」。
 
 use serde::{Deserialize, Serialize};
 
@@ -60,6 +64,13 @@ pub struct SendRoute {
     /// 默认 `true`，只有调用方确实缺数据时才会被改成 `false`。
     #[serde(default = "default_known")]
     pub bindings_known: bool,
+    /// 有绑定参数没法按值比较，列在这里（形如 `交换机/绑定目标:参数名`）。
+    ///
+    /// 绑定参数是 AMQP 字段表，可以是数字、布尔、嵌套表；表单里的值只是字符串。
+    /// 拿字符串去比这些东西，比出来的「不匹配」是猜的 —— 而它会被读成
+    /// 「这条消息到不了这个队列」。所以这类参数不参与比较，名字摆出来让用户自己判断。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub headers_unknown_parameters: Vec<String>,
 }
 
 fn default_known() -> bool {
@@ -69,11 +80,12 @@ fn default_known() -> bool {
 impl SendRoute {
     /// 有没有把握说「没人会收到」。
     ///
-    /// 两种算不出来的情况不给出「会丢」的结论：
-    /// - `headers` 交换机的匹配参数不在预览请求里（用户没填 x-match 那一套）；
+    /// 两种情况不给出「会丢」的结论：
+    /// - 拓扑里有比较不了的绑定参数（`headers_unknown_parameters` 非空）：
+    ///   少比一个参数就可能少算一个队列，空结果不能当结论；
     /// - 队列列表没拉到，默认交换机的「同名直投」无从判断（`bindings_known`）。
     fn knowable(&self) -> bool {
-        self.bindings_known && !matches!(self.exchange_type, Some(ExchangeKind::Headers))
+        self.bindings_known && self.headers_unknown_parameters.is_empty()
     }
 }
 
@@ -102,11 +114,13 @@ pub fn predict(
                 "交换机 {exchange} 不在当前拓扑里：发出去不会报错，但没有任何队列收得到"
             )),
             bindings_known: true,
+            headers_unknown_parameters: Vec::new(),
         };
     }
 
     let mut reached: Vec<ReachableQueue> = Vec::new();
     let mut visited: Vec<String> = Vec::new();
+    let mut unknown: Vec<String> = Vec::new();
     walk(
         exchange,
         exchange_type,
@@ -117,8 +131,11 @@ pub fn predict(
         false,
         &mut visited,
         &mut reached,
+        &mut unknown,
         0,
     );
+    unknown.sort();
+    unknown.dedup();
 
     reached.sort_by(|a, b| {
         a.queue
@@ -134,6 +151,7 @@ pub fn predict(
         exchange_type,
         warning: None,
         bindings_known: true,
+        headers_unknown_parameters: unknown,
     };
 
     if route.queues.is_empty() && route.knowable() {
@@ -167,6 +185,7 @@ fn walk(
     from_exchange_hop: bool,
     visited: &mut Vec<String>,
     reached: &mut Vec<ReachableQueue>,
+    unknown: &mut Vec<String>,
     depth: usize,
 ) {
     if depth > MAX_HOPS || visited.iter().any(|name| name == exchange) {
@@ -192,6 +211,8 @@ fn walk(
             routing_key,
             &binding.arguments,
             headers,
+            unknown,
+            &format!("{}/{}", binding.source, binding.destination),
         ) {
             continue;
         }
@@ -219,6 +240,7 @@ fn walk(
                     true,
                     visited,
                     reached,
+                    unknown,
                     depth + 1,
                 );
             }
@@ -227,18 +249,21 @@ fn walk(
 }
 
 /// 这条绑定能不能被这条消息命中。
+#[allow(clippy::too_many_arguments)]
 fn matches(
     kind: ExchangeKind,
     binding_key: &str,
     routing_key: &str,
     arguments: &[super::KeyValue],
     headers: &[MessageHeader],
+    unknown: &mut Vec<String>,
+    origin: &str,
 ) -> bool {
     match kind {
         ExchangeKind::Fanout => true,
         ExchangeKind::Direct => binding_key == routing_key,
         ExchangeKind::Topic => topic_matches(binding_key, routing_key),
-        ExchangeKind::Headers => headers_match(arguments, headers),
+        ExchangeKind::Headers => headers_match(arguments, headers, unknown, origin),
         // 未知类型（x-delayed-message 之类）底层多半是四种之一，按最宽的口径算。
         ExchangeKind::Unknown => true,
     }
@@ -286,35 +311,76 @@ fn is_wildcard_token(word: &str) -> bool {
     word.contains('*') || word.contains('#')
 }
 
-/// headers 交换机的匹配：`x-match` 为 `all`（默认）时每条参数都要对上，
-/// 为 `any` 时命中一条即可。命名以 `x-` 开头的参数是交换机配置，不参与比较。
-fn headers_match(arguments: &[super::KeyValue], headers: &[MessageHeader]) -> bool {
+/// headers 交换机的匹配。
+///
+/// 规则三条，都是规范写死的：
+///
+/// - `x-match` 是交换机配置，不参与比较。文档里的合法值是 `all` / `any`，
+///   判定一律按小写、去空白来比 —— 界面上手打一个 `Any` 是常事，
+///   服务端不认时退回 `all` 是它的事，预览若跟着当成 `all`，
+///   报出来的「不匹配」就是在替一个不存在的规则下结论。
+/// - 其余以 `x-` 开头的参数同样是配置（`x-match` 之外还有插件自用的），
+///   不参与比较。
+/// - 剩下的每条参数都要和消息的一个同名 header 对上。
+///
+/// 值只有两边都是字符串时才比得动。绑定参数是字段表，可以是数字、布尔、
+/// 嵌套表；表单里的值只是字符串。拿 `"1"` 去比一个绑定的 `1`，
+/// 比出来的「不匹配」是猜的，所以这类参数不比较，记进 `unknown` 由上层改口径。
+fn headers_match(
+    arguments: &[super::KeyValue],
+    headers: &[MessageHeader],
+    unknown: &mut Vec<String>,
+    origin: &str,
+) -> bool {
+    // `x-match` 只在边界被忽略时才退回默认值 `all`：认不出的写法该怎么算
+    // 属于服务端的实现细节，这里不替它猜。
     let require_all = arguments
         .iter()
-        .find(|item| item.key == "x-match")
-        .map(|item| item.value != "any")
+        .find(|item| item.key.eq_ignore_ascii_case("x-match"))
+        .map(|item| !item.value.trim().eq_ignore_ascii_case("any"))
         .unwrap_or(true);
 
-    let pairs: Vec<(&str, &str)> = arguments
+    let pairs: Vec<&super::KeyValue> = arguments
         .iter()
         .filter(|item| !item.key.starts_with("x-"))
-        .map(|item| (item.key.as_str(), item.value.as_str()))
         .collect();
     if pairs.is_empty() {
-        // 没有匹配参数时 headers 交换机不转发任何消息。
+        // 没有匹配参数时 headers 交换机不转发任何消息。这是明确结论。
         return false;
     }
 
-    let hit = |(name, value): &(&str, &str)| {
-        headers
-            .iter()
-            .any(|header| header.key == *name && header.value == *value)
+    let mut hit = |pair: &super::KeyValue| -> Option<bool> {
+        let Some(expected) = string_argument(pair) else {
+            unknown.push(format!("{origin}:{}", pair.key));
+            return None;
+        };
+        Some(
+            headers
+                .iter()
+                .any(|header| header.key == pair.key && header.value.as_deref() == Some(expected)),
+        )
     };
-    if require_all {
-        pairs.iter().all(hit)
-    } else {
-        pairs.iter().any(hit)
+
+    let mut verdicts: Vec<Option<bool>> = Vec::with_capacity(pairs.len());
+    for pair in &pairs {
+        verdicts.push(hit(pair));
     }
+
+    if require_all {
+        // 一条比不了，整条绑定就比不了：不能因为其余对上了就说它命中。
+        !verdicts.contains(&Some(false)) && verdicts.iter().all(|item| item.is_some())
+    } else {
+        verdicts.contains(&Some(true))
+    }
+}
+
+/// 绑定参数的字面量，供 headers 交换机按值比较。
+///
+/// 只有字符串字面量才比得动：参数值来自 AMQP 字段表，可以是数字、布尔、
+/// 嵌套表；表单里的值只是字符串。拿 `"3"` 去比一个数字 `3` 得到的「不匹配」
+/// 是猜的 —— 而它会被说成「这条消息到不了这个队列」。
+fn string_argument(pair: &super::KeyValue) -> Option<&str> {
+    pair.text.then_some(pair.value.as_str())
 }
 
 #[cfg(test)]
@@ -348,11 +414,8 @@ mod tests {
         }
     }
 
-    fn header(key: &str, value: &str) -> MessageHeader {
-        MessageHeader {
-            key: key.to_owned(),
-            value: value.to_owned(),
-        }
+    fn header(key: &str, value: impl Into<String>) -> MessageHeader {
+        MessageHeader::new(key, value)
     }
 
     #[test]
@@ -472,14 +535,8 @@ mod tests {
         let exchanges = vec![target];
         let mut bindings = vec![binding("h", "q.h", BindingDestination::Queue, "")];
         bindings[0].arguments = vec![
-            super::super::KeyValue {
-                key: "x-match".to_owned(),
-                value: "all".to_owned(),
-            },
-            super::super::KeyValue {
-                key: "type".to_owned(),
-                value: "order".to_owned(),
-            },
+            super::super::KeyValue::new("x-match", "all"),
+            super::super::KeyValue::new("type", "order"),
         ];
 
         let hit = predict(
@@ -500,9 +557,13 @@ mod tests {
             "",
             &[header("type", "user")],
         );
-        // headers 交换机的匹配参数不在预览请求里时算不出来，所以不给「会丢」的结论。
+        // 参数是字符串、消息里也有这个 header，只是值不同 —— 这是「确定不匹配」，
+        // 敢给出结论。
         assert!(miss.queues.is_empty());
-        assert!(miss.warning.is_none());
+        assert!(
+            miss.warning.expect("应给出会丢的提示").contains("丢弃"),
+            "比得动的参数就该给出明确结论"
+        );
     }
 
     /// 通配符必须独占一个词。服务端对 `order*` 这类写法永不命中，
@@ -568,5 +629,125 @@ mod tests {
         // 降级后同一个空结果不再等于「会丢」：界面据此改口径。
         assert!(!route.bindings_known);
         assert_eq!(route.queues.len(), 0);
+    }
+    /// 绑定参数的值只有两边都是字符串时才比得动。
+    ///
+    /// 数字、布尔、嵌套表在渲染后是 JSON 形态，拿表单里的字符串去比，
+    /// 「不匹配」是猜的 —— 而它会被说成「消息会被丢弃」。
+    #[test]
+    fn non_string_binding_argument_blocks_conclusion() {
+        let exchanges = vec![exchange("h", ExchangeKind::Headers)];
+        let mut bindings = vec![binding("h", "q.h", BindingDestination::Queue, "")];
+        bindings[0].arguments = vec![
+            super::super::KeyValue::new("x-match", "all"),
+            super::super::KeyValue::new("type", "order"),
+            // 数字参数：渲染后是 `3`，没有引号。
+            super::super::KeyValue::typed("retry", "3"),
+        ];
+
+        let route = predict(
+            &exchanges,
+            &bindings,
+            &[],
+            "h",
+            "",
+            &[header("type", "order")],
+        );
+        assert!(route.queues.is_empty());
+        assert_eq!(route.headers_unknown_parameters, ["h/q.h:retry"]);
+        assert!(
+            route.warning.is_none(),
+            "有一条参数比不了，就不能说消息会被丢弃"
+        );
+    }
+
+    /// 一条参数比不了就不能说这条绑定命中：少比一个参数就可能少算一个队列。
+    #[test]
+    fn unknown_argument_does_not_count_as_match_under_all() {
+        let exchanges = vec![exchange("h", ExchangeKind::Headers)];
+        let mut bindings = vec![binding("h", "q.h", BindingDestination::Queue, "")];
+        bindings[0].arguments = vec![
+            super::super::KeyValue::new("x-match", "all"),
+            super::super::KeyValue::typed("retry", "3"),
+        ];
+
+        let route = predict(&exchanges, &bindings, &[], "h", "", &[header("retry", "3")]);
+        assert!(route.queues.is_empty(), "比不了的参数不能当成对上");
+        assert!(route.warning.is_none());
+    }
+
+    /// `any` 是「命中一条即可」：比不了的那条不影响已成立的那条。
+    #[test]
+    fn unknown_argument_is_skipped_under_any() {
+        let exchanges = vec![exchange("h", ExchangeKind::Headers)];
+        let mut bindings = vec![binding("h", "q.h", BindingDestination::Queue, "")];
+        bindings[0].arguments = vec![
+            super::super::KeyValue::new("x-match", "any"),
+            super::super::KeyValue::new("type", "order"),
+            super::super::KeyValue::typed("retry", "3"),
+        ];
+
+        let route = predict(
+            &exchanges,
+            &bindings,
+            &[],
+            "h",
+            "",
+            &[header("type", "order")],
+        );
+        assert_eq!(route.queues.len(), 1);
+        // 结论仍然成立，但「有一条没比」这件事要说出来。
+        assert_eq!(route.headers_unknown_parameters, ["h/q.h:retry"]);
+    }
+
+    /// `x-match` 的大小写与空白不影响判定。
+    ///
+    /// 手打一个 `Any` 是常事。当成 `all` 处理会让「命中一条」的绑定被判成不命中，
+    /// 而预览会顺着这个说「消息会被丢弃」。
+    #[test]
+    fn x_match_value_is_case_insensitive() {
+        let exchanges = vec![exchange("h", ExchangeKind::Headers)];
+        let mut bindings = vec![binding("h", "q.h", BindingDestination::Queue, "")];
+        bindings[0].arguments = vec![
+            super::super::KeyValue::new("x-match", " Any "),
+            super::super::KeyValue::new("type", "order"),
+            super::super::KeyValue::new("region", "cn"),
+        ];
+
+        let route = predict(
+            &exchanges,
+            &bindings,
+            &[],
+            "h",
+            "",
+            &[header("type", "order")],
+        );
+        assert_eq!(route.queues.len(), 1, "any 只要求命中一条");
+    }
+
+    /// 没有值的 header 匹配不上任何参数 —— 包括值为空串的参数。
+    ///
+    /// 表单里的空值和「值为空串」是两件事：前者以 `void` 发出，后者是
+    /// 一个长度为 0 的 `longstr`。服务端拿它们跟绑定参数比，结果不同。
+    #[test]
+    fn header_without_value_never_matches_empty_argument() {
+        let exchanges = vec![exchange("h", ExchangeKind::Headers)];
+        let mut bindings = vec![binding("h", "q.h", BindingDestination::Queue, "")];
+        bindings[0].arguments = vec![
+            super::super::KeyValue::new("x-match", "all"),
+            super::super::KeyValue::new("note", ""),
+        ];
+
+        let absent = MessageHeader {
+            key: "note".to_owned(),
+            value: None,
+        };
+        let empty = header("note", "");
+        let route = predict(&exchanges, &bindings, &[], "h", "", &[absent]);
+        assert!(route.queues.is_empty());
+        assert!(route.headers_unknown_parameters.is_empty());
+
+        let hit = predict(&exchanges, &bindings, &[], "h", "", &[empty]);
+        assert_eq!(hit.queues.len(), 1);
     }
 }

@@ -28,7 +28,7 @@ pub async fn resend(client: &KafkaClient, request: &ResendRequest) -> AppResult<
     let original = read_original(client, &request.message_id).await?;
     let plan = build_plan(&original, request).map_err(|block| AppError::Invalid(block.reason()))?;
 
-    let headers: Vec<(String, String)> = plan
+    let headers: Vec<(String, Option<String>)> = plan
         .headers
         .iter()
         .map(|header| (header.key.clone(), header.value.clone()))
@@ -104,7 +104,7 @@ fn headers_of<M: Message>(message: &M) -> Vec<MessageHeader> {
             let value = header.value?;
             Some(MessageHeader {
                 key: header.key.to_owned(),
-                value: String::from_utf8_lossy(value).into_owned(),
+                value: Some(String::from_utf8_lossy(value).into_owned()),
             })
         })
         .collect()

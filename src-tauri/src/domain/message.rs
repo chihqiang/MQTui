@@ -67,11 +67,33 @@ pub struct MessageDetail {
 }
 
 /// 消息头键值。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// `value` 为 `None` 表示「这个 header 在消息里存在，但没有值」。
+/// 空串不能兼任这个意思：发送预览按 AMQP 的 `longstr` 建字段表，
+/// 空值以 `void` 发出，而 `void` 与空串在 headers 交换机上匹配结果完全不同
+/// （空串能匹配 `key = ""` 的绑定参数，`void` 一条都匹配不上）。
+/// 列表里显示成空串，但结论要按「没有值」算。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MessageHeader {
     pub key: String,
-    pub value: String,
+    #[serde(default)]
+    pub value: Option<String>,
+}
+
+impl MessageHeader {
+    /// 带值的 header。
+    pub fn new(key: impl Into<String>, value: impl Into<String>) -> Self {
+        Self {
+            key: key.into(),
+            value: Some(value.into()),
+        }
+    }
+
+    /// 展示用文本：没有值时是空串。
+    pub fn value_text(&self) -> &str {
+        self.value.as_deref().unwrap_or("")
+    }
 }
 
 /// 分页结果。具体中间件的分页语义不同，这里只统一承载形态。
@@ -287,7 +309,7 @@ mod tests {
             key: Some("k".to_owned()),
             headers: vec![MessageHeader {
                 key: "trace-id".to_owned(),
-                value: "abc".to_owned(),
+                value: Some("abc".to_owned()),
             }],
             payload: "{}".to_owned(),
         };
@@ -316,7 +338,7 @@ mod tests {
         match request {
             SendRequest::Kafka { headers, .. } => {
                 assert_eq!(headers.len(), 1);
-                assert_eq!(headers[0].value, "abc");
+                assert_eq!(headers[0].value.as_deref(), Some("abc"));
             }
             other => panic!("变体不对：{other:?}"),
         }

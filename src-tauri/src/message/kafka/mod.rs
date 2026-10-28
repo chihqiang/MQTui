@@ -312,7 +312,7 @@ pub async fn send(
     payload: &[u8],
     headers: &[MessageHeader],
 ) -> AppResult<String> {
-    let headers: Vec<(String, String)> = headers
+    let headers: Vec<(String, Option<String>)> = headers
         .iter()
         .map(|header| (header.key.clone(), header.value.clone()))
         .collect();

@@ -347,7 +347,7 @@ impl RabbitMqClient {
         exchange: &str,
         routing_key: &str,
         payload: &[u8],
-        headers: &[(String, String)],
+        headers: &[(String, Option<String>)],
     ) -> AppResult<String> {
         let properties = BasicProperties::default()
             .with_content_type("text/plain".into())

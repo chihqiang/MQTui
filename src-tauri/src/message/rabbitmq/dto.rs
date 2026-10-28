@@ -49,11 +49,11 @@ pub fn detail_from_delivery(delivery: &RawDelivery) -> MessageDetail {
     let mut headers = crate::broker::rabbitmq::dto::headers_from_properties(&delivery.properties);
     headers.push(MessageHeader {
         key: "exchange".to_owned(),
-        value: delivery.exchange.clone(),
+        value: Some(delivery.exchange.clone()),
     });
     headers.push(MessageHeader {
         key: "routingKey".to_owned(),
-        value: delivery.routing_key.clone(),
+        value: Some(delivery.routing_key.clone()),
     });
 
     MessageDetail {

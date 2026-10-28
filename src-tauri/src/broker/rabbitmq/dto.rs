@@ -47,7 +47,11 @@ pub fn headers_from_properties(properties: &BasicProperties) -> Vec<MessageHeade
                 .into_iter()
                 .map(|(key, value)| MessageHeader {
                     key: key.to_string(),
-                    value: amqp_value_to_string(value),
+                    // `void` 是「有这个 header，但没有值」，展示成空串但保留「没有」。
+                    value: match value {
+                        AMQPValue::Void => None,
+                        other => Some(amqp_value_to_string(other)),
+                    },
                 })
                 .collect()
         })
@@ -84,13 +88,16 @@ fn table_to_string(table: &FieldTable) -> String {
 }
 
 /// 字符串键值对转换为 AMQP 头。
-pub fn field_table_from_headers(headers: &[(String, String)]) -> FieldTable {
+pub fn field_table_from_headers(headers: &[(String, Option<String>)]) -> FieldTable {
     let mut table = FieldTable::default();
     for (key, value) in headers {
-        table.insert(
-            ShortString::from(key.clone()),
-            AMQPValue::LongString(value.clone().into()),
-        );
+        let value = match value {
+            Some(text) => AMQPValue::LongString(text.clone().into()),
+            // 没有值写 `void`，不写空串：headers 交换机里
+            // 「`key` 存在但无值」与「`key = ""`」匹配到的绑定完全不同。
+            None => AMQPValue::Void,
+        };
+        table.insert(ShortString::from(key.clone()), value);
     }
     table
 }

@@ -26,6 +26,7 @@ import {
   contentField,
   exchangeName,
   guessContentType,
+  headerFingerprint,
   sendBlockers,
   toHeaders,
   type DeliveryMode,
@@ -104,8 +105,10 @@ export function RabbitProduceForm({
    */
   const trimmedKey = routingKey.trim();
   const previewEnabled = exchange.trim() !== "" || trimmedKey !== "";
+  // 指纹而不是行数组：行数组每次渲染都是新引用，缓存键永远不相等。
+  const headersKey = useMemo(() => headerFingerprint(rows), [rows]);
   const preview = useQuery({
-    queryKey: ["sendRoute", connectionId, exchange, trimmedKey, toHeaders(rows)],
+    queryKey: ["sendRoute", connectionId, exchange, trimmedKey, headersKey],
     queryFn: () =>
       messageService.previewSend(connectionId, exchangeName(exchange), trimmedKey, toHeaders(rows)),
     enabled: previewEnabled,

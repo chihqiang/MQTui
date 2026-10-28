@@ -2,7 +2,13 @@
 
 export interface MessageHeader {
   key: string;
-  value: string;
+  /**
+   * 值。`null` / 缺省表示「这个 header 存在，但没有值」。
+   *
+   * 空串和「没有值」不是一回事：AMQP 侧一个是长度为 0 的字符串，
+   * 一个是 `void`，headers 交换机与消费端都区别对待。
+   */
+  value?: string | null;
 }
 
 export interface MessageQuery {
@@ -165,6 +171,13 @@ export interface SendRoute {
    * 缺省视为 `true`（后端老版本不会带这个字段）。
    */
   bindingsKnown?: boolean;
+  /**
+   * 比较不了的绑定参数（形如 `交换机/绑定目标:参数名`）。
+   *
+   * 绑定参数可以是数字、布尔、嵌套表，表单里的值只是字符串 —— 这类参数
+   * 没法比，少比一个就可能少算一个队列，所以空结果不能当结论。
+   */
+  headersUnknownParameters?: string[];
 }
 
 /**

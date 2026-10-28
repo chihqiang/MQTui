@@ -70,7 +70,10 @@ export function MessageDetailDialog({ connectionId, message, onClose, onLocateKe
                     className="flex gap-2 rounded border border-slate-200 px-2 py-1 text-(length:--text-app-body)"
                   >
                     <span className="shrink-0 font-mono text-info">{header.key}</span>
-                    <span className="min-w-0 flex-1 break-all text-slate-600">{header.value}</span>
+                    <span className="min-w-0 flex-1 break-all text-slate-600">
+                      {/* 空值单独标出来：空串和「没有值」在消费端是两种判断。 */}
+                      {header.value ?? <span className="text-slate-400">（没有值）</span>}
+                    </span>
                   </li>
                 ))}
               </ul>
