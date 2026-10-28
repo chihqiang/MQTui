@@ -36,6 +36,11 @@ export function MessageResendDialog({ connectionId, message, onClose, topicNames
     queryFn: () => messageService.getMessage(connectionId, message.id),
   });
   const originalBase64 = detail.data?.payloadBase64;
+  /*
+    原 key 的原始字节。表单里显示的是 lossy 文本，二进制 key 用它会换分区，
+    所以「用户没改 key」这件事必须用 base64 说出来，而不是靠文本域看不出来。
+  */
+  const originalKeyBase64 = detail.data?.keyBase64;
 
   const submit = () => {
     // 用户没动过内容 → 用 base64 逐字节还原；动过 → 以他打的字为准。
@@ -46,6 +51,7 @@ export function MessageResendDialog({ connectionId, message, onClose, topicNames
         messageId: message.id,
         topic: topic.trim(),
         key: key.trim() || undefined,
+        keyBase64: key.trim() ? undefined : originalKeyBase64,
         payload: payload.trim() ? payload : undefined,
         payloadBase64: untouched ? originalBase64 : undefined,
         keepHeaders,
@@ -102,7 +108,14 @@ export function MessageResendDialog({ connectionId, message, onClose, topicNames
             列表里唯一那个已知的 key 就是这条消息自己的，把它做成下拉只会诱人
             把重发做成「同一条再发一遍」。
           */}
-          <Field label="消息 key" hint="留空沿用原 key；换 key 会让分区落点变掉">
+          <Field
+            label="消息 key"
+            hint={
+              originalKeyBase64
+                ? "留空沿用原 key（逐字节还原，二进制 key 也不会换分区）"
+                : "留空沿用原 key；换 key 会让分区落点变掉"
+            }
+          >
             <Input
               value={key}
               onChange={(event) => setKey(event.currentTarget.value)}

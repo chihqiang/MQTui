@@ -7,7 +7,7 @@ import {
 } from "react";
 
 import { cn } from "@/lib/cn";
-import { IconClose, IconSearch } from "@/lib/icons";
+import { IconChevronDown, IconClose, IconSearch } from "@/lib/icons";
 
 export const FIELD_CLASS =
   "w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-(length:--text-app-body) text-slate-900 " +
@@ -24,11 +24,37 @@ export function Textarea({ className, ...props }: TextareaHTMLAttributes<HTMLTex
   return <textarea className={cn(FIELD_CLASS, "font-mono", className)} {...props} />;
 }
 
+/**
+ * 下拉框。
+ *
+ * 外观必须自己画：原生 `<select>` 在 Chromium/WebKit 里自带一圈斜面按钮，
+ * 灰底、深色描边、右侧那块「上下箭头」的凸起，和这一套白底细描边的输入框
+ * 放在同一行里像是两个年代的东西。`appearance-none` 只去掉控件外观，
+ * 箭头要自己补 —— 所以右边多留 28px 给它（`pr-7`）。
+ *
+ * 高度仍由 `FIELD_CLASS` 的内边距撑：拉起一个 `h-8` 的外层容器会压过内边距，
+ * 填在弹窗表单里看着就比旁边的 `Input` 矮一截。要对齐工具条那排控件，
+ * 由页面在 `className` 里写高度。
+ */
 export function Select({ className, children, ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
   return (
-    <select className={cn(FIELD_CLASS, "cursor-pointer", className)} {...props}>
-      {children}
-    </select>
+    <div className="relative min-w-0">
+      <select
+        className={cn(
+          FIELD_CLASS,
+          // `pr-7` 是给自绘箭头留的位置，写死在组件里，页面传 `pr-*` 也压不掉它。
+          "cursor-pointer appearance-none truncate pr-7",
+          className,
+        )}
+        {...props}
+      >
+        {children}
+      </select>
+      <IconChevronDown
+        size={12}
+        className="pointer-events-none absolute top-0 right-2 bottom-0 my-auto text-slate-400"
+      />
+    </div>
   );
 }
 

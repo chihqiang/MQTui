@@ -61,11 +61,25 @@ pub fn detail_from_message<M: Message>(message: &M) -> MessageDetail {
         summary: summary_from_message(message),
         payload: text,
         payload_base64: base64,
+        // key 通常就是业务 ID，是文本；只有解不出 UTF-8 时才值得多发一份原始字节。
+        key_base64: message.key().and_then(binary_key),
         headers: message
             .headers()
             .map(headers_to_headers)
             .unwrap_or_default(),
     }
+}
+
+/// 二进制 key 的 base64；文本 key 返回 `None`。
+///
+/// 判断标准与 `decode_payload` 一致：能当 UTF-8 读就不用管，读不出来才说明
+/// 展平到字符串会改内容（`\xff` → `\u{fffd}`），重发得靠原始字节。
+fn binary_key(key: &[u8]) -> Option<String> {
+    if std::str::from_utf8(key).is_ok() {
+        return None;
+    }
+    use base64::Engine;
+    Some(base64::engine::general_purpose::STANDARD.encode(key))
 }
 
 /// rdkafka 的头集合转换为领域头列表（展示用）。

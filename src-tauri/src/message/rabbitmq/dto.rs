@@ -60,6 +60,8 @@ pub fn detail_from_delivery(delivery: &RawDelivery) -> MessageDetail {
         summary: summary_from_delivery(delivery),
         payload: text,
         payload_base64: base64,
+        // AMQP 的 key 是 `summary.key`，没有另一份「原始字节」可言。
+        key_base64: None,
         headers,
     }
 }
@@ -85,6 +87,7 @@ pub fn placeholder_from_id(id: &str) -> AppResult<MessageDetail> {
         },
         payload: String::new(),
         payload_base64: None,
+        key_base64: None,
         headers: Vec::new(),
     })
 }

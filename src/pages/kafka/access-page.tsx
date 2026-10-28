@@ -29,22 +29,19 @@ import {
   aclVerdict,
   blankEntry,
   byPrincipal,
-  describeFilter,
+  filterChips,
   filterEntries,
   invertPermission,
+  isFilterEmpty,
   selfLockRisks,
   ACL_OPERATION_OPTIONS,
   ACL_PERMISSION_OPTIONS,
   ACL_RESOURCE_TYPES,
 } from "@/lib/acl";
-import {
-  ACL_OPERATION_LABEL,
-  ACL_PERMISSION_LABEL,
-  ACL_RESOURCE_LABEL,
-} from "@/types/acl";
-import type { AclEntry, AclFilter, AclOperation, AclPermission, AclResourceType } from "@/types/acl";
+import { cn } from "@/lib/cn";
 import { errorMessage } from "@/lib/errors";
 import { failureText } from "@/lib/failure";
+import { IconClose } from "@/lib/icons";
 import {
   groupQuotas,
   partialUsers,
@@ -53,6 +50,16 @@ import {
   scramReadable,
   scramVerdictOf,
 } from "@/lib/quota";
+import {
+  ACL_OPERATION_LABEL,
+  ACL_PERMISSION_LABEL,
+  ACL_RESOURCE_LABEL,
+  type AclEntry,
+  type AclFilter,
+  type AclOperation,
+  type AclPermission,
+  type AclResourceType,
+} from "@/types/acl";
 
 /**
  * Kafka 准入页：ACL + 客户端配额 + SASL/SCRAM 凭据。
@@ -84,6 +91,7 @@ export function AccessPage() {
   );
   const acls = useAcls(connectionId, filter);
 
+  const chips = filterChips(filter);
   const visible = filterEntries(acls.data?.entries ?? [], filter);
   const groups = byPrincipal(visible);
   const risks = acls.data ? selfLockRisks(acls.data) : [];
@@ -92,7 +100,7 @@ export function AccessPage() {
     <PageBody>
       <PageHeader
         title="准入"
-        description="谁被允许做什么、谁被限速、谁能连上；三栏都只读，改动请用 kafka-acls.sh / kafka-configs.sh"
+        description="谁被允许做什么、谁被限速、谁能连上；ACL 可写（先预演），配额与凭据只读，改动请用 kafka-configs.sh"
         actions={
           <RefreshButton
             state={{
@@ -135,65 +143,55 @@ export function AccessPage() {
             </div>
           }
         />
-        <CardBody className="flex flex-col gap-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <Select
+        <CardBody className="flex flex-col gap-2.5">
+          {/* 第一层是筛法，第二层只留命中情况：「筛了什么」和「筛出什么」
+              放在同一行时，用户改一个下拉就要重新找一遍计数。 */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <AclFilterSelect
+              label="资源类型"
               value={filter.resourceType ?? ""}
-              onChange={(event) => {
-                const value = event.currentTarget.value;
+              anyLabel="全部资源"
+              options={ACL_RESOURCE_TYPES.map((kind) => ({
+                value: kind,
+                label: ACL_RESOURCE_LABEL[kind],
+              }))}
+              onChange={(value) =>
                 setFilter((current) => ({
                   ...current,
                   resourceType: value ? (value as AclResourceType) : undefined,
-                }));
-              }}
-              className="w-28"
-              aria-label="资源类型"
-            >
-              <option value="">全部资源</option>
-              {ACL_RESOURCE_TYPES.map((kind) => (
-                <option key={kind} value={kind}>
-                  {ACL_RESOURCE_LABEL[kind]}
-                </option>
-              ))}
-            </Select>
-            <Select
+                }))
+              }
+            />
+            <AclFilterSelect
+              label="操作"
               value={filter.operation ?? ""}
-              onChange={(event) => {
-                const value = event.currentTarget.value;
+              anyLabel="全部操作"
+              options={ACL_OPERATION_OPTIONS.map((operation) => ({
+                value: operation,
+                label: ACL_OPERATION_LABEL[operation],
+              }))}
+              onChange={(value) =>
                 setFilter((current) => ({
                   ...current,
                   operation: value ? (value as AclOperation) : undefined,
-                }));
-              }}
-              className="w-32"
-              aria-label="操作"
-            >
-              <option value="">全部操作</option>
-              {ACL_OPERATION_OPTIONS.map((operation) => (
-                <option key={operation} value={operation}>
-                  {ACL_OPERATION_LABEL[operation]}
-                </option>
-              ))}
-            </Select>
-            <Select
+                }))
+              }
+            />
+            <AclFilterSelect
+              label="权限"
               value={filter.permission ?? ""}
-              onChange={(event) => {
-                const value = event.currentTarget.value;
+              anyLabel="允许与拒绝"
+              options={ACL_PERMISSION_OPTIONS.map((permission) => ({
+                value: permission,
+                label: ACL_PERMISSION_LABEL[permission],
+              }))}
+              onChange={(value) =>
                 setFilter((current) => ({
                   ...current,
                   permission: value ? (value as AclPermission) : undefined,
-                }));
-              }}
-              className="w-24"
-              aria-label="权限"
-            >
-              <option value="">允许与拒绝</option>
-              {ACL_PERMISSION_OPTIONS.map((permission) => (
-                <option key={permission} value={permission}>
-                  {ACL_PERMISSION_LABEL[permission]}
-                </option>
-              ))}
-            </Select>
+                }))
+              }
+            />
             <SearchInput
               value={filter.principal ?? ""}
               onValueChange={(value) =>
@@ -201,7 +199,7 @@ export function AccessPage() {
               }
               icon
               placeholder="主体含…"
-              className="w-44"
+              className="w-40"
               aria-label="按主体筛选"
             />
             <SearchInput
@@ -211,24 +209,50 @@ export function AccessPage() {
               }
               icon
               placeholder="资源名含…"
-              className="w-44"
+              className="w-40"
               aria-label="按资源名筛选"
             />
             <Segmented
+              className="ml-auto"
               value={aclView}
               onChange={(value) => setAclView(value as "principal" | "flat")}
               options={[
-                { value: "principal", label: "按主体" },
-                { value: "flat", label: "逐条" },
+                { value: "principal", label: "按主体", title: "同一个人能做的事放在一块" },
+                { value: "flat", label: "逐条", title: "一行一条规则，主体每行都写" },
               ]}
             />
           </div>
 
-          {/* 过滤后的表最容易被误读成全量，所以只要筛了就把它说出来。 */}
-          <p className="text-meta">
-            {describeFilter(filter)}
-            {acls.data ? ` · 命中 ${visible.length} / ${acls.data.entries.length} 条` : ""}
-          </p>
+          {/* 过滤后的表最容易被误读成全量，所以只要筛了就把它说出来 ——
+              而且每条都能就地摘掉。以前只有一句「筛选中 · 命中 0 / 0 条」，
+              在空表上唯一能做的是回去把下拉挨个点回「全部」。 */}
+          <div className="flex min-h-6 flex-wrap items-center gap-1.5">
+            <span className="mr-0.5 text-meta">
+              {isFilterEmpty(filter) ? "全部规则" : "筛选中"}
+              {acls.data ? ` · 命中 ${visible.length} / ${acls.data.entries.length} 条` : ""}
+            </span>
+            {chips.map((chip) => (
+              <button
+                key={chip.key}
+                type="button"
+                onClick={() => setFilter((current) => ({ ...current, [chip.key]: undefined }))}
+                className="group inline-flex items-center gap-1 rounded-full bg-slate-100 py-0.5 pr-1.5 pl-2 text-meta text-slate-700 transition-colors hover:bg-slate-200"
+                aria-label={`去掉筛选：${chip.text}`}
+              >
+                {chip.text}
+                <IconClose size={10} className="text-slate-400 group-hover:text-slate-700" />
+              </button>
+            ))}
+            {chips.length > 1 ? (
+              <button
+                type="button"
+                onClick={() => setFilter({})}
+                className="rounded px-1 text-meta text-indigo-700 transition-colors hover:bg-indigo-50"
+              >
+                全部清掉
+              </button>
+            ) : null}
+          </div>
 
           {acls.error && !acls.data ? (
             <ErrorState
@@ -247,6 +271,15 @@ export function AccessPage() {
                 acls.data?.entries.length
                   ? "换个筛选条件试试；这里只做包含匹配，不区分大小写"
                   : "集群没有配置授权器时，任何操作都不会被 ACL 拦截"
+              }
+              // 空表上最该有的按钮就是「把筛选清掉」：它比让用户回去
+              // 把三个下拉逐个点回「全部」近得多。
+              action={
+                acls.data?.entries.length && !isFilterEmpty(filter) ? (
+                  <Button size="sm" variant="ghost" onClick={() => setFilter({})}>
+                    清掉筛选，显示全部 {acls.data.entries.length} 条
+                  </Button>
+                ) : undefined
               }
             />
           ) : aclView === "principal" ? (
@@ -420,5 +453,48 @@ export function AccessPage() {
         </CardBody>
       </Card>
     </PageBody>
+  );
+}
+
+/**
+ * 筛选条上的一个下拉。
+ *
+ * 三处与裸 `Select` 不同的地方，都是为了「一排控件看起来是一组」：
+ * - 宽度按最长选项定死，三个下拉等宽；按内容自适应的话，切一次值整个条会重排；
+ * - 「不过滤」那一项写成 `全部资源 / 全部操作 / 允许与拒绝`，标签就落在选项里，
+ *   不再另起一行 `<label>` —— 一行三个标签加三个下拉，高度直接翻倍；
+ * - 选中了就把边框和字色压深一档。不选和选了长得一样时，用户得点开才知道
+ *   自己筛没筛。
+ */
+function AclFilterSelect({
+  label,
+  value,
+  anyLabel,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  anyLabel: string;
+  options: { value: string; label: string }[];
+  onChange: (next: string) => void;
+}) {
+  return (
+    <Select
+      value={value}
+      onChange={(event) => onChange(event.currentTarget.value)}
+      aria-label={label}
+      className={cn(
+        "h-8 w-32 py-0",
+        value ? "border-slate-300 font-medium text-slate-900" : "text-slate-600",
+      )}
+    >
+      <option value="">{anyLabel}</option>
+      {options.map((option) => (
+        <option key={option.value} value={option.value}>
+          {option.label}
+        </option>
+      ))}
+    </Select>
   );
 }

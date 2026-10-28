@@ -144,9 +144,11 @@ function ConnectionPages({
   if (items.length === 0) return null;
 
   return (
+    // `ml-[18px]` 对齐到连接行那个箭头的竖轴；右边收 4px 是给悬停背景留的余量 ——
+    // 菜单项贴着侧栏内边距画背景时，右边会被裁成齐口，看着像溢出了。
     <ul
       className={cn(
-        "mt-0.5 mb-1 ml-[18px] flex flex-col gap-px border-l border-slate-200 pl-2",
+        "mt-0.5 mb-1 ml-[18px] flex flex-col gap-px border-l border-slate-200 pr-1 pl-2",
         !active && "opacity-70",
       )}
     >

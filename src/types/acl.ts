@@ -112,23 +112,30 @@ export const ACL_PATTERN_LABEL: Record<AclPattern, string> = {
   wildcard: "全部资源",
 };
 
-/** 规则表的列。 */
+/**
+ * 规则表的列。
+ *
+ * 「资源类型」单独一列，不并进「资源」：`主题 payments / 消费组 payments`
+ * 写成一串时，扫一眼分不出哪段是类型；而 ACL 事故里最常见的误判就是
+ * 「我明明给了主题权限」（实际给的是同名消费组）。
+ */
 export const ACL_COLUMNS = [
   { key: "principal", label: "主体" },
-  { key: "principal", label: "主体" },
+  { key: "resourceType", label: "资源类型", width: "w-24" },
   { key: "resource", label: "资源" },
   { key: "operation", label: "操作", width: "w-28" },
   { key: "permission", label: "权限", width: "w-24" },
-  { key: "host", label: "来源主机", width: "w-36" },
+  { key: "host", label: "来源主机", width: "w-32" },
 ] as const;
 
 /** 按主体分组的列：组头是一行主体名，里面是这个人能做的事。 */
 export const ACL_PRINCIPAL_COLUMNS = [
   { key: "principal", label: "主体" },
+  { key: "resourceType", label: "资源类型", width: "w-24" },
   { key: "resource", label: "资源" },
   { key: "operation", label: "操作", width: "w-28" },
   { key: "permission", label: "权限", width: "w-24" },
-  { key: "host", label: "来源主机", width: "w-36" },
+  { key: "host", label: "来源主机", width: "w-32" },
 ] as const;
 
 /** 资源类型下拉的选项顺序：先常看的主题 / 消费组，再集群级。 */

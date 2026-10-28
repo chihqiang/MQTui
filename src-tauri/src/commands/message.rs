@@ -2,6 +2,7 @@
 
 use tauri::State;
 
+use crate::broker::kafka::client::DeliveryReceipt;
 use crate::domain::consumer_disconnect as disconnect;
 use crate::domain::{
     BatchDisposalOutcome, BatchDisposalRequest, BindingKey, BindingSpec, BrokerKind, ConnectionId,
@@ -338,7 +339,7 @@ pub async fn send_message(
                 .connections
                 .get(&ConnectionId(connection_id.clone()))
                 .await?;
-            let detail = message::kafka::send(
+            let receipt = message::kafka::send(
                 connection.as_kafka()?,
                 topic,
                 key.as_deref(),
@@ -346,9 +347,12 @@ pub async fn send_message(
                 headers,
             )
             .await?;
+            // 投递结果三态原样带上：`unsure` 必须让界面说「可能已写入」，
+            // 折成一句「失败」会把人推去再点一次，那才是重复消息。
             Ok(SendOutcome {
                 kind: BrokerKind::Kafka,
-                detail,
+                detail: receipt.message(topic),
+                unsure: matches!(receipt, DeliveryReceipt::Unsure(_)),
             })
         }
         SendRequest::RabbitMq {
@@ -385,6 +389,7 @@ pub async fn send_message(
             Ok(SendOutcome {
                 kind: BrokerKind::RabbitMq,
                 detail,
+                unsure: false,
             })
         }
     }

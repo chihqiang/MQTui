@@ -56,7 +56,12 @@ export function KafkaProduceForm({
         headers: toHeaders(rows),
         payload,
       });
-      pushToast("success", `已写入 topic ${topic.trim()}：${outcome.detail}`);
+      // 没拿到确认时不报「已写入」：那句话会让人以为可以放心进入下一步，
+      // 而真实状态是「不知道」，要先刷新看一眼。
+      pushToast(
+        outcome.unsure ? "error" : "success",
+        outcome.unsure ? outcome.detail : `已写入 topic ${topic.trim()}：${outcome.detail}`,
+      );
     } catch (error) {
       pushToast("error", errorMessage(error));
     } finally {

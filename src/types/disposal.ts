@@ -48,6 +48,14 @@ export interface ResendRequest {
   topic: string;
   /** 消息 key，留空沿用原 key。 */
   key?: string;
+  /**
+   * 原消息 key 的 base64。
+   *
+   * 与 `payloadBase64` 同理：key 只参与分区哈希，不必是 UTF-8。把它当字符串
+   * 来回搬一次（`\xff` → `\u{fffd}`），同一条 key 就落到别的分区上了——
+   * 而「落点有没有变」正是重发要回答的问题。
+   */
+  keyBase64?: string;
   /** 消息内容，留空沿用原内容。 */
   payload?: string;
   /**

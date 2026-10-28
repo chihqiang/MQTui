@@ -36,6 +36,13 @@ pub struct ResendRequest {
     /// 消息 key，留空沿用原 key。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key: Option<String>,
+    /// 原消息 key 的 base64。用户没改 key 时由前端原样回传。
+    ///
+    /// key 只参与分区哈希，不必是 UTF-8；把它当字符串来回搬一次，`\xff`
+    /// 就变成 `\u{fffd}`，同一条 key 于是落到别的分区 —— 而「落点有没有变」
+    /// 正是重发要回答的问题。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key_base64: Option<String>,
     /// 消息内容，留空沿用原内容。
     ///
     /// 这里只收文本，因为用户在表单里只打得出文本；要逐字节还原原消息，
@@ -56,6 +63,12 @@ pub struct ResendRequest {
 #[derive(Debug, Clone)]
 pub struct ResendPlan {
     pub topic: String,
+    /// 真正交给 producer 的 key 字节。**它决定分区**，所以保真要紧。
+    pub key_bytes: Option<Vec<u8>>,
+    /// key 的展示形式：只在「用户自己没填」时用来告诉他要发的是什么。
+    ///
+    /// 文本与 `key_bytes` 不是一一对应的（非 UTF-8 的 key 在文本里是 `�`），
+    /// 所以它不参与发送。
     pub key: Option<String>,
     pub payload: Vec<u8>,
     /// 原样保留的 headers：二进制值不做 UTF-8 转换，`None` 值的 header 也不丢。
@@ -79,6 +92,8 @@ pub enum ResendBlock {
     EmptyPayload,
     /// 前端带回来的 base64 解不开：宁可中断，也不要重发一条内容已经不对的消息。
     InvalidPayloadBase64,
+    /// 前端带回的原 key 不是合法 base64：同上，不拿半截 key 去换分区。
+    InvalidKeyBase64,
 }
 
 impl ResendBlock {
@@ -96,6 +111,9 @@ impl ResendBlock {
             Self::EmptyPayload => "消息内容为空：原消息没有 payload，也没有填写新的内容".to_owned(),
             Self::InvalidPayloadBase64 => {
                 "原消息内容无法解码（base64 损坏），本次重发已取消：原消息可能已被 retention 清理，刷新后再试".to_owned()
+            }
+            Self::InvalidKeyBase64 => {
+                "原消息的 key 无法解码（base64 损坏），本次重发已取消：把 key 留空或重新填一次再发".to_owned()
             }
         }
     }
@@ -134,7 +152,10 @@ fn decode_base64(encoded: &str) -> Option<Vec<u8>> {
 pub struct OriginalMessage {
     pub topic: String,
     pub partition: Option<i32>,
-    pub key: Option<String>,
+    /// 原始 key 字节（分区由它决定）。
+    pub key: Option<Vec<u8>>,
+    /// key 的展示文本，只用于提示。
+    pub key_text: Option<String>,
     pub payload: Vec<u8>,
     pub headers: Vec<RawMessageHeader>,
 }
@@ -155,9 +176,30 @@ pub fn build_plan(
         return Err(block);
     }
 
-    let (key, key_kept) = match request.key.as_deref().map(str::trim) {
-        Some("") | None => (original.key.clone(), true),
-        Some(key) => (Some(key.to_owned()), false),
+    // key 的三条来源，与内容同理，按保真度取第一个可用的：
+    // 1. 用户真在表单里填了 → 用他打的字（UTF-8 是这类 key 的唯一形态）；
+    // 2. 表单空着、前端带回了原 key 的 base64 → 逐字节还原；
+    // 3. 都没有 → 用刚才回源读到的原始字节。
+    let typed_key = request
+        .key
+        .as_deref()
+        .map(str::trim)
+        .filter(|key| !key.is_empty())
+        .map(|key| key.as_bytes().to_vec());
+    let (key_bytes, key_kept) = match typed_key {
+        Some(typed) => (Some(typed), false),
+        None => {
+            let bytes = match request.key_base64.as_deref() {
+                Some(encoded) => Some(decode_base64(encoded).ok_or(ResendBlock::InvalidKeyBase64)?),
+                None => original.key.clone(),
+            };
+            (bytes, true)
+        }
+    };
+    // 展示用的文本只在「沿用了原 key」时才谈得上：用户填的那份本来就是文本。
+    let key = match request.key.as_deref().map(str::trim) {
+        Some(key) if !key.is_empty() => Some(key.to_owned()),
+        _ => original.key_text.clone(),
     };
 
     // 内容的三条来源，按「保真度」从高到低取第一个可用的：
@@ -182,6 +224,7 @@ pub fn build_plan(
 
     Ok(ResendPlan {
         topic,
+        key_bytes,
         key,
         payload,
         headers: if request.keep_headers {
@@ -246,7 +289,7 @@ pub fn compare_partition(plan: &ResendPlan, delivered: i32) -> PartitionCheck {
         // 两个条件都要判：用户可能把原来的 key 主动填成新值（不可比），
         // 也可能原消息本来就没有 key（可比性根本不存在）。
         None => PartitionCheck::NotComparable,
-        Some(_) if !plan.key_kept || plan.key.is_none() => PartitionCheck::NotComparable,
+        Some(_) if !plan.key_kept || plan.key_bytes.is_none() => PartitionCheck::NotComparable,
         Some(original) if original == delivered => PartitionCheck::Same,
         Some(original) => PartitionCheck::Moved(format!(
             "同一条 key 这次落到了分区 {delivered}，原消息在分区 {original}。\
@@ -263,7 +306,8 @@ mod tests {
         OriginalMessage {
             topic: "orders".to_owned(),
             partition: Some(3),
-            key: Some("order-1001".to_owned()),
+            key: Some(b"order-1001".to_vec()),
+            key_text: Some("order-1001".to_owned()),
             payload: b"{\"id\":1001}".to_vec(),
             headers: vec![RawMessageHeader {
                 key: "trace-id".to_owned(),
@@ -278,6 +322,7 @@ mod tests {
             message_id: "orders:3:1024".to_owned(),
             topic: String::new(),
             key: None,
+            key_base64: None,
             payload: None,
             payload_base64: None,
             keep_headers: true,
@@ -377,6 +422,59 @@ mod tests {
             build_plan(&source, &req).expect_err("全是空白也不放行"),
             ResendBlock::EmptyPayload
         );
+    }
+
+    #[test]
+    fn binary_key_survives_base64_round_trip() {
+        // key 只参与分区哈希，不必是 UTF-8。把它当字符串搬一次，
+        // `\xff` 会变成 `\u{fffd}`，同一条 key 于是落到别的分区 ——
+        // 而「落点有没有变」正是重发要回答的问题。
+        let raw = vec![0xff_u8, 0x00, 0x41];
+        let mut source = original();
+        source.key = Some(raw.clone());
+        source.key_text = Some(String::from_utf8_lossy(&raw).into_owned());
+
+        let mut req = request();
+        req.key_base64 = Some(base64::engine::general_purpose::STANDARD.encode(&raw));
+
+        let plan = build_plan(&source, &req).expect("应当可以重发");
+        assert_eq!(plan.key_bytes.as_deref(), Some(raw.as_slice()));
+        assert!(plan.key_kept);
+    }
+
+    #[test]
+    fn typed_key_beats_base64() {
+        let mut req = request();
+        req.key = Some("order-2002".to_owned());
+        req.key_base64 = Some(base64::engine::general_purpose::STANDARD.encode(b"order-1001"));
+
+        let plan = build_plan(&original(), &req).expect("应当可以重发");
+        assert_eq!(plan.key_bytes.as_deref(), Some(b"order-2002".as_slice()));
+        assert!(!plan.key_kept);
+    }
+
+    #[test]
+    fn broken_key_base64_blocks_instead_of_changing_partition() {
+        let mut req = request();
+        req.key_base64 = Some("not base64!!!".to_owned());
+        assert_eq!(
+            build_plan(&original(), &req).expect_err("解不开就不该发"),
+            ResendBlock::InvalidKeyBase64
+        );
+    }
+
+    #[test]
+    fn blank_key_falls_back_to_original_bytes() {
+        // 前端在「用户没动 key」时会同时留空 key 和 keyBase64，
+        // 此时必须用回源读到的原始字节，而不是那份 lossy 文本。
+        let raw = vec![0xfe_u8, 0xff];
+        let mut source = original();
+        source.key = Some(raw.clone());
+        source.key_text = Some("\u{fffd}\u{fffd}".to_owned());
+
+        let plan = build_plan(&source, &request()).expect("应当可以重发");
+        assert_eq!(plan.key_bytes.as_deref(), Some(raw.as_slice()));
+        assert!(plan.key_kept);
     }
 
     #[test]

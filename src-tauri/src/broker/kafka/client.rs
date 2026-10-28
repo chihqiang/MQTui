@@ -1,6 +1,6 @@
 //! Kafka 客户端封装：只暴露面板需要的少量能力，屏蔽 librdkafka 细节。
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use rdkafka::ClientConfig;
@@ -22,12 +22,17 @@ use super::dto::client_config;
 /// 元数据请求超时。
 pub(super) const META_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// producer 自己的重试窗口：超过它 librdkafka 就放弃这条消息并报 `MsgTimedOut`。
+const PRODUCER_TIMEOUT: Duration = Duration::from_secs(40);
+
 /// 发送一条消息时等 broker 确认的上限。
 ///
-/// 这个值必须**大于** producer 自己的 `message.timeout.ms`（30s）：
-/// 比它小的话，librdkafka 还在重试，这边已经先超时了 —— 用户看到「发送失败」，
-/// 而消息可能过几秒真的写进去了，再点一次就是重复消息。
+/// 必须**大于** `PRODUCER_TIMEOUT`：比它小的话，librdkafka 还在重试，这边已经
+/// 先放手了 —— 用户看到「失败」，几秒后消息其实落了盘，再点一次就是重复。
 pub(super) const DELIVERY_TIMEOUT: Duration = Duration::from_secs(45);
+
+/// 发送队列里最多压多少条。面板是人工操作，队列满只说明 broker 连不上了。
+const PRODUCER_QUEUE_CAPACITY: i32 = 10_000;
 
 /// Kafka 客户端。
 ///
@@ -36,6 +41,15 @@ pub struct KafkaClient {
     config: ClientConfig,
     bootstrap: String,
     admin: Arc<BaseConsumer>,
+    /// 本连接唯一的 producer。
+    ///
+    /// 「每次发送新建一个 producer」看起来更干净，但它把幂等性彻底废掉了：
+    /// `enable.idempotence` 的判重范围是**单个 producer 实例**（PID + epoch），
+    /// 换实例就等于换了个身份，broker 无从判断这是不是同一条消息的重试。
+    /// 而「点一次发送、超时、再点一次」恰好会吃到这一点：第一次真的写进去了，
+    /// 第二次是另一个实例，于是日志里出现两条一模一样的内容。
+    /// 常驻一个实例之后，幂等才是用户以为它一直在做的那个幂等。
+    producer: Arc<Mutex<Option<FutureProducer>>>,
 }
 
 impl KafkaClient {
@@ -62,6 +76,7 @@ impl KafkaClient {
             config: base,
             bootstrap,
             admin,
+            producer: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -108,41 +123,40 @@ impl KafkaClient {
             .collect())
     }
 
-    /// 发送一条消息，返回 `partition@offset` 形式的确认信息。
+    /// 发送一条消息，返回「分区 / offset」或那张「不知道写没写进去」的告示。
+    ///
+    /// 第二条路径的返回值不是错误：`Err` 会让界面把它当成失败并鼓励再点一次，
+    /// 而那正是重复消息的来源。它的措辞要求在 `DeliveryReceipt::Unsure` 上。
     pub async fn send(
         &self,
         topic: &str,
         key: Option<&str>,
         payload: &[u8],
         headers: &[MessageHeader],
-    ) -> AppResult<String> {
+    ) -> AppResult<DeliveryReceipt> {
         let headers = headers.iter().map(text_header).collect::<Vec<_>>();
-        let delivery = self.deliver(topic, key, payload, &headers).await?;
-
-        Ok(format!(
-            "partition={} offset={}",
-            delivery.partition, delivery.offset
-        ))
+        // 界面上填的 key 一定是文本，转成字节即可：`deliver` 只认字节。
+        self.deliver(topic, key.map(str::as_bytes), payload, &headers)
+            .await
     }
 
     /// 发送一条消息并返回落点。
     ///
-    /// 与 `send` 的差别只在返回值：重发需要知道分区号才能判断
+    /// 与 `send` 的差别只在返回值形态：重发需要知道分区号才能判断
     /// 「同一条 key 有没有落到原来那个分区」，拼成字符串再解析回来很蠢。
     ///
-    /// 走独立的 producer 实例，`enable.idempotence` 只在新建实例时生效，
-    /// 共用的那个早已创建，改配置等于改了个没人读的字段。
-    /// 代价是每次重发多一个 producer 的握手——重发是低频人工动作，值得。
+    /// producer 是**本连接共用**的那一个（见 `producer_of`）：幂等只在单实例内生效，
+    /// 每次新建等于每次都换个身份，`enable.idempotence` 就白写了。
     pub async fn deliver(
         &self,
         topic: &str,
-        key: Option<&str>,
+        key: Option<&[u8]>,
         payload: &[u8],
         headers: &[RawMessageHeader],
     ) -> AppResult<DeliveryReceipt> {
-        let producer = self.resend_producer()?;
+        let producer = self.producer_of()?;
 
-        let mut record = FutureRecord::<str, [u8]>::to(topic).payload(payload);
+        let mut record = FutureRecord::<[u8], [u8]>::to(topic).payload(payload);
         if let Some(key) = key {
             record = record.key(key);
         }
@@ -152,25 +166,32 @@ impl KafkaClient {
             .send(record, Timeout::After(DELIVERY_TIMEOUT))
             .await
         {
-            Ok(delivery) => Ok(DeliveryReceipt {
+            Ok(delivery) => Ok(DeliveryReceipt::Written {
                 partition: delivery.partition,
                 offset: delivery.offset,
             }),
-            // `QueueFull` 是「压根没进队列」：可以放心重试。
-            Err((
-                rdkafka::error::KafkaError::MessageProduction(
-                    rdkafka::types::RDKafkaErrorCode::QueueFull,
-                ),
-                _,
-            )) => Err(AppError::Broker(
-                "发送队列已满，消息没有发出：稍后重试是安全的".to_owned(),
-            )),
-            // 其余错误分不清「没写进去」和「写进去了但没等到 ack」。
-            // 说「未知」而不是「失败」：后者会让人立刻再点一次，制造重复消息。
-            Err((error, _)) => Err(AppError::Broker(format!(
-                "等待 broker 确认超时或失败（{error}）：消息可能已经写进 {topic}，                 请刷新确认之后再决定要不要重发。重试可能产生重复消息"
-            ))),
+            Err((error, _)) => Ok(deliver_verdict(topic, &error)),
         }
+    }
+
+    /// 取本连接的 producer，没有就建一个。
+    ///
+    /// 建实例时要拿锁（`Client::from_config` 会设置日志队列），所以不在
+    /// `&self` 的方法里常驻持锁 —— 只有第一次真正发送时才付这笔钱。
+    fn producer_of(&self) -> AppResult<FutureProducer> {
+        let mut slot = self
+            .producer
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(producer) = slot.as_ref() {
+            return Ok(producer.clone());
+        }
+
+        let producer = producer_config(&self.config)
+            .create::<FutureProducer>()
+            .map_err(|error| AppError::Broker(format!("创建 Kafka 发送客户端失败: {error}")))?;
+        *slot = Some(producer.clone());
+        Ok(producer)
     }
 
     /// 健康检查：bootstrap 可达 + 元数据可取。
@@ -205,28 +226,6 @@ impl KafkaClient {
             ],
             checked_at: now_millis(),
         })
-    }
-
-    /// 建一个开启幂等性的 producer，供「重发一条已有消息」使用。
-    ///
-    /// 重发是人工排查动作，重复写入的代价比一次失败更难收拾：幂等 producer
-    /// 让重试不会在日志里留下同一份消息的多个副本。
-    fn resend_producer(&self) -> AppResult<FutureProducer> {
-        let mut config = self.config.clone();
-        config
-            .set("enable.idempotence", "true")
-            // acks=all 是幂等的前提，显式写出来免得被环境配置覆盖。
-            .set("acks", "all")
-            .set("max.in.flight.requests.per.connection", "5")
-            // 重试窗口必须落在 `DELIVERY_TIMEOUT` 之内，否则「等待确认」先超时，
-            // 而 librdkafka 还在后台重试 —— 界面上是失败，日志里却写进去了。
-            .set(
-                "message.timeout.ms",
-                (DELIVERY_TIMEOUT.as_secs() * 1000 - 5_000).to_string(),
-            );
-        config
-            .create()
-            .map_err(|error| AppError::Broker(format!("创建 Kafka 发送客户端失败: {error}")))
     }
 
     /// 供上层构造 consumer 使用的基础配置。
@@ -291,6 +290,9 @@ impl KafkaClient {
             config: self.config.clone(),
             bootstrap: self.bootstrap.clone(),
             admin: Arc::new(admin),
+            // 不共享父客户端的 producer：这个句柄多半要 `move` 进别的线程池，
+            // 共享一个 sender 只会让「谁在发」更难说清。
+            producer: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -306,6 +308,7 @@ impl KafkaClient {
             config: base,
             bootstrap: config.brokers.join(","),
             admin: Arc::new(admin),
+            producer: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -317,6 +320,62 @@ impl KafkaClient {
         self.consumer_config(group_id)
             .create()
             .map_err(AppError::from)
+    }
+}
+
+/// producer 配置：开启幂等，并把重试窗口放在 `DELIVERY_TIMEOUT` 之内。
+///
+/// 重试窗口比等待窗口长的话，「等待确认」先超时，而 librdkafka 还在后台重试 ——
+/// 界面上是失败，日志里却写进去了。反过来留一段余量，连「放弃」的回执都等得到。
+fn producer_config(base: &ClientConfig) -> ClientConfig {
+    let mut config = base.clone();
+    config
+        .set("enable.idempotence", "true")
+        // acks=all 与「单连接内最多 5 个未确认请求」都是幂等的前提，
+        // 显式写出来免得被用户填的高级选项悄悄覆盖。
+        .set("acks", "all")
+        .set("max.in.flight.requests.per.connection", "5")
+        .set(
+            "message.timeout.ms",
+            PRODUCER_TIMEOUT.as_millis().to_string(),
+        )
+        .set(
+            "queue.buffering.max.messages",
+            PRODUCER_QUEUE_CAPACITY.to_string(),
+        );
+    config
+}
+
+/// 投递失败时，这条消息到底写没写进去？
+///
+/// 只有两种情况能确定「没写」：压根没进队列（`QueueFull`），或者 producer
+/// 是拿着 `acks=all` 等到了明确的拒绝。其余一律落到 `Unsure`——
+/// 说「失败」会让人立刻再点一次，而重复消息正是这么来的。
+fn deliver_verdict(topic: &str, error: &rdkafka::error::KafkaError) -> DeliveryReceipt {
+    use rdkafka::error::KafkaError;
+    use rdkafka::types::RDKafkaErrorCode as Code;
+
+    let not_sent = match error {
+        // 队列满 = 一条都没进 librdkafka 的队列。
+        KafkaError::MessageProduction(Code::QueueFull) => {
+            Some("发送队列已满，消息没有发出：稍后重试是安全的")
+        }
+        // 这两条由 producer 自己产生，说明消息在本地就被判定放弃了。
+        KafkaError::MessageProduction(Code::MessageSizeTooLarge) => {
+            Some("消息超过 broker 允许的大小，没有发出：改小之后再发是安全的")
+        }
+        KafkaError::MessageProduction(Code::InvalidMessage) => {
+            Some("producer 判定这条消息不合法（key / payload 为空或 header 非法），没有发出")
+        }
+        _ => None,
+    };
+
+    match not_sent {
+        Some(reason) => DeliveryReceipt::NotSent(reason.to_owned()),
+        None => DeliveryReceipt::Unsure(format!(
+            "等待 {topic} 的确认时出错（{error}）：消息可能已经写进去了。\
+             先刷新看有没有，别直接再点一次——重发可能留下两条一样的消息"
+        )),
     }
 }
 
@@ -338,14 +397,41 @@ fn now_millis() -> i64 {
         .map_or(0, |duration| duration.as_millis() as i64)
 }
 
-/// 一条消息的投递回执。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DeliveryReceipt {
-    pub partition: i32,
-    pub offset: i64,
+/// 一次发送的结果。
+///
+/// 刻意做成三态而不是 `Result`：「写没写进去」和「有没有出错」不是同一件事。
+/// `QueueFull` 是明确的没发出去，`MsgTimedOut` 是**不知道**，
+/// 而后者被说成「失败」时，用户唯一会做的就是再点一次。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DeliveryReceipt {
+    /// 确认落盘：分区 + offset。
+    Written { partition: i32, offset: i64 },
+    /// 确定没有写进日志，重试是安全的。里面是给人看的原因。
+    NotSent(String),
+    /// 不确定。措辞里必须包含「可能已写入」，并且不要鼓励重试。
+    Unsure(String),
 }
 
-/// 把成对的头转换成 rdkafka 的 owned headers。
+impl DeliveryReceipt {
+    /// 给界面看的一句话。
+    pub fn message(&self, topic: &str) -> String {
+        match self {
+            Self::Written { partition, offset } => {
+                format!("已写入 {topic} 分区 {partition} offset {offset}")
+            }
+            Self::NotSent(reason) | Self::Unsure(reason) => reason.clone(),
+        }
+    }
+
+    /// 落点。只有确认写入了才有。
+    pub fn landed(&self) -> Option<(i32, i64)> {
+        match *self {
+            Self::Written { partition, offset } => Some((partition, offset)),
+            _ => None,
+        }
+    }
+}
+
 /// 组装 record headers。
 ///
 /// 值为 `None` 时写成「没有值」的 header（Kafka 协议允许 `value` 为 null），
@@ -371,5 +457,69 @@ fn text_header(header: &MessageHeader) -> RawMessageHeader {
             .as_deref()
             .map(str::as_bytes)
             .map(<[u8]>::to_vec),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rdkafka::error::KafkaError;
+    use rdkafka::types::RDKafkaErrorCode as Code;
+
+    /// 只有「确定没发出去」的错误才允许被说成失败。
+    /// 其余一律是「不知道」—— 说失败会让人再点一次，那才是重复消息的来源。
+    #[test]
+    fn queue_full_is_reported_as_not_sent() {
+        let receipt = deliver_verdict("orders", &KafkaError::MessageProduction(Code::QueueFull));
+        match receipt {
+            DeliveryReceipt::NotSent(ref reason) => assert!(reason.contains("没有发出")),
+            other => panic!("队列满应当是 NotSent，实际 {other:?}"),
+        }
+        assert_eq!(receipt.landed(), None);
+    }
+
+    #[test]
+    fn timeout_is_reported_as_unsure() {
+        let receipt = deliver_verdict(
+            "orders",
+            &KafkaError::MessageProduction(Code::MessageTimedOut),
+        );
+        match &receipt {
+            DeliveryReceipt::Unsure(reason) => {
+                // 措辞必须包含「可能已写入」，并且不能鼓励重试。
+                assert!(reason.contains("可能已经写进去了"), "{reason}");
+                assert!(reason.contains("别直接再点一次"), "{reason}");
+            }
+            other => panic!("超时应当是 Unsure，实际 {other:?}"),
+        }
+        assert_eq!(receipt.landed(), None);
+    }
+
+    #[test]
+    fn oversized_message_is_not_retried_blindly() {
+        let receipt = deliver_verdict(
+            "orders",
+            &KafkaError::MessageProduction(Code::MessageSizeTooLarge),
+        );
+        assert!(matches!(receipt, DeliveryReceipt::NotSent(_)));
+    }
+
+    /// 生产者配置里这几项互为前提：少一项，幂等就只是个名字。
+    #[test]
+    fn producer_config_enables_idempotence_within_delivery_timeout() {
+        let config = producer_config(&ClientConfig::new());
+        assert_eq!(config.get("enable.idempotence"), Some("true"));
+        assert_eq!(config.get("acks"), Some("all"));
+        assert_eq!(
+            config.get("max.in.flight.requests.per.connection"),
+            Some("5")
+        );
+
+        // 重试窗口必须落在等待窗口之内：比它长的话，这边先超时、librdkafka 还在后台重试。
+        let budget: u128 = config
+            .get("message.timeout.ms")
+            .and_then(|value| value.parse().ok())
+            .expect("必须显式写死重试窗口");
+        assert!(budget < DELIVERY_TIMEOUT.as_millis());
     }
 }

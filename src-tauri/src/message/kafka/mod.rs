@@ -29,6 +29,7 @@ use rdkafka::error::KafkaError;
 use rdkafka::util::Timeout;
 
 use crate::broker::kafka::KafkaClient;
+use crate::broker::kafka::client::DeliveryReceipt;
 use crate::domain::{MessageDetail, MessageHeader, MessagePage, MessageQuery, MessageSummary};
 use crate::error::{AppError, AppResult};
 
@@ -374,7 +375,7 @@ pub async fn send(
     key: Option<&str>,
     payload: &[u8],
     headers: &[MessageHeader],
-) -> AppResult<String> {
+) -> AppResult<DeliveryReceipt> {
     client.send(topic, key, payload, headers).await
 }
 

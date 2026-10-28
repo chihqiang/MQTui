@@ -16,11 +16,13 @@ import {
   byPrincipal,
   denyCount,
   describeFilter,
+  filterChips,
   filterEntries,
   isFilterEmpty,
   matchesFilter,
   principalName,
   resourceLabel,
+  resourceNameLabel,
   selfLockRisks,
   serverFilter,
 } from "./acl.ts";
@@ -58,9 +60,50 @@ test("集群资源的名字不重复出现", () => {
   expect(resourceLabel(item)).toBe("集群");
 });
 
-test("前缀资源保留前缀", () => {
+test("前缀资源保留前缀，并说明这是前缀", () => {
   const item = entry({ pattern: "prefixed", resourceName: "payments-" });
-  expect(resourceLabel(item)).toBe("主题 payments-");
+  // 只写 `主题 payments-`，末尾那个横线很容易被当成名字的一部分漏看，
+  // 而「这一条覆盖了整个前缀」恰恰是要看出来的那件事。
+  expect(resourceLabel(item)).toBe("主题 payments- 前缀");
+});
+
+test("独立的资源格：通配给 `*`，集群级资源不重复写名字", () => {
+  expect(resourceNameLabel(entry({ pattern: "wildcard", resourceName: "" }))).toBe("*");
+  expect(resourceNameLabel(entry({ pattern: "prefixed", resourceName: "payments-" }))).toBe(
+    "payments-",
+  );
+  expect(
+    resourceNameLabel(
+      entry({ resourceType: "cluster", resourceName: "kafka-cluster", operation: "all" }),
+    ),
+  ).toBe("");
+});
+
+test("筛选徽标：一项一条，顺序固定，空过滤器不出徽标", () => {
+  expect(filterChips({})).toEqual([]);
+  const chips = filterChips({
+    resourceName: "orders",
+    principal: "alice",
+    permission: "deny",
+    operation: "read",
+    resourceType: "topic",
+  });
+  // 顺序按「资源 → 操作 → 权限 → 主体 → 名字」排：改一个筛法时，
+  // 徽标不会因为顺序漂移而换位置。
+  expect(chips.map((chip) => chip.key)).toEqual([
+    "resourceType",
+    "operation",
+    "permission",
+    "principal",
+    "resourceName",
+  ]);
+  expect(chips.map((chip) => chip.text)).toEqual([
+    "资源 主题",
+    "操作 读",
+    "权限 拒绝",
+    "主体含 alice",
+    "名含 orders",
+  ]);
 });
 
 test("主体只剥掉第一个冒号前的东西", () => {

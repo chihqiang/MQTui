@@ -44,6 +44,13 @@ export interface MessageDetail {
   summary: MessageSummary;
   payload: string;
   payloadBase64?: string;
+  /**
+   * 消息 key 的原始字节（base64），**只在 key 不是合法 UTF-8 时才有**。
+   *
+   * 文本 key 看 `summary.key` 就够了；二进制 key 只看文本会被读成 `�`，
+   * 重发就换了分区。
+   */
+  keyBase64?: string;
   headers: MessageHeader[];
 }
 
@@ -147,6 +154,13 @@ export interface RabbitMqSendRequest {
 export interface SendOutcome {
   kind: string;
   detail: string;
+  /**
+   * 这次发送**没有确定结论**：消息可能已经写进去了（Kafka 超时一类）。
+   *
+   * 有它的时候界面上不能说「发送失败」，也不能把按钮当成「再点一次就好」——
+   * 那正是在制造重复消息。
+   */
+  unsure?: boolean;
 }
 
 /** 一条消息最终能到达的队列。 */

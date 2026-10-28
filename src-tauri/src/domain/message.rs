@@ -63,6 +63,12 @@ pub struct MessageDetail {
     pub payload: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub payload_base64: Option<String>,
+    /// 消息 key 的原始字节（base64），**只在 key 不是合法 UTF-8 时给**。
+    ///
+    /// 文本 key 用 `summary.key` 就够了；二进制 key 只看文本会被读成 `\u{fffd}`，
+    /// 重发就换了分区。空着表示「照文本发就对了」，不用来回多传一份。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key_base64: Option<String>,
     pub headers: Vec<MessageHeader>,
 }
 
@@ -326,6 +332,13 @@ pub struct SendOutcome {
     pub kind: BrokerKind,
     /// 中间件返回的确认信息，例如 Kafka 的 partition/offset。
     pub detail: String,
+    /// 这次发送**没有确定结论**：消息可能已经写进去了。
+    ///
+    /// 只对 Kafka 有意义（AMQP 的 publish confirm 是确定的）。有它的时候界面
+    /// 不该说「发送失败」，也不该把发送按钮当成「再点一次就好」——那正是在
+    /// 制造重复消息。
+    #[serde(default)]
+    pub unsure: bool,
 }
 
 #[cfg(test)]

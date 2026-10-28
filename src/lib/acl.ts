@@ -33,11 +33,21 @@ export function resourceLabel(entry: AclEntry): string {
     case "wildcard":
       return kind;
     case "prefixed":
-      return `${kind} ${entry.resourceName}`;
+      return `${kind} ${entry.resourceName} 前缀`;
     default:
       // 集群级资源的名字本来就是 `kafka-cluster`，读出来没有意义。
       return entry.resourceType === "cluster" ? kind : `${kind} ${entry.resourceName}`;
   }
+}
+
+/**
+ * 资源名单独一格（表里有独立的「资源类型」列时用）。
+ *
+ * `wildcard` 在这里返回 `*` 而不是空串：表里空一格读起来像「数据缺了」。
+ */
+export function resourceNameLabel(entry: AclEntry): string {
+  if (entry.pattern === "wildcard") return "*";
+  return entry.resourceType === "cluster" ? "" : entry.resourceName;
 }
 
 /** 主体去掉 `User:` 前缀；非 `User:` 主体原样返回。 */
@@ -137,6 +147,35 @@ export function describeFilter(filter: AclFilter): string {
   if (filter.operation) parts.push(ACL_OPERATION_LABEL[filter.operation]);
   if (filter.permission) parts.push(ACL_PERMISSION_LABEL[filter.permission]);
   return `筛选：${parts.join(" · ")}`;
+}
+
+/** 一个筛选条件的徽标：`key` 用来就地摘掉，`text` 是给人读的那半句。 */
+export interface FilterChip {
+  key: keyof AclFilter;
+  text: string;
+}
+
+/**
+ * 把过滤器摊成一串可摘掉的徽标。
+ *
+ * 与 `describeFilter` 的「筛选：A · B · C」不是重复实现 —— 那句话适合说明
+ * 一个**状态**，不适合说明一个**动作**。这一屏的筛选条件经常一筛就是空的，
+ * 用户真正想点的是「把这一条去掉」，而不是再读一遍自己刚选了啥。
+ */
+export function filterChips(filter: AclFilter): FilterChip[] {
+  const chips: FilterChip[] = [];
+  if (filter.resourceType) {
+    chips.push({ key: "resourceType", text: `资源 ${ACL_RESOURCE_LABEL[filter.resourceType]}` });
+  }
+  if (filter.operation) {
+    chips.push({ key: "operation", text: `操作 ${ACL_OPERATION_LABEL[filter.operation]}` });
+  }
+  if (filter.permission) {
+    chips.push({ key: "permission", text: `权限 ${ACL_PERMISSION_LABEL[filter.permission]}` });
+  }
+  if (filter.principal) chips.push({ key: "principal", text: `主体含 ${filter.principal}` });
+  if (filter.resourceName) chips.push({ key: "resourceName", text: `名含 ${filter.resourceName}` });
+  return chips;
 }
 
 /**

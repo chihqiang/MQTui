@@ -14,6 +14,7 @@ use rdkafka::consumer::{BaseConsumer, Consumer};
 use rdkafka::message::Message;
 
 use crate::broker::kafka::KafkaClient;
+use crate::broker::kafka::client::DeliveryReceipt;
 use crate::domain::resend::{OriginalMessage, build_plan, compare_partition};
 use crate::domain::{ResendOutcome, ResendRequest};
 use crate::error::{AppError, AppResult};
@@ -31,21 +32,34 @@ pub async fn resend(client: &KafkaClient, request: &ResendRequest) -> AppResult<
     let receipt = client
         .deliver(
             &plan.topic,
-            plan.key.as_deref(),
+            plan.key_bytes.as_deref(),
             &plan.payload,
             &plan.headers,
         )
         .await?;
 
-    let check = compare_partition(&plan, receipt.partition);
+    // 没确认写入的两种结果都不是「成功」：`NotSent` 说清没发出去、重试安全；
+    // `Unsure` 连同「可能已写入、别再点」一起交给界面。把它们塞进 note 里
+    // 假装成功，用户看到的就是「已写入 分区 null offset null」。
+    let (partition, offset) = match receipt.landed() {
+        Some(landed) => landed,
+        None => {
+            return Err(match receipt {
+                DeliveryReceipt::NotSent(reason) => AppError::Broker(reason),
+                other => AppError::Broker(other.message(&plan.topic)),
+            });
+        }
+    };
+
+    let check = compare_partition(&plan, partition);
     let note = check
         .message()
-        .unwrap_or_else(|| format!("已写进 {} 分区 {}", plan.topic, receipt.partition));
+        .unwrap_or_else(|| format!("已写进 {} 分区 {partition}", plan.topic));
 
     Ok(ResendOutcome {
         topic: plan.topic,
-        partition: receipt.partition,
-        offset: receipt.offset,
+        partition,
+        offset,
         note,
     })
 }
@@ -72,8 +86,12 @@ async fn read_original(client: &KafkaClient, message_id: &str) -> AppResult<Orig
             Some(Ok(message)) => Ok(OriginalMessage {
                 topic: message.topic().to_owned(),
                 partition: Some(message.partition()),
-                // key 也是裸字节：非 UTF-8 的 key 被 lossy 一过就换了分区。
-                key: message
+                // key 保留原始字节：key 只参与分区哈希，不必是 UTF-8。
+                // lossy 一转，`\xff` 变成 `\u{fffd}`，同一个 key 就落到了别的分区上——
+                // 而「同一条 key 是不是还落在原分区」正是重发要验证的东西。
+                key: message.key().map(<[u8]>::to_vec),
+                // 同时给一份文本：它只在「用户自己没动 key 但表单要显示」时有用。
+                key_text: message
                     .key()
                     .map(|key| String::from_utf8_lossy(key).into_owned()),
                 payload: message.payload().unwrap_or_default().to_vec(),
