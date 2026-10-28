@@ -43,6 +43,7 @@ pub fn run() {
             commands::reset::reset_phases,
             commands::consumer::list_consumer_groups,
             commands::consumer::get_consumer_group,
+            commands::consumer::get_consumer_group_assignment,
             commands::consumer::sample_consumer_lag_trend,
             commands::consumer::sample_consumer_block,
             commands::consumer::preflight_group_removal,

@@ -5,6 +5,7 @@ export * from "./consumer-graph";
 export * from "./consumer-link";
 export * from "./consumer-ownership";
 export * from "./disposal";
+export * from "./group-assignment";
 export * from "./group-block";
 export * from "./health";
 export * from "./lag-trend";

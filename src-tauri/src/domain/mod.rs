@@ -11,6 +11,7 @@ pub mod consumer_disconnect;
 pub mod consumer_graph;
 pub mod consumer_link;
 pub mod consumer_ownership;
+pub mod group_assignment;
 pub mod group_block;
 pub mod group_removal;
 pub mod health;
@@ -76,6 +77,11 @@ pub use consumer_link::{
 pub use consumer_ownership::{
     ChannelFacts, ConnectionFacts, ConsumerOwner, OwnershipSnapshot, QueueOwnership, UserOwnership,
     assemble as assemble_ownership,
+};
+pub use group_assignment::{
+    AssignedPartition, AssignmentState, GroupAssignment, MemberAssignment,
+    assemble as assemble_group_assignment, decode as decode_group_assignment,
+    not_consumer_protocol as group_assignment_unavailable,
 };
 pub use group_block::{BlockReport, PartitionShift, StuckPartition, detect as detect_group_block};
 pub use group_removal::{

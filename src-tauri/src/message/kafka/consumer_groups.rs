@@ -11,7 +11,7 @@ use rdkafka::consumer::BaseConsumer;
 
 use crate::broker::kafka::KafkaClient;
 use crate::broker::kafka::admin;
-use crate::domain::{ConsumerGroupDetail, ConsumerGroupInfo, ConsumerGroupQuery};
+use crate::domain::{ConsumerGroupDetail, ConsumerGroupInfo, ConsumerGroupQuery, GroupAssignment};
 use crate::error::{AppError, AppResult};
 
 /// 组查询用的 consumer 建连超时上限，避免连接不可用时长时间挂起。
@@ -58,6 +58,27 @@ pub async fn detail(client: &KafkaClient, group: &str) -> AppResult<ConsumerGrou
     tokio::task::spawn_blocking(move || admin::fetch_detail(&worker, &group))
         .await
         .map_err(|error| AppError::Internal(format!("消费组详情任务失败: {error}")))?
+}
+
+/// 读取单个消费组的成员分区归属。
+///
+/// 与 `detail` 分成两个命令：详情一打开就要看（滞后是这一屏的价值），
+/// 归属只在用户想问「这个分区压在谁身上」时才要。合成一个请求，
+/// 打开弹窗就得多等一次组成员往返，而多数时候没人看那一列。
+pub async fn assignment(client: &KafkaClient, group: &str) -> AppResult<GroupAssignment> {
+    let name = group.trim();
+    if name.is_empty() {
+        return Err(AppError::Invalid("消费组名称不能为空".to_owned()));
+    }
+
+    // 组名即 group.id：组成员接口只返回当前 consumer 视角下的组信息。
+    let config = inspection_config(client, Some(name));
+    let worker = Arc::new(build(&config)?);
+    let name = name.to_owned();
+
+    tokio::task::spawn_blocking(move || admin::fetch_assignment(&worker, &name))
+        .await
+        .map_err(|error| AppError::Internal(format!("成员归属任务失败: {error}")))?
 }
 
 /// 面板侧查询用的 consumer 配置。

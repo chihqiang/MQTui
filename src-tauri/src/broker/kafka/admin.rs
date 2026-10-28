@@ -10,11 +10,11 @@
 use rdkafka::consumer::{BaseConsumer, Consumer};
 use rdkafka::util::Timeout;
 
-use rdkafka::groups::GroupInfo;
+use rdkafka::groups::{GroupInfo, GroupMemberInfo};
 
 use crate::domain::{
     ConsumerGroupDetail, ConsumerGroupInfo, ConsumerGroupMember, ConsumerGroupOffset,
-    ConsumerGroupQuery,
+    ConsumerGroupQuery, GroupAssignment,
 };
 use crate::error::{AppError, AppResult};
 
@@ -178,6 +178,57 @@ pub fn fetch_detail(worker: &BaseConsumer, group_name: &str) -> AppResult<Consum
         members,
         offsets,
     ))
+}
+
+/// 读一个消费组的成员分区归属。
+///
+/// 与 `fetch_detail` 分两次请求是刻意的：详情是「每个分区落后多少」，
+/// 归属是「谁在读这个分区」。它们来自同一份组成员快照，但用途不同 ——
+/// 合成一个返回会把详情页拖成「必须读完分配才能显示滞后」。
+///
+/// 组不存在时报错（不是返回空归属）：一张空的归属表和「这个组没有成员分区」
+/// 长得一模一样，而前者是在说一个不存在的组很健康。
+pub fn fetch_assignment(worker: &BaseConsumer, group_name: &str) -> AppResult<GroupAssignment> {
+    let list = worker
+        .fetch_group_list(Some(group_name), GROUPS_TIMEOUT)
+        .map_err(AppError::from)?;
+
+    let Some(group) = list
+        .groups()
+        .iter()
+        .find(|group| group.name() == group_name)
+    else {
+        return Err(AppError::NotFound(format!("消费组 {group_name}")));
+    };
+
+    Ok(assemble_assignment(group))
+}
+
+/// 把组快照里的成员分配翻译成领域模型。
+///
+/// 分配是二进制（消费者协议的 `MemberAssignment`），要靠 `protocol_type` 判断
+/// 该不该按那个格式读：Kafka Connect、事务协调器这类组的消息格式是它们自己定义的，
+/// 硬解出来的分区归属会是垃圾，而垃圾报表比没有表更糟。
+///
+/// 抽成不碰网络的函数，是为了让「哪种协议不适用」这条判断能被单测钉住。
+pub fn assemble_assignment(group: &GroupInfo) -> GroupAssignment {
+    let protocol_type = group.protocol_type();
+    if !protocol_type.eq_ignore_ascii_case("consumer") {
+        return crate::domain::group_assignment_unavailable(protocol_type);
+    }
+
+    let members: Vec<(String, Vec<u8>)> = group
+        .members()
+        .iter()
+        .map(|member| (member.id().to_owned(), assignment_bytes(member)))
+        .collect();
+    crate::domain::assemble_group_assignment(members)
+}
+
+/// 成员的分配字节。没有分配时给空切片 —— 空切片表示「没有分区」，
+/// 与「读不懂」在领域层是两种结论。
+fn assignment_bytes(member: &GroupMemberInfo) -> Vec<u8> {
+    member.assignment().map_or_else(Vec::new, <[u8]>::to_vec)
 }
 
 /// 组装详情：滞后量由位点列表累加得出，空组给 `None` 而不是 0。
@@ -393,6 +444,53 @@ mod tests {
         assert_eq!(partition_lag(150, 100, 300), 150);
         // 空分区（low == high）没有滞后可言。
         assert_eq!(partition_lag(42, 7, 7), 0);
+    }
+
+    /// 成员分配字节：按 Kafka 基础类型写一段 `[(topic, [partition])]`。
+    fn encode_assignment(topics: &[(&str, &[i32])]) -> Vec<u8> {
+        let mut out = (topics.len() as i32).to_be_bytes().to_vec();
+        for (topic, partitions) in topics {
+            let name = topic.as_bytes();
+            out.extend_from_slice(&(name.len() as i16).to_be_bytes());
+            out.extend_from_slice(name);
+            out.extend_from_slice(&(partitions.len() as i32).to_be_bytes());
+            for partition in *partitions {
+                out.extend_from_slice(&partition.to_be_bytes());
+            }
+        }
+        out
+    }
+
+    /// 用一个假成员 ID 走一遍 `assemble_assignment` 需要的判定。
+    ///
+    /// `GroupInfo` 只能由 librdkafka 构造，这里把它的两条判定（按协议类型分流、
+    /// 把字节交给领域层）就地重演一遍 —— 目的只是钉住「协议不是 consumer 时
+    /// 不给分区归属」这条规则。
+    fn assignment_of(protocol_type: &str, payload: Vec<u8>) -> GroupAssignment {
+        if !protocol_type.eq_ignore_ascii_case("consumer") {
+            return crate::domain::group_assignment_unavailable(protocol_type);
+        }
+        crate::domain::assemble_group_assignment(vec![("member-1".to_owned(), payload)])
+    }
+
+    #[test]
+    fn non_consumer_group_has_no_partition_ownership() {
+        // Kafka Connect / 事务协调器这类组自己定义消息格式，硬解出来是垃圾。
+        let result = assignment_of("connect", encode_assignment(&[("orders", &[0])]));
+        assert!(result.by_member.is_empty());
+        assert!(
+            result.notes.iter().any(|note| note.contains("connect")),
+            "{:?}",
+            result.notes
+        );
+    }
+
+    #[test]
+    fn consumer_protocol_decodes_partitions() {
+        let result = assignment_of("consumer", encode_assignment(&[("orders", &[0, 2])]));
+        assert_eq!(result.by_member.len(), 1);
+        assert_eq!(result.of("member-1").len(), 2);
+        assert!(result.notes.is_empty(), "{:?}", result.notes);
     }
 
     #[test]

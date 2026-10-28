@@ -21,6 +21,7 @@ import { connectionPath } from "@/lib/nav";
 import { OFFSET_COLUMNS } from "@/types/consumer";
 import type { ConsumerGroupInfo } from "@/types";
 
+import { GroupAssignmentSection } from "./group-assignment-section";
 import { GroupBlockSection } from "./group-block-section";
 import { GroupDeleteButton } from "./group-delete-button";
 import { LagTrendSection } from "./lag-trend-section";
@@ -118,6 +119,14 @@ export function ConsumerGroupDialog({ connectionId, group, onClose }: ConsumerGr
           {/* 趋势放在分区进度之后：先看「现在卡在哪」，再问「是在追还是越欠越多」。
               顺序反了的话，用户会先读一分钟的趋势图再回头看明细。 */}
           <LagTrendSection connectionId={connectionId} group={group.name} />
+
+          {/* 归属紧跟在阻塞之后：刚看完「P3 卡住了 12 万条」，
+              下一句就该是「P3 在哪台机器上」。 */}
+          <GroupAssignmentSection
+            connectionId={connectionId}
+            group={group.name}
+            offsets={data.offsets}
+          />
 
           <GroupBlockSection connectionId={connectionId} group={group.name} />
 

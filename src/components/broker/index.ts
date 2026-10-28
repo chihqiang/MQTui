@@ -34,6 +34,7 @@ export { ConsumerBlock, ConsumerQueueCard, DisconnectButton } from "./consumer-q
 export { QueueDetailModal } from "./queue-detail-dialog";
 export { ConnectWizard } from "./connect-wizard";
 export { ConsumerGroupDialog } from "./consumer-group-dialog";
+export { GroupAssignmentSection } from "./group-assignment-section";
 export { GroupBlockSection } from "./group-block-section";
 export { GroupDeleteButton } from "./group-delete-button";
 export { MigrationPanel } from "./migration-panel";

@@ -104,6 +104,9 @@ export const queryKeys = {
     ["connections", "detail", id, "consumer-groups", keyword] as const,
   consumerGroup: (id: string, group: string) =>
     ["connections", "detail", id, "consumer-group", group] as const,
+  /** 成员分区归属：与详情分开缓存，归属键变了不该把滞后一起作废。 */
+  groupAssignment: (id: string, group: string) =>
+    ["connections", "detail", id, "consumer-group-assignment", group] as const,
   /** 滞后趋势：换采样间隔就是另一份结果，必须进键。 */
   lagTrend: (id: string, group: string, windowMs: number) =>
     ["connections", "detail", id, "lag-trend", group, windowMs] as const,

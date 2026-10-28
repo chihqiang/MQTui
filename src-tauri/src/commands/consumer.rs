@@ -6,7 +6,8 @@ use tauri::State;
 
 use crate::domain::lag_trend::LagTrend;
 use crate::domain::{
-    BlockReport, BrokerKind, ConnectionId, ConsumerGroupDetail, GroupRemovalPreflight,
+    BlockReport, BrokerKind, ConnectionId, ConsumerGroupDetail, GroupAssignment,
+    GroupRemovalPreflight,
 };
 use crate::error::AppResult;
 use crate::message::consumer::{self as groups, ConsumerGroupPage};
@@ -51,6 +52,25 @@ pub async fn get_consumer_group(
     }
 
     crate::message::kafka::consumer_groups::detail(connection.as_kafka()?, &group).await
+}
+
+/// 读取消费组的成员分区归属：每个成员负责哪些分区。
+///
+/// 与 `get_consumer_group` 分开：详情一打开就要看，归属只在想追问
+/// 「这个分区压在谁身上」时才需要。合成一个命令等于让每次打开弹窗
+/// 都多等一次组成员往返。
+#[tauri::command]
+pub async fn get_consumer_group_assignment(
+    state: State<'_, AppState>,
+    id: ConnectionId,
+    group: String,
+) -> AppResult<GroupAssignment> {
+    let connection = state.connections.get(&id).await?;
+    if connection.kind() != BrokerKind::Kafka {
+        return Err(groups::unsupported());
+    }
+
+    crate::message::kafka::consumer_groups::assignment(connection.as_kafka()?, &group).await
 }
 
 /// 采样一个消费组的滞后趋势：读两次进度，算「在追还是在欠」。

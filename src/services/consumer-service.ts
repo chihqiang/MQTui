@@ -1,7 +1,13 @@
 /** 消费组接口，对应 `src-tauri/src/commands/consumer.rs`。 */
 
 import { call } from "./ipc";
-import type { BlockReport, ConsumerGroupDetail, ConsumerGroupPage, LagTrend } from "@/types";
+import type {
+  BlockReport,
+  ConsumerGroupDetail,
+  ConsumerGroupPage,
+  GroupAssignment,
+  LagTrend,
+} from "@/types";
 
 interface ListOptions {
   connectionId: string;
@@ -22,6 +28,14 @@ export const consumerService = {
 
   getConsumerGroup: (id: string, group: string) =>
     call<ConsumerGroupDetail>("get_consumer_group", { id, group }),
+
+  /**
+   * 成员分区归属：每个成员负责哪些分区。
+   *
+   * 与详情分开：详情一打开就要看，归属只在想追问「这个分区压在谁身上」时才要。
+   */
+  getAssignment: (id: string, group: string) =>
+    call<GroupAssignment>("get_consumer_group_assignment", { id, group }),
 
   /**
    * 采样滞后趋势：读两次进度算差值。

@@ -48,6 +48,29 @@ export function useConsumerGroup(
 }
 
 /**
+ * 成员分区归属。
+ *
+ * 和详情一样是随弹窗打开就发的查询 —— 但它只读一次组成员快照，
+ * 不涉及位点与水位，比详情轻得多。失败时界面说「归属未知」，
+ * 不拿一张空表冒充「没有分区」。
+ */
+export function useConsumerGroupAssignment(
+  connectionId: string | undefined,
+  group: string | undefined,
+) {
+  return useQuery({
+    queryKey: queryKeys.groupAssignment(connectionId ?? "", group ?? ""),
+    queryFn: () =>
+      consumerService.getAssignment(connectionId as string, group as string),
+    enabled: Boolean(connectionId) && Boolean(group),
+    // 归属是一次快照：再均衡期间读到的可能已经是旧分配，别长期缓存。
+    gcTime: 30_000,
+    // 读不懂分配时后端不报错（那是数据事实），真报错多半是组名过期，重试无益。
+    retry: false,
+  });
+}
+
+/**
  * 采样一个消费组的滞后趋势。
  *
  * 默认不开：这个请求会在后端等满一个采样窗口（5 秒），用户只是想看成员列表时
