@@ -5,9 +5,10 @@
 //! 前者是一个数字的方向，后者是一份名单 —— 分开成两个命令是因为
 //! 用户想看的时机不一样，合并会把两件事的话术搅在一起。
 //!
-//! 成员与分区的归属关系 `fetch_detail` 拿不到：`GroupInfo` 只给成员列表，
-//! 分到哪个分区是成员自己的 assignment 决定的。所以归属一栏留空，
-//! 界面按「不知道」显示，而不是猜一个。
+//! 成员与分区的归属关系另走 `fetch_assignment`（分配是成员自带的二进制
+//! `MemberAssignment`，`fetch_detail` 只读位点）。读不到时留空，
+//! 界面按「不知道」显示，而不是猜一个 —— 「这个分区压在谁身上」猜错
+//! 比不显示更糟：它会把人引去停一个无辜的消费者。
 
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -58,32 +59,40 @@ pub async fn sample(
     let window = normalize_window(window_ms)?;
 
     let worker = Arc::new(build(&sampling_config(client, &name))?);
-    let started = now_ms();
 
-    let mut report = tokio::task::spawn_blocking(move || run(&worker, &name, window, started))
+    let (mut report, elapsed) = tokio::task::spawn_blocking(move || run(&worker, &name, window))
         .await
         .map_err(|error| AppError::Internal(format!("队头阻塞采样任务失败: {error}")))??;
-    // 时间窗口也写进结论：用户需要知道这 10 秒里「没动」意味着什么。
-    report.detail = format!("{:.0} 秒窗口：{}", window as f64 / 1000.0, report.detail);
+    // 窗口长度写进结论：用户需要知道这段时间里「没动」意味着什么。
+    // 用的是**两次采样之间实际过去的时间**，不是请求里的 `window` ——
+    // 后一问一答各要一次往返，真实间隔总比请求里的长一点；而消费者恰好在这段
+    // 多出来的时间里推进了，就会被判成「动了」。把真实数字说出来，结论才对得上。
+    report.detail = format!("{:.0} 秒窗口：{}", elapsed as f64 / 1000.0, report.detail);
     Ok(report)
 }
 
 /// 同步实现：采一次 → 等 → 再采一次 → 判读。
-fn run(
-    worker: &BaseConsumer,
-    group: &str,
-    window_ms: u64,
-    _started: u64,
-) -> AppResult<BlockReport> {
+fn run(worker: &BaseConsumer, group: &str, window_ms: u64) -> AppResult<(BlockReport, u64)> {
     // 先确认组在：不存在的组会返回空表，判出来是「整组未推进」——
     // 那是在说一个不存在的组很健康。
     admin::probe_group(worker, group)?;
     let before: ConsumerGroupDetail = admin::fetch_detail(worker, group)?;
+    let sampled_at = now_ms();
     std::thread::sleep(Duration::from_millis(window_ms));
     let after = admin::fetch_detail(worker, group)?;
+    // 两次快照之间真正的间隔，由两次读数的时刻决定，而不是由请求参数决定。
+    let elapsed = now_ms().saturating_sub(sampled_at);
 
-    // 归属关系拿不到（见模块文档），给空列表而不是猜。
-    Ok(detect_group_block(&before, &after, &|_, _| Vec::new()))
+    // 归属读不到就退回空列表（不是猜）。这里的取舍是单向的：
+    // `detect_group_block` 只把归属当补充信息，缺了不影响「谁没动」这个结论。
+    let assignment = admin::fetch_assignment(worker, group).ok();
+    let owners = |topic: &str, partition: i32| -> Vec<String> {
+        assignment
+            .as_ref()
+            .map(|item| item.owners_of(topic, partition))
+            .unwrap_or_default()
+    };
+    Ok((detect_group_block(&before, &after, &owners), elapsed))
 }
 
 /// 采样用的 consumer：组名即 `group.id`，绝不自动提交。

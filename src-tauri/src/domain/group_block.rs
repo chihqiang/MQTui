@@ -132,7 +132,18 @@ pub fn detect(
     if moved == 0 {
         // 整组没动：可能没流量，也可能全部成员都挂着。措辞不能说成「阻塞」——
         // 「没有流量」和「卡住了」在界面上的处置完全不同。
-        let detail = if stuck.is_empty() {
+        //
+        // 但「已经停掉的组」是第三种情况，而且是最该说清楚的那种：没有在线成员
+        // 的组位点当然一动不动，滞后却实实在在堆着。把它和「成员卡住」放在同一句里，
+        // 用户会去重启消费者 —— 而那个组可能本来就是停掉的定时任务。
+        let detail = if after.members.is_empty() && !stuck.is_empty() {
+            format!(
+                "这个组当前没有在线成员，位点自然是静止的；{} 个分区仍积压 {} 条，\
+                 启动消费者后会从这里继续",
+                stuck.len(),
+                stuck.iter().map(|item| item.lag).sum::<i64>()
+            )
+        } else if stuck.is_empty() {
             "窗口内所有分区都没有推进，但也没有剩余滞后：这段时间没有新消息".to_owned()
         } else {
             format!(
@@ -343,5 +354,43 @@ mod tests {
             }
         });
         assert_eq!(report.stuck[0].members, vec!["worker-2".to_owned()]);
+    }
+
+    #[test]
+    fn stopped_group_is_not_reported_as_stuck_members() {
+        // 一个正常下线、还积压着消息的组：位点当然一动不动。
+        // 把它和「成员挂住」写成同一句，用户会去重启一个本来就不该跑的消费者。
+        let before = detail(vec![offset("orders", 0, Some(10), 5_000)]);
+        let mut stopped = before.clone();
+        stopped.members.clear();
+        stopped.group.members = 0;
+        stopped.group.state = "Empty".to_owned();
+
+        let report = detect(&before, &stopped, &no_assignment);
+        assert!(report.idle);
+        assert!(!report.blocked, "没有成员不是「阻塞」，是一个停掉的组");
+        assert!(report.detail.contains("没有在线成员"), "{}", report.detail);
+        assert!(report.detail.contains("积压"), "{}", report.detail);
+        // 积压量仍然要报出来：用户正是冲着这个数字来的。
+        assert_eq!(report.stuck.len(), 1);
+        assert_eq!(report.stuck[0].lag, 4_990);
+    }
+
+    #[test]
+    fn stuck_partitions_name_the_members_holding_them() {
+        // 「这个分区卡住了，该去停谁」只能从分配里读出来 —— 以前这一栏恒为空。
+        let before = detail(vec![offset("orders", 3, Some(10), 500)]);
+        let mut after = before.clone();
+        after.offsets[0].high = 500;
+        let owners = |topic: &str, partition: i32| -> Vec<String> {
+            if topic == "orders" && partition == 3 {
+                vec!["m-1".to_owned()]
+            } else {
+                Vec::new()
+            }
+        };
+        let report = detect(&before, &after, &owners);
+        assert_eq!(report.stuck.len(), 1);
+        assert_eq!(report.stuck[0].members, ["m-1"]);
     }
 }

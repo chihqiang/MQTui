@@ -11,10 +11,18 @@ import { appendPage, bucketHits, describeScanProgress } from "./locate-result.ts
 import {
   buildLocateRequest,
   completeContentRange,
+  EMPTY_LOCATE_FORM,
   formatLocalDateTime,
+  locateFormIssue,
   parseLocalDateTime,
   shiftContentRange,
+  type LocateForm,
 } from "./message-locate.ts";
+
+/** 定位表单的构造器：新增字段只要在这里给默认值，用例就不必逐个补。 */
+function locateForm(patch: Partial<LocateForm> = {}): LocateForm {
+  return { ...EMPTY_LOCATE_FORM, ...patch };
+}
 
 function message(id: string) {
   return {
@@ -110,32 +118,22 @@ test("formatLocalDateTime never emits utc (no Z, no offset shift)", () => {
 });
 
 test("content search fills the missing end of the range", () => {
-  const onlyBefore = completeContentRange({
-    key: "",
-    content: "timeout",
-    after: "",
-    before: "2026-10-26T10:00",
-  });
+  const onlyBefore = completeContentRange(locateForm({ content: "timeout", before: "2026-10-26T10:00" }));
   // 补出等长窗口（默认一小时），让「错误发生前那一小时」真的是一小时。
   expect(onlyBefore.before).toBe("2026-10-26T10:00");
   expect(onlyBefore.after).toBe("2026-10-26T09:00");
 
-  const onlyAfter = completeContentRange({
-    key: "",
-    content: "timeout",
-    after: "2026-10-26T10:00",
-    before: "",
-  });
+  const onlyAfter = completeContentRange(locateForm({ content: "timeout", after: "2026-10-26T10:00" }));
   expect(onlyAfter.after).toBe("2026-10-26T10:00");
   expect(onlyAfter.before).toBe("2026-10-26T11:00");
 });
 
 test("complete range and non-content forms are left untouched", () => {
-  const complete = { key: "", content: "x", after: "2026-10-26T10:00", before: "2026-10-26T11:00" };
+  const complete = locateForm({ content: "x", after: "2026-10-26T10:00", before: "2026-10-26T11:00" });
   expect(completeContentRange(complete)).toEqual(complete);
 
   // 只有 key 的定位不该被塞进一个凭空出现的时间区间。
-  const keyOnly = { key: "order-1", content: "", after: "", before: "" };
+  const keyOnly = locateForm({ key: "order-1" });
   expect(completeContentRange(keyOnly)).toEqual(keyOnly);
 });
 
@@ -143,7 +141,7 @@ test("build request never sends a half-open content range", () => {
   const request = buildLocateRequest(
     "c1",
     "orders",
-    { key: "", content: "timeout", after: "", before: "2026-10-26T10:00" },
+    locateForm({ content: "timeout", before: "2026-10-26T10:00" }),
     200
   );
   // 两端都在，后端就不可能从日志头开始全量扫。
@@ -152,12 +150,7 @@ test("build request never sends a half-open content range", () => {
 });
 
 test("shifting the range keeps its length and moves both ends", () => {
-  const form = {
-    key: "",
-    content: "timeout",
-    after: "2026-10-26T10:00",
-    before: "2026-10-26T10:30",
-  };
+  const form = locateForm({ content: "timeout", after: "2026-10-26T10:00", before: "2026-10-26T10:30" });
   const earlier = shiftContentRange(form, "earlier");
   expect(earlier.after).toBe("2026-10-26T09:30");
   expect(earlier.before).toBe("2026-10-26T10:00");
@@ -168,7 +161,7 @@ test("shifting the range keeps its length and moves both ends", () => {
 });
 
 test("shifting an unparsable range changes nothing", () => {
-  const form = { key: "", content: "x", after: "", before: "" };
+  const form = locateForm({ content: "x" });
   expect(shiftContentRange(form, "earlier")).toEqual(form);
 });
 
@@ -209,16 +202,11 @@ test("scan progress distinguishes exhausted from resumable", () => {
 import { locateFormFromKey, withFallbackKey } from "./message-locate.ts";
 
 test("按 key 继续找只填 key，不继承消息时间戳", () => {
-  expect(locateFormFromKey(" order-1 ")).toEqual({
-    key: "order-1",
-    content: "",
-    after: "",
-    before: "",
-  });
+  expect(locateFormFromKey(" order-1 ")).toEqual(locateForm({ key: "order-1" }));
 });
 
 test("带进来的 key 覆盖现场 key，但保留用户已经填好的区间", () => {
-  const current = { key: "old", content: "timeout", after: "2026-01-01T00:00", before: "2026-01-01T01:00" };
+  const current = locateForm({ key: "old", content: "timeout", after: "2026-01-01T00:00", before: "2026-01-01T01:00" });
   const next = withFallbackKey(current, "order-9");
   expect(next.key).toBe("order-9");
   expect(next.content).toBe("timeout");
@@ -226,9 +214,49 @@ test("带进来的 key 覆盖现场 key，但保留用户已经填好的区间",
 });
 
 test("没有带参数时不动现场表单", () => {
-  const current = { key: "kept", content: "", after: "", before: "" };
+  const current = locateForm({ key: "kept" });
   expect(withFallbackKey(current, null)).toBe(current);
   expect(withFallbackKey(current, "  ")).toBe(current);
   // 同名不产生新对象，避免无意义的重扫。
   expect(withFallbackKey(current, "kept")).toBe(current);
+});
+
+test("从消费进度找是一个独立的起点，不需要 key 或时间区间", () => {
+  const request = buildLocateRequest(
+    "c1",
+    "orders",
+    locateForm({ key: "order-1", fromCommitted: true, group: "orders-worker" }),
+    200
+  );
+  expect(request?.fromCommitted).toBe(true);
+  expect(request?.group).toBe("orders-worker");
+  expect(request?.after).toBe(undefined);
+});
+
+test("勾了消费进度却没选组：拦在本地，不静默退回全量扫描", () => {
+  const form = locateForm({ key: "order-1", fromCommitted: true });
+  // 后端会从日志开头扫 —— 那就是一次全量扫描，而用户以为自己从位点往后找。
+  expect(locateFormIssue(form)).toBe("从消费进度找要先选一个消费组");
+  expect(buildLocateRequest("c1", "orders", form, 200)).toBe(null);
+
+  // 只勾了开关、什么都填，同样是「没有条件」。
+  expect(buildLocateRequest("c1", "orders", locateForm({ fromCommitted: true }), 200)).toBe(null);
+});
+
+test("时间区间优先于消费进度", () => {
+  const request = buildLocateRequest(
+    "c1",
+    "orders",
+    locateForm({
+      after: "2026-10-26T10:00",
+      before: "2026-10-26T11:00",
+      fromCommitted: true,
+      group: "orders-worker",
+    }),
+    200
+  );
+  // 起点仍是用户明确填的区间。字段照样带出去：请求体要说清「我本来想从哪开始」，
+  // 而「以谁为准」由后端定，两处各写一份判断早晚会分叉。
+  expect(request?.after).toBe(local("2026-10-26T10:00"));
+  expect(request?.fromCommitted).toBe(true);
 });

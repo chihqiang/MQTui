@@ -65,6 +65,24 @@ impl GroupAssignment {
             .find(|item| item.member_id == member_id)
             .map_or(&[], |item| item.partitions.as_slice())
     }
+
+    /// 某个分区被哪些成员占着。
+    ///
+    /// 「这个分区卡住了，该去停谁」是队头阻塞那一屏唯一能给动作的结论，
+    /// 而它只能从分配里读出来 —— 位点表里没有「谁」这一层。
+    /// 读不懂分配的成员不会被算进来：`state` 为 `Broken` 时它的分区列表是空的，
+    /// 于是「没人认领」和「读不懂」在界面上长得一样，这里的取舍是宁可空着。
+    pub fn owners_of(&self, topic: &str, partition: i32) -> Vec<String> {
+        self.by_member
+            .iter()
+            .filter(|item| {
+                item.partitions
+                    .iter()
+                    .any(|assigned| assigned.topic == topic && assigned.partition == partition)
+            })
+            .map(|item| item.member_id.clone())
+            .collect()
+    }
 }
 
 /// 单个成员的归属。
@@ -501,5 +519,19 @@ mod tests {
             partition: 7,
         };
         assert_eq!(partition.label(), "orders-P7");
+    }
+
+    #[test]
+    fn owners_of_finds_the_member_holding_a_partition() {
+        // 「这个分区卡住了，该去停谁」只能从分配里读出来。
+        let assignment = assemble(vec![
+            ("m-1".to_owned(), encode(&[("orders", &[0, 1])])),
+            ("m-2".to_owned(), encode(&[("orders", &[2])])),
+        ]);
+        assert_eq!(assignment.owners_of("orders", 1), ["m-1"]);
+        assert_eq!(assignment.owners_of("orders", 2), ["m-2"]);
+        // 没有归属时返回空：这是「不知道」，界面照「未知」显示。
+        assert!(assignment.owners_of("orders", 9).is_empty());
+        assert!(assignment.owners_of("payments", 0).is_empty());
     }
 }

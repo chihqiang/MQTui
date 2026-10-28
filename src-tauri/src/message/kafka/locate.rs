@@ -213,39 +213,211 @@ pub fn merge(mut items: Vec<MessageSummary>, limit: usize) -> Vec<MessageSummary
     items
 }
 
-/// 按时间反查 offset；分区没有消息（或时间晚于末尾）时返回末尾位置。
-fn offset_for_time(
-    worker: &BaseConsumer,
-    topic: &str,
-    partition: i32,
-    millis: i64,
-) -> AppResult<i64> {
+/// 按时间反查 offset，并说清结果是哪一种。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TimeAnchor {
+    /// 该时间点之后的第一条消息在位点 `n`。
+    At(i64),
+    /// 该时间之后没有消息了：起点取分区末尾，这次扫描必然什么都不命中。
+    Past(i64),
+    /// 反查失败（超时、权限、leader 迁移……）。**不能**当成「没有消息」。
+    Unknown,
+}
+
+/// 按时间反查 offset。
+///
+/// 三种结果必须分开：`Past(high)` 是一个真结论（「这个区间里没有消息」），
+/// 而反查失败是「不知道」。把后者写成 `0`，一次权限不足就会把扫描起点
+/// 拉回分区最早的位置 —— 于是「按 key + 时间区间找一条消息」退化成
+/// 全量扫描日志，撞上 5 万条上限后只回一句「没有命中」。
+fn offset_for_time(worker: &BaseConsumer, topic: &str, partition: i32, millis: i64) -> TimeAnchor {
     let mut query = TopicPartitionList::with_capacity(1);
-    query
-        .add_partition_offset(topic, partition, Offset::Offset(millis))
-        .map_err(AppError::from)?;
-
-    let list = worker
-        .offsets_for_times(query, Timeout::After(POLL_TIMEOUT))
-        .map_err(AppError::from)?;
-
-    let resolved = list
-        .elements()
-        .first()
-        .map(|element| element.offset())
-        .and_then(|offset| match offset {
-            Offset::Offset(offset) => Some(offset),
-            // 该分区在给定时间之后没有消息，返回 Invalid 表示查不到，交给调用方兜底。
-            _ => None,
-        });
-
-    match resolved {
-        Some(offset) => Ok(offset),
-        None => Ok(worker
-            .fetch_watermarks(topic, partition, Timeout::After(POLL_TIMEOUT))
-            .map_err(AppError::from)?
-            .1),
+    if let Err(_error) = query.add_partition_offset(topic, partition, Offset::Offset(millis)) {
+        return TimeAnchor::Unknown;
     }
+
+    let list = match worker.offsets_for_times(query, Timeout::After(POLL_TIMEOUT)) {
+        Ok(list) => list,
+        Err(_) => return TimeAnchor::Unknown,
+    };
+
+    let elements = list.elements();
+    let Some(element) = elements.first() else {
+        return TimeAnchor::Unknown;
+    };
+    if element.error().is_err() {
+        return TimeAnchor::Unknown;
+    }
+
+    match element.offset() {
+        // 负值（含 `Invalid`、`End`）只表示「该时间之后的第一个位点不存在」，
+        // 也就是「这个时间之后没有消息了」—— 起点该是分区末尾，不是最早的位点。
+        Offset::Offset(offset) if offset >= 0 => TimeAnchor::At(offset),
+        _ => match worker.fetch_watermarks(topic, partition, Timeout::After(POLL_TIMEOUT)) {
+            Ok((_, high)) => TimeAnchor::Past(high),
+            Err(_) => TimeAnchor::Unknown,
+        },
+    }
+}
+
+/// 消费端进度：某个分区已经被读到哪儿。
+///
+/// 定位要回答的问题几乎总是「这条 key 的消息在哪」—— 而这条消息之所以被关心，
+/// 通常是因为消费端刚为它报错。所以从消费端进度往后找，比从分区头开始扫
+/// 少读几个数量级，也多一份「按分区的起点」说得出来的依据。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CommittedPoint {
+    pub partition: i32,
+    /// 已提交位点。-1（`__consumer_offsets` 用来表示「没有位点」）不该传进来。
+    pub offset: i64,
+}
+
+/// 本次扫描的起点从哪儿来。界面要说出来，否则用户不知道自己在看哪一段日志。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WindowOrigin {
+    /// 时间区间：起点由 `after` 反查。
+    Range,
+    /// 只看消费端进度之后：用户勾了「从消费进度继续找」。
+    Committed,
+    /// 什么都没有：从每个分区最早的位置开始，也就是整段日志。
+    FullScan,
+}
+
+impl WindowOrigin {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Range => "时间区间",
+            Self::Committed => "消费端进度",
+            Self::FullScan => "日志开头",
+        }
+    }
+}
+
+/// 起始位点的唯一来源：时间区间 > 消费端进度 > 日志开头。
+///
+/// 优先级是刻意的，与「谁更精确」无关：时间区间是用户明确填的条件，
+/// 消费端进度是「他大概在找刚出问题的那条」，只有两者都没给才退回全量扫描。
+/// 消费端进度与 `after` 同时给出时按 `after`：那是两条不同的问题，
+/// 「从 A 时间到现在」和「从这个组读到的地方到现在」混在一起会得出一个
+/// 两头都不成立的区间。
+pub fn window_origin(after: Option<i64>, committed: Option<&[CommittedPoint]>) -> WindowOrigin {
+    if after.is_some() {
+        return WindowOrigin::Range;
+    }
+    match committed {
+        Some(points) if !points.is_empty() => WindowOrigin::Committed,
+        _ => WindowOrigin::FullScan,
+    }
+}
+
+/// 按消费端进度把分区起点收窄到「已提交位点」。
+///
+/// 只对**有进度**的分区生效，其余分区保持原样（它们没有历史可跳）。
+/// 位点夹进 `[low, high]`：消费端可能被重置位点、组也可能被重建，
+/// 存下来的位点未必还在可读区间里。
+///
+/// 收窄的代价必须说出来：位点之前的消息这次不会被搜到。所以这一步只在
+/// 用户明确勾了「从消费进度继续找」时做，绝不当默认行为。
+pub fn narrow_to_committed(
+    starts: &mut [PartitionCursor],
+    committed: &[CommittedPoint],
+    bounds: &HashMap<i32, (i64, i64)>,
+) {
+    for cursor in starts.iter_mut() {
+        let Some(point) = committed
+            .iter()
+            .find(|item| item.partition == cursor.partition)
+        else {
+            continue;
+        };
+        let (low, high) = bounds
+            .get(&cursor.partition)
+            .copied()
+            .unwrap_or((0, i64::MAX));
+        let target = point.offset.clamp(low, high);
+        // 只往前收，不往回放：`after` 反查出来的起点比消费端进度更靠后时，
+        // 那个才是用户要的起点。
+        if target > cursor.next {
+            cursor.next = target.min(high);
+        }
+    }
+}
+
+/// 读一个消费组已提交的位点。
+///
+/// 走的是 `admin::fetch_assignment` + `admin::fetch_committed_offsets` 这一对：
+/// `committed_offsets` 只查「表里列出的分区」，空表等于什么都没查（会静默返回
+/// 空结果、错误码 0）。所以分区清单必须先由成员分配摊平出来。
+///
+/// 组里没有成员、或者成员没有分配时读不到分区 —— 此时返回空列表，让上层
+/// 退回全量扫描并在结果里说明。这不是错误：一个刚停掉的组正是最常见的场景。
+async fn committed_points(
+    client: &KafkaClient,
+    group: &str,
+    topic: &str,
+) -> AppResult<Vec<CommittedPoint>> {
+    let worker = Arc::new(
+        client
+            .consumer_config(group)
+            .create::<BaseConsumer>()
+            .map_err(AppError::from)?,
+    );
+    let group = group.to_owned();
+    let topic = topic.to_owned();
+
+    tokio::task::spawn_blocking(move || -> AppResult<Vec<CommittedPoint>> {
+        let assignment = match crate::broker::kafka::admin::fetch_assignment(&worker, &group) {
+            Ok(assignment) => assignment,
+            // 组不存在 / 权限不足：这里不阻断定位，只是没有起点可用。
+            Err(_) => return Ok(Vec::new()),
+        };
+        let partitions: Vec<(String, i32)> = crate::domain::partition_query(&assignment)
+            .into_iter()
+            .filter(|(name, _)| *name == topic)
+            .collect();
+        if partitions.is_empty() {
+            return Ok(Vec::new());
+        }
+        let offsets = match crate::broker::kafka::admin::fetch_committed_offsets(
+            &worker,
+            &group,
+            &partitions,
+        ) {
+            Ok(offsets) => offsets,
+            Err(_) => return Ok(Vec::new()),
+        };
+        Ok(offsets
+            .into_iter()
+            .filter_map(|item| {
+                item.offset.map(|offset| CommittedPoint {
+                    partition: item.partition,
+                    offset,
+                })
+            })
+            .collect())
+    })
+    .await
+    .map_err(|error| AppError::Internal(format!("消费组位点查询失败: {error}")))?
+}
+
+/// 起点说明：反查失败的分区必须点名。
+///
+/// 这些分区的起点退回了「最早位置」，也就是说这次扫描读得比预期多得多，
+/// 而条数上限很可能在命中之前就到了 —— 只回一句「没有命中」是把
+/// 「没找全」说成了「不存在」。
+fn window_note(unresolved: &[i32]) -> Option<String> {
+    if unresolved.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "分区 {} 按时间反查起点失败（超时 / 权限 / leader 迁移），已退回各分区最早位置扫描；\
+         这一部分可能没扫完，别把「没有命中」当成「不存在」",
+        unresolved
+            .iter()
+            .map(i32::to_string)
+            .collect::<Vec<_>>()
+            .join("、")
+    ))
 }
 
 /// 执行定位。
@@ -297,14 +469,39 @@ pub async fn locate(client: &KafkaClient, request: MessageLocate) -> AppResult<M
         _ => None,
     };
 
+    // 消费端进度当起点：只在用户勾了开关、且没给时间区间时生效。
+    // 组名是必需的 —— 没有组就没有「进度」这回事，静默忽略会让用户
+    // 以为自己在看「从消费位点往后」的结果，其实是从日志开头扫的。
+    let wants_committed = request.from_committed && after.is_none() && resumed.is_none();
+    let group = request
+        .group
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty());
+    if request.from_committed && after.is_none() && group.is_none() {
+        return Err(AppError::Invalid(
+            "从消费进度找必须先选一个消费组：没有组就没有可用的位点".to_owned(),
+        ));
+    }
+
     let mut config = client.consumer_config(&format!("mqtui-locate-{}", uuid::Uuid::new_v4()));
     config.set("queued.min.messages", FETCH_QUEUE_SIZE);
     let worker: Arc<BaseConsumer> = Arc::new(config.create().map_err(AppError::from)?);
+
+    // 位点要在搬进阻塞任务之前读：它走的是另一个 worker（group.id 必须是目标组名，
+    // 而定位用的这个 consumer 用的是随机 group.id）。
+    let committed = match (wants_committed, group) {
+        (true, Some(group)) => Some(committed_points(client, group, &topic).await?),
+        _ => None,
+    };
+    let origin = window_origin(after, committed.as_deref());
 
     let backward = resumed.as_ref().is_some_and(|cursor| cursor.backward);
     // 搬进阻塞任务：只保留分区状态，指纹在外层已经用过了。
     let resumed_partitions = resumed.map(|cursor| (cursor.backward, cursor.partitions));
     let has_resume = resumed_partitions.is_some();
+    let mut window = (origin == WindowOrigin::Committed)
+        .then(|| "从消费组的已提交位点往后扫描：位点之前的消息这次不会被搜到".to_owned());
 
     tokio::task::spawn_blocking(move || {
         let metadata = worker
@@ -331,19 +528,46 @@ pub async fn locate(client: &KafkaClient, request: MessageLocate) -> AppResult<M
             ),
             None => {
                 let layout = read_layout(&worker, &topic, &partitions)?;
+                // 反查失败的分区单独记账：它们的起点只能退回分区最早位置，
+                // 而这件事必须出现在结果里（见 `window`）。
+                let mut unresolved: Vec<i32> = Vec::new();
                 let resolved = locate_cursor::initial_starts(
                     &layout,
                     backward,
-                    |partition, millis| {
-                        offset_for_time(&worker, &topic, partition, millis).unwrap_or(0)
+                    |partition, millis| match offset_for_time(&worker, &topic, partition, millis) {
+                        TimeAnchor::At(offset) => offset,
+                        TimeAnchor::Past(high) => high,
+                        TimeAnchor::Unknown => {
+                            unresolved.push(partition);
+                            // 交出分区最早位点，让 `initial_starts` 的 clamp 给出确定结果。
+                            layout
+                                .iter()
+                                .find(|(id, _, _)| *id == partition)
+                                .map_or(0, |(_, low, _)| *low)
+                        }
                     },
                     after,
                 );
+                unresolved.sort_unstable();
+                window = window_note(&unresolved);
+
+                let mut cursors = resolved;
+                // 消费端进度只在「没有时间区间」时当起点：两者给了同一个分区时
+                // 以用户明确填的时间区间为准。
+                if origin == WindowOrigin::Committed
+                    && let Some(points) = committed.as_deref()
+                {
+                    let bounds: HashMap<i32, (i64, i64)> = layout
+                        .iter()
+                        .map(|(partition, low, high)| (*partition, (*low, *high)))
+                        .collect();
+                    narrow_to_committed(&mut cursors, points, &bounds);
+                }
                 locate_cursor::resume(
                     &LocateCursor {
                         fingerprint: fingerprint.clone(),
                         backward,
-                        partitions: resolved,
+                        partitions: cursors,
                     },
                     &partitions,
                 )
@@ -441,6 +665,7 @@ pub async fn locate(client: &KafkaClient, request: MessageLocate) -> AppResult<M
             content_budget: content.map(|_| {
                 format!("按内容扫描：单次最多解码 {MAX_CONTENT_SCAN} 条（已扫 {scanned} 条）")
             }),
+            window,
             // 只在真的遇到时才说：这是一条「你可能白扫了」的提示，不是常驻噪音。
             undated: (undated > 0).then(|| undated_note(undated)),
         })
@@ -926,5 +1151,87 @@ mod tests {
         let keyed = note_of("orders", false, None, None, true, false, false);
         assert!(keyed.contains("最早位置"));
         assert!(keyed.contains("按 key 精确匹配"));
+    }
+
+    // ---- 扫描起点 -------------------------------------------------------
+
+    #[test]
+    fn window_origin_prefers_the_range_the_user_typed() {
+        let points = [CommittedPoint {
+            partition: 0,
+            offset: 100,
+        }];
+        // 时间区间是用户明确填的条件，消费端进度只是「大概从哪开始」。
+        assert_eq!(
+            window_origin(Some(1_000), Some(&points)),
+            WindowOrigin::Range
+        );
+        assert_eq!(window_origin(None, Some(&points)), WindowOrigin::Committed);
+        // 组里没有可用进度时退回全量扫描，而不是「从 0 开始」这种假起点。
+        assert_eq!(window_origin(None, Some(&[])), WindowOrigin::FullScan);
+        assert_eq!(window_origin(None, None), WindowOrigin::FullScan);
+    }
+
+    fn cursor(partition: i32, next: i64) -> PartitionCursor {
+        PartitionCursor {
+            partition,
+            next,
+            done: false,
+        }
+    }
+
+    #[test]
+    fn committed_progress_only_moves_starts_forward() {
+        let mut starts = vec![cursor(0, 10), cursor(1, 10), cursor(2, 500)];
+        let points = [
+            CommittedPoint {
+                partition: 0,
+                offset: 400,
+            },
+            // 消费端位点不在可读区间里（组被重置过、位点被清理过）。
+            CommittedPoint {
+                partition: 1,
+                offset: -1,
+            },
+        ];
+        let bounds = HashMap::from([(0, (0, 1_000)), (1, (0, 1_000)), (2, (0, 1_000))]);
+        narrow_to_committed(&mut starts, &points, &bounds);
+
+        assert_eq!(
+            starts[0].next, 400,
+            "有进度的分区从位点开始：这才叫「往后找」"
+        );
+        assert_eq!(
+            starts[1].next, 10,
+            "负位点夹到区间下界后落在原地：既不推成负数，也不会把起点往回拉"
+        );
+        assert_eq!(starts[2].next, 500, "没有进度的分区保持原样");
+
+        // 位点比现有起点更靠前时不往回放：`after` 反查出来的起点更精确。
+        let mut behind = vec![cursor(0, 900)];
+        narrow_to_committed(
+            &mut behind,
+            &[CommittedPoint {
+                partition: 0,
+                offset: 100,
+            }],
+            &HashMap::from([(0, (0, 1_000))]),
+        );
+        assert_eq!(behind[0].next, 900);
+    }
+
+    #[test]
+    fn unknown_time_anchor_is_not_silently_zero() {
+        // 回归：反查失败以前是 `unwrap_or(0)`，于是「按 key + 时间区间」退化成
+        // 从分区最早位置开始的全量扫描 —— 扫到 5 万条上限后只说一句「没有命中」。
+        // 现在失败是 `Unknown`，起点退回分区最早位置，但会作为 `window` 说出来。
+        let note = window_note(&[3, 7]).expect("反查失败必须留下说明");
+        assert!(note.contains('3') && note.contains('7'), "{note}");
+        assert!(
+            note.contains("没有命中") && note.contains("不存在"),
+            "{note}"
+        );
+        // 全部反查成功时不制造噪音。
+        assert!(window_note(&[]).is_none());
     }
 }

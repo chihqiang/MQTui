@@ -179,6 +179,19 @@ pub struct MessageLocate {
     /// 所以换条件后会失效（见 `locate::cursor`）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cursor: Option<String>,
+    /// 从消费端进度继续找，而不是从日志开头。
+    ///
+    /// 「这条 key 的消息在哪」几乎总是因为消费端刚为它报错才被问起，
+    /// 从该组已提交的位点往后找，比从分区头扫起少读几个数量级。
+    /// 但代价必须由用户明确同意：位点之前的消息这次不会被搜到，
+    /// 所以它是一个开关，而不是默认行为。
+    #[serde(default)]
+    pub from_committed: bool,
+    /// 用哪个消费组的进度当起点（`from_committed` 为真时必填）。
+    ///
+    /// 与 `key` / 时间区间同时给出时以时间区间为准：那是用户明确填的条件。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
 }
 
 /// 定位结果。
@@ -218,6 +231,12 @@ pub struct MessageSearch {
     /// 「没找到」这句话对它们不成立。只在真的遇到时才给。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub undated: Option<String>,
+    /// 起点读不到时的说明：例如按时间反查失败，本次只能退到日志开头。
+    ///
+    /// 以前这里什么都不说，于是一次权限不足会静静地变成一次全量扫描，
+    /// 最后只回一句「没有命中」—— 而真相是「没找全」。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window: Option<String>,
 }
 
 /// 发送消息请求：Kafka 与 RabbitMQ 各一个变体。

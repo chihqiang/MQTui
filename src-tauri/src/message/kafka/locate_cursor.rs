@@ -250,7 +250,7 @@ pub fn resume(cursor: &LocateCursor, partitions: &[i32]) -> Resume {
 pub fn initial_starts(
     partitions: &[(i32, i64, i64)],
     backward: bool,
-    resolve_time: impl Fn(i32, i64) -> i64,
+    mut resolve_time: impl FnMut(i32, i64) -> i64,
     after: Option<i64>,
 ) -> Vec<PartitionCursor> {
     partitions
@@ -326,6 +326,8 @@ mod tests {
             before,
             limit: Some(50),
             cursor: None,
+            from_committed: false,
+            group: None,
         }
     }
 

@@ -12,7 +12,6 @@ use rdkafka::ClientConfig;
 use rdkafka::consumer::BaseConsumer;
 
 use crate::broker::kafka::{KafkaClient, admin};
-use crate::domain::group_assignment::partition_query;
 use crate::domain::lag_trend::{LagSample, LagTrend, compute};
 use crate::error::{AppError, AppResult};
 
@@ -80,13 +79,16 @@ fn run(worker: &BaseConsumer, group: &str, window_ms: u64) -> AppResult<LagTrend
 /// 只会返回一张空表，算出来是「滞后 0、无法比较」—— 那是在说一个不存在的组
 /// 很健康。先确认组在，再谈它的位点。
 fn snapshot(worker: &BaseConsumer, group: &str) -> AppResult<LagSample> {
-    admin::probe_group(worker, group)?;
-    // 分区表必须先读出来：`committed_offsets` 查的是「表里列出的分区」，
-    // 空表等于没查（会算成「滞后 0、持平」）。归属也顺手拿到了，
-    // 顺便能判断「这个组根本没有分区」和「读不到归属」的区别。
-    let assignment = admin::fetch_assignment(worker, group)?;
-    let offsets = admin::fetch_committed_offsets(worker, group, &partition_query(&assignment))?;
-    Ok(LagSample::new(now_ms(), offsets))
+    // `fetch_detail` 内部已经把分区表凑齐了（成员分配 + 位点表本身），
+    // 并且会在「一个位点都没有」时直接报错 —— 那正是最容易在趋势图上
+    // 被读成「滞后 0、持平」的情形。
+    //
+    // 这里曾经自己走 `fetch_assignment` → `partition_query`：组一旦没有在线成员
+    // （正常下线是最常见的状态），分配为空 → 空分区表 → `fetch_committed_offsets`
+    // 直接报错，于是**一个还积压着十万条、只是暂时没消费者在跑的组，趋势永远画不出来**；
+    // 而如果它不报错，空表就会被算成「滞后 0、持平」—— 同样是一句假结论。
+    let detail = admin::fetch_detail(worker, group)?;
+    Ok(LagSample::new(now_ms(), detail.offsets))
 }
 
 /// 采样用的 consumer 配置。

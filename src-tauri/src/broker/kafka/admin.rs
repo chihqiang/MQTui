@@ -173,8 +173,19 @@ pub fn fetch_detail(worker: &BaseConsumer, group_name: &str) -> AppResult<Consum
     //
     // 而且**必须把分区表一起交出去**：`committed_offsets` 查的是「这张表里列出的
     // 分区」，空表就等于什么都没查（见 `fetch_committed_offsets` 的说明）。
-    // 分区清单来自成员的分配 —— 一个组读过的分区，只可能是它成员拿到的那些。
-    let partitions = crate::domain::partition_query(&assemble_assignment(group));
+    //
+    // 分区清单有两个来源，缺一不可：
+    // 1. 成员的分配 —— 正在消费的分区只可能在这里；
+    // 2. **位点表本身**（`committed_offsets(空表)`）—— 组停掉之后成员列表是空的，
+    //    只剩 `__consumer_offsets` 里那份提交记录。只认分配的话，一个正常下线、
+    //    还积着十万条没消费的组会被报成「滞后 0、无分区」，而那恰好是最常见的情形。
+    let mut partitions = crate::domain::partition_query(&assemble_assignment(group));
+    if partitions.is_empty() {
+        let mut owned = fetch_owned_partitions(worker)?;
+        owned.sort();
+        owned.dedup();
+        partitions = owned;
+    }
     let offsets = fetch_committed_offsets(worker, group_name, &partitions)?;
 
     Ok(assemble_detail(
@@ -183,6 +194,25 @@ pub fn fetch_detail(worker: &BaseConsumer, group_name: &str) -> AppResult<Consum
         members,
         offsets,
     ))
+}
+
+/// 这个 consumer 的 `group.id` 名下提交过位点的全部分区。
+///
+/// 这里传空表是**对的**：`committed_offsets(空表)` 在 librdkafka 里等于
+/// 「列出该 group.id 的全部已提交位点」。它的问题从来不是「返回垃圾」，
+/// 而是容易被当成「一个分区都没提交」—— 空结果既可能是「没有位点」，
+/// 也可能是「表里没列分区」，两者只能靠调用方分清楚（见 `fetch_committed_offsets`）。
+fn fetch_owned_partitions(worker: &BaseConsumer) -> AppResult<Vec<(String, i32)>> {
+    let committed = worker
+        .committed_offsets(rdkafka::TopicPartitionList::new(), GROUPS_TIMEOUT)
+        .map_err(|error| AppError::Broker(format!("读取消费组已提交位点清单失败: {error}")))?;
+
+    Ok(committed
+        .elements()
+        .iter()
+        .filter(|element| element.offset().to_raw().is_some())
+        .map(|element| (element.topic().to_owned(), element.partition()))
+        .collect())
 }
 
 /// 读一个消费组的成员分区归属。
@@ -308,9 +338,12 @@ pub fn fetch_committed_offsets(
         .map_err(|error| AppError::Broker(format!("查询消费组 {group_name} 位点失败: {error}")))?;
 
     let mut offsets = Vec::new();
+    let mut uncommitted = 0_usize;
     for element in committed.elements() {
         let Some(offset) = element.offset().to_raw() else {
-            // 分区没有有效位点（`Offset::Invalid`），跳过而不是当成 0。
+            // 分区没有有效位点（`Offset::Invalid`），跳过而不是当成 0 ——
+            // 但计数：空列表必须能区分「没查」和「查了，但这些分区没有位点」。
+            uncommitted += 1;
             continue;
         };
         let (low, high) = worker
@@ -323,6 +356,14 @@ pub fn fetch_committed_offsets(
             high,
             lag: partition_lag(offset, low, high),
         });
+    }
+    if offsets.is_empty() {
+        // 查了，但一个位点都没有。这同样不是「滞后 0」：位点还停在很早以前时
+        // 滞后照样为零，看不出来；而「零位点」意味着这个组从来没消费过这些分区。
+        return Err(AppError::Broker(format!(
+            "消费组 {group_name} 在这些分区上没有任何有效位点（{uncommitted} 个分区的位点为空）\
+             ，无法计算滞后：请确认组名有没有写错"
+        )));
     }
     offsets.sort_by(|a, b| a.topic.cmp(&b.topic).then(a.partition.cmp(&b.partition)));
     Ok(offsets)
@@ -524,5 +565,36 @@ mod tests {
         assert_eq!(clamp_limit(None), DEFAULT_GROUP_LIMIT);
         assert_eq!(clamp_limit(Some(0)), 1);
         assert_eq!(clamp_limit(Some(usize::MAX)), MAX_GROUP_LIMIT);
+    }
+
+    #[test]
+    fn assembled_detail_does_not_call_an_empty_offset_list_zero_lag() {
+        // 空位点列表以前会被算成「滞后 0」——那是在说一个查不到任何东西的组很健康。
+        let detail = assemble_detail("orders", "Empty", Vec::new(), Vec::new());
+        assert_eq!(detail.group.total_lag, None, "「查不到」不该显示成 0");
+    }
+
+    #[test]
+    fn assembled_detail_sums_lag_only_when_something_was_read() {
+        let offsets = vec![
+            ConsumerGroupOffset {
+                topic: "orders".to_owned(),
+                partition: 0,
+                offset: Some(10),
+                high: 40,
+                lag: 30,
+            },
+            ConsumerGroupOffset {
+                topic: "orders".to_owned(),
+                partition: 1,
+                offset: Some(90),
+                high: 100,
+                lag: 10,
+            },
+        ];
+        let detail = assemble_detail("orders", "Stable", Vec::new(), offsets);
+        assert_eq!(detail.group.total_lag, Some(40));
+        // 没有成员不等于没有结论：滞后照样要报出来。
+        assert!(detail.members.is_empty());
     }
 }

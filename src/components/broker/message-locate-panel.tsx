@@ -158,6 +158,32 @@ export function MessageLocatePanel({ connectionId, target, onSelect, initialKey 
             className="h-8 w-48 text-(length:--text-app-body)"
           />
         </label>
+        {/*
+          从消费进度找：位点之后的日志才是「刚出问题的那段」。
+          它是个开关而不是默认行为 —— 位点之前的消息这次搜不到，
+          这件事必须由用户自己点头。
+        */}
+        <label
+          className="flex flex-col gap-1"
+          title="从该消费组已提交的位点往后找；位点之前的消息这次不会被搜到"
+        >
+          <span className="truncate text-(length:--text-app-meta) text-secondary">起点</span>
+          <span className="flex h-8 items-center gap-1.5">
+            <input
+              type="checkbox"
+              checked={form.fromCommitted}
+              onChange={(event) => update({ fromCommitted: event.currentTarget.checked })}
+              className="size-3.5 accent-indigo-600"
+            />
+            <Input
+              value={form.group}
+              onChange={(event) => update({ group: event.currentTarget.value })}
+              placeholder="消费组名"
+              aria-label="用哪个消费组的进度当起点"
+              className="h-8 w-32 text-(length:--text-app-body)"
+            />
+          </span>
+        </label>
         {contentMode ? (
           <div className="flex items-end gap-1.5">
             <Button
@@ -206,7 +232,9 @@ export function MessageLocatePanel({ connectionId, target, onSelect, initialKey 
               ? appliedRange
                 ? `按内容扫描会把每条消息体解出来逐字比对，单次上限 5000 条，所以只认时间区间。本次区间：${appliedRange}（只填一端会自动补成等长窗口）`
                 : "按内容扫描要把每条消息体解出来逐字比对，单次上限 5000 条，因此必须配时间区间：只填一端会自动补成等长窗口。"
-              : "顺序读取，一次最多返回 200 条；只给时间区间时会同时从两端各扫一份。")}
+              : form.fromCommitted && form.after.trim() === ""
+                ? "顺序读取，一次最多返回 200 条；本次从该消费组已提交的位点往后扫，位点之前的消息不会被搜到。"
+                : "顺序读取，一次最多返回 200 条；只给时间区间时会同时从两端各扫一份。勾上「起点」可以从某个消费组的进度往后扫。")}
         </span>
       </form>
 
@@ -247,6 +275,12 @@ export function MessageLocatePanel({ connectionId, target, onSelect, initialKey 
               会让人一遍遍点「继续扫描」。
             */}
             {page.undated ? <span className="text-amber-700">{page.undated}</span> : null}
+            {/*
+              起点读不到时单独说一句：反查失败会退回分区最早位置，
+              这次扫描读得比预期多得多，条数上限很可能在命中之前就到了。
+              不说，用户会把「没有命中」当成「不存在」。
+            */}
+            {page.window ? <span className="text-amber-700">{page.window}</span> : null}
             <span className="text-slate-500">{page.note}</span>
           </div>
 

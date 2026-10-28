@@ -16,6 +16,16 @@ export interface LocateForm {
   /** `datetime-local` 的值，形如 `2026-10-26T10:00`。 */
   after: string;
   before: string;
+  /**
+   * 从某个消费组的已提交位点往后找。
+   *
+   * 「这条 key 的消息在哪」几乎总是因为消费端刚为它报错才被问起。从位点往后扫
+   * 比从分区头扫起少读几个数量级，代价是位点之前的消息这次搜不到 ——
+   * 所以它是个开关，默认关着。
+   */
+  fromCommitted: boolean;
+  /** 用哪个组当起点（`fromCommitted` 为真时必填）。 */
+  group: string;
 }
 
 export const EMPTY_LOCATE_FORM: LocateForm = {
@@ -23,6 +33,8 @@ export const EMPTY_LOCATE_FORM: LocateForm = {
   content: "",
   after: "",
   before: "",
+  fromCommitted: false,
+  group: "",
 };
 
 /** 表单是否为空：空表单不该触发扫描。 */
@@ -160,7 +172,12 @@ export function buildLocateRequest(
   if (form.before.trim() && before === undefined) return null;
   if (after !== undefined && before !== undefined && after > before) return null;
   if (contentScanIssue(form)) return null;
-  if (!key && !content && after === undefined && before === undefined) return null;
+  // 从消费进度找是可以独立成立的条件：没有 key、没有时间区间，
+  // 但「从这个组读到的地方往后」本身就是一段区间。
+  const committed = form.fromCommitted && after === undefined;
+  const group = form.group.trim();
+  if (!key && !content && after === undefined && before === undefined && !committed) return null;
+  if (committed && !group) return null;
 
   // 只给一端时间的内容搜索会退化成「扫全量」：补一个等长窗口，
   // 让下发的请求里两端都在，后端就不可能从日志头或末尾开始扫。
@@ -180,6 +197,10 @@ export function buildLocateRequest(
     after,
     before,
     limit,
+    // 时间区间存在时后端以时间为准（那是用户明确填的），这里仍然原样带上，
+    // 让请求体自己说明「我本来想从哪开始」。
+    fromCommitted: form.fromCommitted || undefined,
+    group: form.fromCommitted && group ? group : undefined,
   };
 }
 
@@ -192,6 +213,8 @@ export function locateConditionKey(request: MessageLocate | null): string {
     request.after ?? "",
     request.before ?? "",
     request.limit ?? "",
+    // 起点变了就是另一段扫描，缓存不能复用。
+    request.fromCommitted ? `c:${request.group ?? ""}` : "",
   ].join("|");
 }
 
@@ -210,7 +233,14 @@ export function locateFormIssue(form: LocateForm): string | null {
   }
   const contentIssue = contentScanIssue(form);
   if (contentIssue) return contentIssue;
-  if (isLocateFormEmpty(form)) return "至少填写 key、内容片段或时间区间之一";
+  // 勾了「从消费进度找」却没选组：静默忽略会让人以为自己在看「从位点往后」的结果，
+  // 其实后端会从日志开头扫 —— 那就是一次全量扫描。
+  if (form.fromCommitted && form.after.trim() === "" && !form.group.trim()) {
+    return "从消费进度找要先选一个消费组";
+  }
+  if (isLocateFormEmpty(form) && !(form.fromCommitted && form.group.trim())) {
+    return "至少填写 key、内容片段或时间区间之一";
+  }
   return null;
 }
 
