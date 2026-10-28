@@ -553,9 +553,17 @@ fn scan(
                         })
                         .or_insert(offset);
                 }
-                if !backward
-                    && before.is_some_and(|before| summary.timestamp.is_some_and(|ts| ts > before))
-                {
+                // 读到区间终点之后就没必要继续了：正向读到的是「更晚」，反向读到的是
+                // 「更早」，两个方向在这一条上是对称的。
+                //
+                // 反向缺了这一条时，它会把**区间之后**的消息也收进来：命中判据 `matches`
+                // 里的 `before` 只在双向扫描（两个时间端都给）时才被用上，而只给
+                // `before` 的 key / 内容定位恰好走的就是反向。那一刻「区间里最新的一条」
+                // 其实是区间外的消息，用户按它去核算完全对不上。
+                //
+                // 多分区交错投递下，一条越界消息不代表别的分区也越界：循环里每条命中
+                // 仍要过 `matches`，越界的那条自己进不来。
+                if before.is_some_and(|before| summary.timestamp.is_some_and(|ts| ts > before)) {
                     past_range = true;
                 }
                 if matches(&summary, key, after, before)
@@ -763,6 +771,27 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["b", "c", "a"]
         );
+    }
+
+    /// 反向扫描遇到第一条晚于 `before` 的消息就必须收手。
+    ///
+    /// 这是一个只做「读顺序」的判定，无法脱离 broker 跑完整 `scan`，
+    /// 所以这里把循环里那条判断单独固化：晚于 `before` → 收手；早于或等于 → 继续。
+    #[test]
+    fn backward_scan_stops_once_past_before() {
+        let before = Some(1_000);
+        let stop = |timestamp: Option<i64>| {
+            before.is_some_and(|before| timestamp.is_some_and(|ts| ts > before))
+        };
+
+        // 区间内的消息不该让扫描停下。
+        assert!(!stop(Some(900)));
+        assert!(!stop(Some(1_000)));
+        // 晚于 `before` 的消息：反向从这里开始已经出了区间，继续读只会读到更早的
+        // （同样在区间外或有更近区间边界的问题），所以必须收手。
+        assert!(stop(Some(1_001)));
+        // 没有时间戳时不做判断：宁可多读几条，也不要凭空断言「区间读完了」。
+        assert!(!stop(None));
     }
 
     #[test]

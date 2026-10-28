@@ -251,13 +251,23 @@ pub fn assemble(
         .map(|item| (item.name.as_str(), item))
         .collect();
 
-    // 同一个 (队列, tag) 只算一条：`/api/queues` 与 `/api/consumers` 是两次独立请求，
+    // 同一个 (队列, tag, channel) 只算一条：`/api/queues` 与 `/api/consumers` 是两次独立请求，
     // 面板读到的可能是「刚被告知 consumer 已取消」的那份队列 + 取消之前的消费者列表。
     // 不去重的话，未确认数被加两次，健康判定也会因此误报「预取已满」。
-    let mut seen: BTreeSet<(String, String)> = BTreeSet::new();
+    //
+    // 这里必须带上 channel，不能只用 (队列, tag)：consumer tag 是**每个 channel**
+    // 自动递增的（`amq.ctag-1`、`ctag-1`），不同服务、不同 channel 上出现同一个 tag
+    // 是常态。只按 (队列, tag) 去重会把「两个服务各有一个消费者」压成一个，
+    // 连接数与账号数跟着少算 —— 而这正是「谁在消费这个队列」要回答的那句话。
+    // 真正的同一个消费者，channel 必然相同（见 `consumer_link::group_by_queue`）。
+    let mut seen: BTreeSet<(String, String, Option<String>)> = BTreeSet::new();
     let mut owners: Vec<ConsumerOwner> = Vec::new();
     for consumer in consumers {
-        if !seen.insert((consumer.queue.clone(), consumer.consumer_tag.clone())) {
+        if !seen.insert((
+            consumer.queue.clone(),
+            consumer.consumer_tag.clone(),
+            consumer.channel.clone(),
+        )) {
             continue;
         }
         let channel = consumer
@@ -533,6 +543,33 @@ mod tests {
             &[],
         );
         assert_eq!(snapshot.queues[0].owners.len(), 1);
+    }
+
+    #[test]
+    fn same_tag_on_two_channels_counts_as_two_consumers() {
+        // 回归：consumer tag 是每个 channel 自己递增的，两条连接上各有一个
+        // `ctag-1` 很常见。只按 (队列, tag) 去重会把它压成一个消费者，
+        // 「有几个消费者 / 几条连接」这个结论正是这张表要回答的那句话。
+        let mut left = consumer("orders", "ctag-1", "ch-1");
+        left.connection_name = Some("svc-a".to_owned());
+        let mut right = consumer("orders", "ctag-1", "ch-2");
+        right.connection_name = Some("svc-b".to_owned());
+
+        let snapshot = assemble(
+            &[("orders".to_owned(), 10, 0)],
+            &[left, right],
+            &[
+                connection("conn-1", "svc-a", "10.0.0.1:1", false),
+                connection("conn-2", "svc-b", "10.0.0.2:2", false),
+            ],
+            &[channel("ch-1", "conn-1"), channel("ch-2", "conn-2")],
+        );
+
+        let queue = &snapshot.queues[0];
+        assert_eq!(queue.owners.len(), 2, "两条 channel 上是两个真实消费者");
+        assert_eq!(queue.connections, 2);
+        assert!(!queue.is_single_connection());
+        assert_eq!(snapshot.users[0].consumers, 2);
     }
 
     #[test]

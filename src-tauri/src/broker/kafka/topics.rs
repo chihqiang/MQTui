@@ -57,6 +57,31 @@ impl RawPartition {
     }
 }
 
+/// 把「覆盖项清单」补成「当前生效值清单」。
+///
+/// `describe_configs` 每项都带 `is_default` 和它当时的取值，而详情页只需要
+/// 覆盖项。两件事分开做：展示用 `configs`（只有覆盖项），改配置用这份补全后的值。
+///
+/// 为什么必须补：`plan` 用 `current` 判断「值有没有真的变」。
+/// 覆盖项缺了 `retention.ms` 时它的当前值是空串，于是「把保留时长设成 7 天」
+/// 被记录成「默认值 → 604800000」，确认框里就是这么写的 —— 而实际上 broker
+/// 默认也是 7 天，这一改什么都没变，用户却以为自己刚刚改动了一个关键参数。
+///
+/// 补全时只认表内已有的键：不在覆盖项里的键（上百个默认项）不展开，
+/// 详情页的表格不会被撑满，但 `plan` 能查到真实值。
+pub fn complete_with_defaults(
+    visible: Vec<KeyValue>,
+    entries: impl IntoIterator<Item = (String, String, bool)>,
+) -> Vec<KeyValue> {
+    let mut resolved = visible;
+    for (key, value, _) in entries {
+        if let Some(item) = resolved.iter_mut().find(|item| item.key == key) {
+            item.value = value;
+        }
+    }
+    resolved
+}
+
 /// 组装主题详情。纯函数：分区排序 + 附上配置项。
 pub fn assemble_detail(
     name: &str,
@@ -83,6 +108,10 @@ pub fn assemble_detail(
 /// Kafka 的主题配置有上百个默认项，`retention.ms = -1` 这类默认值占绝大多数。
 /// 面板只关心「被显式改过」的那些，因此把 `is_default` 为真的过滤掉——
 /// 否则详情页会变成一张几百行的表，真正重要的三五行反而被淹没。
+///
+/// 注意这张表是「覆盖项」清单，**不是**「当前值」清单：没被改过的项在这里
+/// 是空值。改配置时必须先把它补全，否则 `previous` 会记成空串，
+/// 界面上会写出「默认值 → 604800000」—— 而它其实就是默认值，等于没改。
 pub fn readable_configs(
     entries: impl IntoIterator<Item = (String, String, bool)>,
 ) -> Vec<KeyValue> {
@@ -197,7 +226,10 @@ pub async fn describe_configs(
         })
         .collect::<Vec<_>>();
 
-    Ok(readable_configs(entries))
+    Ok(complete_with_defaults(
+        readable_configs(entries.clone()),
+        entries,
+    ))
 }
 
 /// 提交 `NewTopic` 并断言服务端真的建成了。
@@ -412,6 +444,43 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["cleanup.policy", "segment.bytes"]
         );
+    }
+
+    #[test]
+    fn overrides_are_completed_with_broker_values() {
+        // 回归：详情页只列覆盖项，但改配置要拿它当「当前值」。
+        // 只给覆盖项时，没被改过的 `retention.ms` 会被当成空值，
+        // 确认框于是写出「默认值 → 604800000」—— 而它本来就是默认值。
+        let entries = vec![
+            ("cleanup.policy".to_owned(), "compact".to_owned(), false),
+            ("retention.ms".to_owned(), "604800000".to_owned(), true),
+        ];
+        let configs = complete_with_defaults(readable_configs(entries.clone()), entries);
+
+        // 表格仍然只列覆盖项，不被上百个默认项撑满。
+        let keys: Vec<&str> = configs.iter().map(|item| item.key.as_str()).collect();
+        assert_eq!(keys, ["cleanup.policy"]);
+
+        // 但覆盖项自己的值必须是 broker 报的当前值，而不是空串。
+        let policy = configs
+            .iter()
+            .find(|item| item.key == "cleanup.policy")
+            .expect("缺少 cleanup.policy");
+        assert_eq!(policy.value, "compact");
+    }
+
+    #[test]
+    fn completing_can_never_drop_an_override() {
+        // 补全只改值、不增删行：详情页的表格与改配置用的「当前值」必须一一对应，
+        // 否则 `plan` 里 `previous` 会对着一个不存在的键。
+        let entries = vec![
+            ("retention.ms".to_owned(), "-1".to_owned(), true),
+            ("segment.bytes".to_owned(), "1073741824".to_owned(), false),
+        ];
+        let configs = complete_with_defaults(readable_configs(entries.clone()), entries);
+        assert_eq!(configs.len(), 1);
+        assert_eq!(configs[0].key, "segment.bytes");
+        assert_eq!(configs[0].value, "1073741824");
     }
 
     #[test]

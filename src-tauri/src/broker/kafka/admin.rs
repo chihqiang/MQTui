@@ -131,13 +131,14 @@ pub fn page_groups(
     limit: usize,
 ) -> (Vec<ConsumerGroupInfo>, bool, Option<String>) {
     let names: Vec<&str> = groups.iter().map(|group| group.name.as_str()).collect();
-    let page: Vec<ConsumerGroupInfo> = slice_by_name(&names, after, limit)
-        .into_iter()
-        .map(|index| groups[index].clone())
-        .collect();
+    let indices = slice_by_name(&names, after, limit);
+    let page: Vec<ConsumerGroupInfo> = indices.iter().map(|index| groups[*index].clone()).collect();
 
+    // 游标指「下一页从哪个名字之后开始」，所以只要这一页不空就得给 ——
+    // 前端靠它翻页。但它不能直接当 `has_more`：`slice_by_name` 会一直切到
+    // 名单末尾，最后一页照样有游标，于是「加载更多」亮着、点一下什么都没有。
     let next_cursor = page.last().map(|group| encode_cursor(&group.name));
-    let has_more = next_cursor.is_some();
+    let has_more = indices.last().is_some_and(|last| last + 1 < names.len());
     (page, has_more, next_cursor)
 }
 
@@ -338,6 +339,48 @@ mod tests {
         let all = names(&["a", "b"]);
         let refs: Vec<&str> = all.iter().map(String::as_str).collect();
         assert!(slice_by_name(&refs, Some("z"), 10).is_empty());
+    }
+
+    fn group(name: &str) -> ConsumerGroupInfo {
+        ConsumerGroupInfo {
+            name: name.to_owned(),
+            state: "Empty".to_owned(),
+            members: 0,
+            total_lag: None,
+        }
+    }
+
+    #[test]
+    fn last_page_does_not_pretend_there_is_more() {
+        // 回归：游标只要这一页不空就会给，而 `has_more` 以前直接抄了
+        // 「游标存不存在」。于是最后一页也带着游标、`has_more` 为真，
+        // 界面上「加载更多」亮着，点一下换回一个空页 —— 按钮永远消不掉。
+        let groups = vec![group("a"), group("b"), group("c")];
+
+        let (page, has_more, cursor) = page_groups(&groups, None, 2);
+        assert_eq!(page.len(), 2);
+        assert!(has_more, "后面还有 c");
+        assert_eq!(cursor.as_deref(), Some("after=b"));
+
+        let (page, has_more, cursor) = page_groups(&groups, Some("b"), 2);
+        assert_eq!(
+            page.iter()
+                .map(|item| item.name.as_str())
+                .collect::<Vec<_>>(),
+            ["c"]
+        );
+        assert!(!has_more, "已经是最后一页");
+        // 游标仍要给：它标识「读到哪个名字了」，只是不再声称还有下一页。
+        assert_eq!(cursor.as_deref(), Some("after=c"));
+    }
+
+    #[test]
+    fn exactly_fitting_page_reports_no_more() {
+        // 恰好装下：3 个组、每页 3 条。以前这里同样会多亮一次「加载更多」。
+        let groups = vec![group("a"), group("b"), group("c")];
+        let (page, has_more, _) = page_groups(&groups, None, 3);
+        assert_eq!(page.len(), 3);
+        assert!(!has_more);
     }
 
     #[test]

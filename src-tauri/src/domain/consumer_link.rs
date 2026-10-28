@@ -105,13 +105,18 @@ pub fn judge(consumer: &QueueConsumer) -> ConsumerHealth {
     }
 }
 
-/// 消费者行的去重键：`(队列, consumer tag)`。
+/// 消费者行的去重键：`(队列, consumer tag, channel)`。
 ///
 /// 同一个 tag 在 `/api/consumers` 里出现两次，就是同一条 `basic.consume`，
 /// 不是两个消费者。这不是假想的脏数据：`/api/queues` 与 `/api/consumers`
 /// 是两个独立接口，面板这次读到的队列可能是「刚被告知 consumer 已取消」的那份，
 /// 而消费者列表还是取消之前的，于是同一条消费有两个来源、两行同名记录。
-type ConsumerKey = (String, String);
+///
+/// 必须带上 channel：consumer tag 是**每个 channel** 自己递增的，两个服务
+/// 各开一条 channel 时都叫 `ctag-1` 是常态。只按 `(队列, tag)` 去重会把
+/// 两个真实存在的消费者压成一个，未确认数按 `max` 取也只能报出一半。
+/// 同一个消费者不可能横跨两条 channel，所以 channel 进键不会拆开真身。
+type ConsumerKey = (String, String, Option<String>);
 
 /// 合并同一个消费者标签的多条记录。
 ///
@@ -149,7 +154,11 @@ pub fn group_by_queue(
     // 列表里会多出一行、未确认数翻倍、健康状态因此可能报错。
     let mut by_key: BTreeMap<ConsumerKey, QueueConsumer> = BTreeMap::new();
     for consumer in consumers {
-        let key = (consumer.queue.clone(), consumer.consumer_tag.clone());
+        let key = (
+            consumer.queue.clone(),
+            consumer.consumer_tag.clone(),
+            consumer.channel.clone(),
+        );
         match by_key.get_mut(&key) {
             Some(kept) => merge_duplicate(kept, consumer),
             None => {
@@ -328,14 +337,16 @@ mod tests {
     fn duplicate_consumer_rows_are_merged_not_double_counted() {
         // 回归：同一个 tag 被上报两次时，未确认数被加了两次（5+5=10），
         // 正好等于预取上限 —— 一行本来正常的消费者被误报成「预取已满」。
+        //
+        // 两行都属于同一条 channel：`/api/consumers` 一定会带上 channel，
+        // 只有队列详情那一份可能缺字段。
+        let mut first = consumer("t1", 10, 5, true);
+        first.channel = Some("ch-1".to_owned());
         let mut second = consumer("t1", 10, 5, true);
         second.channel = Some("ch-1".to_owned());
         second.connection_name = None;
 
-        let links = summarize(
-            &[("orders".to_owned(), 10, 10)],
-            &[consumer("t1", 10, 5, true), second],
-        );
+        let links = summarize(&[("orders".to_owned(), 10, 10)], &[first, second]);
 
         assert_eq!(links.queues[0].consumers.len(), 1, "同一条消费不该出现两行");
         assert_eq!(links.queues[0].consumers[0].messages_unacknowledged, 5);
@@ -350,15 +361,37 @@ mod tests {
     }
 
     #[test]
+    fn same_tag_on_two_channels_is_two_consumers() {
+        // 回归：consumer tag 是**每个 channel** 自己递增的，两个服务各开一条
+        // channel 时都叫 `ctag-1` 是常态。把它们压成一个，界面上就会写着
+        // 「1 个消费者」，而实际上有两条连接在抢同一个队列 —— 排查时正好反了。
+        let mut left = consumer("ctag-1", 10, 3, true);
+        left.channel = Some("10.0.0.1:5000 -> 10.0.0.9:5672 (1)".to_owned());
+        left.connection_name = Some("svc-a".to_owned());
+        let mut right = consumer("ctag-1", 10, 1, true);
+        right.channel = Some("10.0.0.2:5000 -> 10.0.0.9:5672 (1)".to_owned());
+        right.connection_name = Some("svc-b".to_owned());
+
+        let links = summarize(&[("orders".to_owned(), 10, 4)], &[left, right]);
+
+        assert_eq!(
+            links.queues[0].consumers.len(),
+            2,
+            "不同 channel 上的同名 tag 是两个消费者"
+        );
+        assert_eq!(links.unacknowledged_total, 4, "两条消费者各算各的未确认数");
+    }
+
+    #[test]
     fn duplicate_rows_keep_the_manual_ack_verdict() {
         // 一行说手动 ack、一行说自动 ack：取保守的那一侧，
         // 否则「预取已满」会被误判成健康。
+        let mut first = consumer("t1", 10, 10, true);
+        first.channel = Some("ch-1".to_owned());
         let mut auto = consumer("t1", 10, 10, false);
+        auto.channel = Some("ch-1".to_owned());
         auto.username = String::new();
-        let links = summarize(
-            &[("orders".to_owned(), 10, 10)],
-            &[consumer("t1", 10, 10, true), auto],
-        );
+        let links = summarize(&[("orders".to_owned(), 10, 10)], &[first, auto]);
         let merged = &links.queues[0].consumers[0];
         assert!(merged.ack_required);
         assert_eq!(merged.username, "app");

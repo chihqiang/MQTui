@@ -359,6 +359,25 @@ pub struct PolicySnapshot {
     pub operator_error: Option<String>,
 }
 
+/// 正则模式的「骨架」：去掉锚点与捕获分组，只留下要匹配的内容。
+///
+/// RabbitMQ 的策略 pattern 是正则，但这里不编译它（本地与 Java 的正则方言
+/// 不完全一致，本地错杀比放过更糟）。去掉的是那些「不参与匹配字符」的符号，
+/// 剩下的字面量用于「名字里有没有它」这类粗判。
+///
+/// 保留 `.` 与 `*`：它们是「任意字符 / 任意重复」，留下的字面量仍是它们的子序列。
+/// `$(?)` 这类「可选锚点」要整体去掉 —— 只剥最外层的 `$` 会剩下一个 `$` 字面量，
+/// 于是 `.*` 反而被读成「名字里含 `$`」，影响面报成 0。
+fn pattern_core(pattern: &str) -> String {
+    pattern
+        .trim()
+        .replace(['(', ')'], "")
+        .replace("$(?)", "")
+        .trim_matches(['^', '$'])
+        .trim()
+        .to_owned()
+}
+
 /// 按模式粗略估算这条策略会命中多少资源，用于确认框里的「影响面」。
 ///
 /// 这里只做子串/前后缀的启发式匹配，不编译正则：目标是给一个数量级，
@@ -380,10 +399,40 @@ pub fn estimate_impact(
     exchange_names: &[String],
 ) -> ImpactEstimate {
     let pattern = effective_pattern(pattern);
-    // `.*` 与 `^.*$` 这类全匹配直接走全量，省得逐个试。
-    let blanket = matches!(pattern, ".*" | "^.*$" | "");
-    let hit =
-        |name: &str| blanket || name.contains(pattern.trim_matches(&['^', '$', '.', '*'][..]));
+    // 去掉锚点与转义后再看是不是「匹配一切」：`.*`、`^.*$` 都是全量。
+    let core = pattern_core(pattern);
+    // 只剩 `.` 与 `*` 就是「任意字符重复若干次」，即全量。
+    let blanket = core.chars().all(|ch| matches!(ch, '*' | '.'));
+    // `$` 结尾时必须匹配到名字末尾，`^` 开头时必须从名字开头开始 ——
+    // 这两件事在「影响面」上很要命：`^orders` 只命中以 orders 开头的，
+    // 而 `orders$` 只命中以它结尾的，两者都不等于「名字里含 orders」。
+    let anchored_start = pattern.starts_with('^');
+    let anchored_end = pattern.ends_with('$');
+    let literal = core.replace('*', "");
+    // 一个 `|` 分支就是一份独立的命中条件：`^a|b` 里的 `b` 不受锚点约束。
+    let alternatives: Vec<&str> = literal
+        .split('|')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .collect();
+    let hit = |name: &str| {
+        if blanket {
+            return true;
+        }
+        if alternatives.is_empty() {
+            // 只剩 `.` / `[]` 这类结构，没有可比的字面量：宁可算作命中，
+            // 让人去核对，也不要显示「一个都不影响」。
+            return true;
+        }
+        alternatives
+            .iter()
+            .any(|part| match (anchored_start, anchored_end) {
+                (true, true) => name == *part,
+                (true, false) => name.starts_with(part),
+                (false, true) => name.ends_with(part),
+                (false, false) => name.contains(part),
+            })
+    };
 
     let queues = match apply_to {
         PolicyApplyTo::Queues | PolicyApplyTo::All => {
@@ -637,6 +686,44 @@ mod tests {
         let blanket = estimate_impact("", PolicyApplyTo::All, &queues, &exchanges);
         assert_eq!(blanket.queues, 3);
         assert_eq!(blanket.exchanges, 1);
+        // `.*` 与 `^.*$` 也是「全部」：这几种写法在 RabbitMQ 里完全等价。
+        // `^(.*)$` 这里不列：捕获分组里套着 `.*`，本地的粗判认不出「任意」，
+        // 会退化成子串匹配。影响面报小了会被 `exact: false` 与界面上的「约」兜住，
+        // 而为了它去猜正则只会让别的模式跟着错。
+        for pattern in [".*", "^.*$"] {
+            let all = estimate_impact(pattern, PolicyApplyTo::All, &queues, &exchanges);
+            assert_eq!(all.queues, 3, "{pattern}");
+            assert_eq!(all.exchanges, 1, "{pattern}");
+        }
+    }
+
+    #[test]
+    fn wildcard_patterns_are_not_read_as_literals() {
+        // 回归：以前把模式里的 `^ $ . *` 一律删掉再当作子串去比，
+        // 于是 `^orders` / `orders.*` / `orders$` 都退化成「名字里含 orders」——
+        // 影响面算出来是 3，而真正会套上 TTL 的只有以 orders 开头的那 2 个。
+        let queues = vec![
+            "orders.new".to_owned(),
+            "orders.old".to_owned(),
+            "audit.orders".to_owned(),
+        ];
+
+        let prefix = estimate_impact("^orders", PolicyApplyTo::Queues, &queues, &[]);
+        assert_eq!(prefix.queues, 2, "`^orders` 只命中以 orders 开头的");
+
+        let suffix = estimate_impact("orders$", PolicyApplyTo::Queues, &queues, &[]);
+        assert_eq!(suffix.queues, 1, "`orders$` 只命中以 orders 结尾的");
+
+        let loose = estimate_impact("orders", PolicyApplyTo::Queues, &queues, &[]);
+        assert_eq!(loose.queues, 3, "没有锚点就是子串匹配");
+
+        // `.*` 只是正则里的「任意字符重复」，不该被当成字面的两个字符。
+        let star = estimate_impact("orders.*", PolicyApplyTo::Queues, &queues, &[]);
+        assert_eq!(star.queues, 2);
+
+        // 分支：任一条命中就算命中，锚点只约束它所在的那一条。
+        let branch = estimate_impact("^orders|audit", PolicyApplyTo::Queues, &queues, &[]);
+        assert_eq!(branch.queues, 3);
     }
 
     #[test]
