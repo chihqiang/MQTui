@@ -7,8 +7,15 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase")]
 pub struct OrphanPartition {
     pub partition: i32,
-    /// 分区末尾位点。没有消费组提交位点时，整个位点区间都是待消费消息。
+    /// 分区最早可读位点。老于它的消息已被 retention 清掉，读不回来了。
+    pub low: i64,
+    /// 分区末尾位点。
     pub high: i64,
+    /// 这个分区当前积压的条数，即 `high - low`。
+    ///
+    /// 单列一个字段而不是让前端自己减：它是这一屏唯一的结论性数字，
+    /// 而「末尾位点」看起来太像一个条数，容易被当成堆积量直接相加。
+    pub backlog: i64,
 }
 
 /// 一个存在未消费分区的主题。
@@ -18,7 +25,7 @@ pub struct OrphanTopic {
     pub topic: String,
     /// 未被消费的分区数。
     pub partitions: usize,
-    /// 未被消费的消息总量。
+    /// 未被消费的消息总量（各分区可读区间之和）。
     pub messages: i64,
     /// 未消费分区明细。
     pub detail: Vec<OrphanPartition>,
@@ -110,7 +117,9 @@ mod tests {
                 messages: 42,
                 detail: vec![OrphanPartition {
                     partition: 0,
+                    low: 0,
                     high: 42,
+                    backlog: 42,
                 }],
             }],
             total: 1,
@@ -121,6 +130,7 @@ mod tests {
         };
         let json = serde_json::to_value(&page).expect("序列化失败");
         assert_eq!(json["items"][0]["detail"][0]["high"], 42);
+        assert_eq!(json["items"][0]["detail"][0]["backlog"], 42);
         assert!(json.get("nextOffset").is_none());
     }
 }

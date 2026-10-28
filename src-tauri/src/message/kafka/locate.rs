@@ -125,6 +125,22 @@ pub fn compile_key(key: Option<&str>) -> Option<Vec<u8>> {
         .map(|key| key.as_bytes().to_vec())
 }
 
+/// 一条消息没能命中的原因。
+///
+/// key 对不上是「这不是你要的那条」，没什么可说；而时间维度上有一个
+/// **必须说出来**的分支：消息根本没有时间戳。Kafka 0.10 之前不写时间戳，
+/// 有些客户端也仍会发 `CreateTime = -1`。把它和「时间戳落在区间外」混成同一个
+/// 「没找到」，用户会去怀疑自己填的区间、怀疑消息已经过期 —— 而真正的原因是
+/// 这些消息压根不参与时间比较。最坏的情况是：某个 key 唯一的两条消息都没有
+/// 时间戳，按 key + 区间的搜索一条都搜不出来，界面上却只说「没找到」。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Miss {
+    /// key 或时间戳对不上条件：这一条确实不在区间里。
+    NotThisOne,
+    /// 消息没有时间戳，时间区间对它不成立 —— 不是「不在区间内」，是「没法判断」。
+    NoTimestamp,
+}
+
 /// 单条消息是否命中定位条件。
 ///
 /// key 是**精确匹配**：定位的语义是「这条 key 对应的消息在哪」，
@@ -135,28 +151,41 @@ pub fn matches(
     after: Option<i64>,
     before: Option<i64>,
 ) -> bool {
+    matches_detail(message, key, after, before).is_none()
+}
+
+/// 与 `matches` 同一套判据，但把「为什么没命中」分出来。
+///
+/// 返回 `None` 表示命中；`Some(Miss)` 说明是哪种没命中。
+fn matches_detail(
+    message: &MessageSummary,
+    key: Option<&[u8]>,
+    after: Option<i64>,
+    before: Option<i64>,
+) -> Option<Miss> {
     if let Some(expected) = key {
         let actual = message.key.as_deref().unwrap_or_default().as_bytes();
         if actual != expected {
-            return false;
+            return Some(Miss::NotThisOne);
         }
     }
 
     // 时间戳缺失（-1，broker 未设置 CreateTime）时无法判断区间：
-    // 把它当作「不命中」而不是「命中」，避免区间外消息混进结果。
+    // 把它当作「不命中」而不是「命中」，避免区间外消息混进结果 ——
+    // 但要单独记一笔，见 `Miss::NoTimestamp`。
     if after.is_some() || before.is_some() {
         let Some(timestamp) = message.timestamp else {
-            return false;
+            return Some(Miss::NoTimestamp);
         };
         if after.is_some_and(|after| timestamp < after) {
-            return false;
+            return Some(Miss::NotThisOne);
         }
         if before.is_some_and(|before| timestamp > before) {
-            return false;
+            return Some(Miss::NotThisOne);
         }
     }
 
-    true
+    None
 }
 
 /// 按两个方向拆分条数上限。奇数时多出的一条给反向（更新的消息更常被需要）。
@@ -327,6 +356,7 @@ pub async fn locate(client: &KafkaClient, request: MessageLocate) -> AppResult<M
         let mut truncated = false;
         let mut next = Vec::new();
         let mut targets = 0_usize;
+        let mut undated = 0_u64;
 
         // 正向：从区间起点往后读，撞到 before 或时间预算就停。
         //
@@ -348,6 +378,7 @@ pub async fn locate(client: &KafkaClient, request: MessageLocate) -> AppResult<M
             items.extend(outcome.items);
             truncated |= outcome.truncated;
             targets += outcome.partitions.len();
+            undated += outcome.undated;
             next.extend(outcome.partitions);
         }
 
@@ -373,6 +404,7 @@ pub async fn locate(client: &KafkaClient, request: MessageLocate) -> AppResult<M
             items.extend(outcome.items);
             truncated |= outcome.truncated;
             targets += outcome.partitions.len();
+            undated += outcome.undated;
             next.extend(outcome.partitions);
         }
 
@@ -409,6 +441,8 @@ pub async fn locate(client: &KafkaClient, request: MessageLocate) -> AppResult<M
             content_budget: content.map(|_| {
                 format!("按内容扫描：单次最多解码 {MAX_CONTENT_SCAN} 条（已扫 {scanned} 条）")
             }),
+            // 只在真的遇到时才说：这是一条「你可能白扫了」的提示，不是常驻噪音。
+            undated: (undated > 0).then(|| undated_note(undated)),
         })
     })
     .await
@@ -461,6 +495,8 @@ struct Scanned {
     truncated: bool,
     /// 本次扫描后的分区状态，用于生成续扫游标。
     partitions: Vec<PartitionCursor>,
+    /// 条件本来能对上、却因为没有时间戳而无法判断区间的消息条数。
+    undated: u64,
 }
 
 /// 单方向扫描：从 `starts` 指定的位置起读，逐条比对，读满 `quota` 或预算耗尽就停。
@@ -493,6 +529,7 @@ fn scan(
             items: Vec::new(),
             truncated: false,
             partitions: cursors,
+            undated: 0,
         });
     }
 
@@ -516,6 +553,7 @@ fn scan(
     let deadline = Instant::now() + SCAN_BUDGET;
     let mut items = Vec::new();
     let mut truncated = false;
+    let mut undated = 0_u64;
     // 每个分区本次读到的最远位置。反向取最小值，正向取最大值。
     let mut reached: HashMap<i32, i64> = HashMap::new();
     let backward = direction == Direction::Backward;
@@ -566,10 +604,21 @@ fn scan(
                 if before.is_some_and(|before| summary.timestamp.is_some_and(|ts| ts > before)) {
                     past_range = true;
                 }
-                if matches(&summary, key, after, before)
-                    && content_matches(message.payload(), content)
-                {
-                    items.push(summary);
+                match matches_detail(&summary, key, after, before) {
+                    None => {
+                        if content_matches(message.payload(), content) {
+                            items.push(summary);
+                        }
+                    }
+                    // 「这条不在你要的区间里」和「这条没有时间信息、判不了区间」
+                    // 是两件事。前者没什么可说，后者必须回到界面上 ——
+                    // 否则一轮扫完只说「没找到」，而真相是这些消息永远不参与时间比较。
+                    Some(Miss::NoTimestamp) => {
+                        if content_matches(message.payload(), content) {
+                            undated += 1;
+                        }
+                    }
+                    Some(Miss::NotThisOne) => {}
                 }
             }
             // 分区读完是正常终止条件。
@@ -595,7 +644,19 @@ fn scan(
         items,
         truncated,
         partitions: cursors,
+        undated,
     })
+}
+
+/// 「有时间条件，但有些消息没有时间戳」时的说明。
+///
+/// 这句话存在的理由：这些消息**条件本来对得上**（key 匹配、内容也命中），
+/// 只是没有 `CreateTime`，所以永远进不了时间区间。不说，用户就会把
+/// 「没找到」当成「不存在」—— 而它们明明在那里。
+fn undated_note(count: u64) -> String {
+    format!(
+        "另有 {count} 条消息满足 key / 内容条件但没有时间戳（Kafka 0.10 之前或客户端未设置 CreateTime），         无法判断是否落在这次的时间区间里，因此没有计入结果；去掉时间区间再搜一次能把它们找出来"
+    )
 }
 
 /// 给用户一句人话，说明这次扫描的范围和代价。
@@ -683,6 +744,40 @@ mod tests {
         assert!(!matches(&message, None, Some(0), None));
         // 不给时间区间时不该因为缺时间戳被排除。
         assert!(matches(&message, None, None, None));
+    }
+
+    #[test]
+    fn missing_timestamp_is_not_the_same_as_out_of_range() {
+        // 回归：这两件事以前在界面上都表现为「没找到」。前者是「确实不在区间里」，
+        // 后者是「这条消息压根没有时间信息，判不了」—— 后者必须能说出来，
+        // 否则一个 key 唯一的两条消息都没有时间戳时，搜索结果是空的而理由说不清。
+        let undated = summary("m", Some("order-1"), None);
+        assert_eq!(
+            matches_detail(&undated, Some(b"order-1"), Some(1), Some(9)),
+            Some(Miss::NoTimestamp)
+        );
+
+        let out_of_range = summary("m2", Some("order-1"), Some(100));
+        assert_eq!(
+            matches_detail(&out_of_range, Some(b"order-1"), Some(1), Some(9)),
+            Some(Miss::NotThisOne)
+        );
+
+        // key 对不上时仍然是「不是这条」，不该被算成「没有时间戳」。
+        assert_eq!(
+            matches_detail(&undated, Some(b"order-2"), Some(1), Some(9)),
+            Some(Miss::NotThisOne)
+        );
+        // 没有时间区间时，缺时间戳不影响命中。
+        assert_eq!(matches_detail(&undated, Some(b"order-1"), None, None), None);
+    }
+
+    #[test]
+    fn undated_note_says_they_are_not_missing() {
+        let note = undated_note(3);
+        assert!(note.contains('3'));
+        // 必须给出下一步怎么做，否则用户只会去改时间区间。
+        assert!(note.contains("去掉时间区间"));
     }
 
     #[test]

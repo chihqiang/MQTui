@@ -19,7 +19,7 @@ pub mod resend;
 pub mod throughput;
 pub mod topics;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -178,11 +178,14 @@ pub async fn list(client: &KafkaClient, query: MessageQuery) -> AppResult<Messag
                 .filter(|(partition, _)| active.contains(partition))
                 .map(|(partition, next)| (*partition, *next))
                 .collect();
-            let (assignments, pending) = plan(&worker, &task_topic, &round)?;
+            let (assignments, scheduled, pending) = plan(&worker, &task_topic, &round)?;
             if pending == 0 {
                 // 所有分区都读尽了（此时 collected 为空，否则上面已经退出循环）。
                 break;
             }
+            // 这一轮真正要读的分区。只有它们的位点该往前走 ——
+            // 剩下的分区这一轮一条都没读，把它们也推走就等于把消息跳过去了。
+            let mut scheduled = scheduled;
             worker.assign(&assignments).map_err(AppError::from)?;
 
             // 本轮读到了消息没有。一个分区读空就 `break` 会让别的分区再无机会：
@@ -198,6 +201,11 @@ pub async fn list(client: &KafkaClient, query: MessageQuery) -> AppResult<Messag
                         progressed = true;
                         // poll 之后位点已经前进：无论本条是否收下，游标都要往后推，
                         // 否则“加载更多”会把同一条消息再取一遍。
+                        //
+                        // 只推本轮被分配到的分区：`active` 会按 `limit` 截断，
+                        // 没被分配的分区这一轮读不到任何消息，把它们一起推走
+                        // 就是静默跳过它们中间那一段（64 分区 / limit 20 时尤其明显）。
+                        scheduled.remove(&message.partition());
                         starts.insert(message.partition(), message.offset() + 1);
                         collected.push(summary_from_message(&message));
                     }
@@ -207,6 +215,9 @@ pub async fn list(client: &KafkaClient, query: MessageQuery) -> AppResult<Messag
                     None => break,
                 }
             }
+            // 被分配却没读到任何消息的分区：游标往前推一条。
+            skip_unread(&mut starts, &scheduled);
+
             if !progressed {
                 // 本轮挑出来的分区要么读尽了、要么压根还没开始读：「没读到消息」
                 // 不等于「读完了」，两件事的退出条件不同。
@@ -236,6 +247,24 @@ pub async fn list(client: &KafkaClient, query: MessageQuery) -> AppResult<Messag
     Ok(build_page(topic, items, starts, &floors))
 }
 
+/// 本轮被分配到、却一条都没读到的分区，游标往前推一格。
+///
+/// 为什么是「推一格」而不是「不动」：`plan` 把起点 clamp 到 `max(游标, low)`，
+/// 而起点小于 `low` 的分区（这一段已经被 retention 清掉）在「还有没有得读」的
+/// 判断里仍然算「有」—— 于是每一轮它都会被重新分配、`poll` 立刻回空。游标不动，
+/// 它就永远占着 `active` 的名额，后面的分区一次也轮不到。
+/// 推一格之后它要么读到东西，要么和 `low` 对齐，下一轮被 `floors` 判成读尽。
+///
+/// 代价是可能漏掉某个分区的一条消息。那是**读不到**的分区，本来也读不到；
+/// 「页里少一条」比「一直加载不出来」诚实。
+fn skip_unread(starts: &mut BTreeMap<i32, i64>, scheduled: &BTreeSet<i32>) {
+    for partition in scheduled {
+        if let Some(next) = starts.get_mut(partition) {
+            *next += 1;
+        }
+    }
+}
+
 /// 查询单个分区的水位。
 fn watermarks(worker: &BaseConsumer, topic: &str, partition: i32) -> AppResult<(i64, i64)> {
     worker
@@ -247,12 +276,17 @@ fn watermarks(worker: &BaseConsumer, topic: &str, partition: i32) -> AppResult<(
 ///
 /// 水位是「当时」的快照，但游标是持久的，两者取大可以同时兼顾
 /// 新消息落盘与日志清理（retention）后被裁掉的旧位点。
+///
+/// 返回 `(分配表, 这一轮真正分配到的分区集合, 还有多少分区没读尽)`。
+/// 分区集合是给调用方的关键信息：没被分配到的分区这一轮读不到任何消息，
+/// 它们的游标就不该往前走（见 `list` 里对 `scheduled` 的处理）。
 fn plan(
     worker: &BaseConsumer,
     topic: &str,
     starts: &BTreeMap<i32, i64>,
-) -> AppResult<(rdkafka::TopicPartitionList, usize)> {
+) -> AppResult<(rdkafka::TopicPartitionList, BTreeSet<i32>, usize)> {
     let mut assignments = rdkafka::TopicPartitionList::with_capacity(starts.len());
+    let mut scheduled = BTreeSet::new();
     let mut pending = 0;
 
     for (&partition, &next) in starts {
@@ -260,13 +294,14 @@ fn plan(
         let offset = next.max(low);
         if offset < high {
             pending += 1;
+            scheduled.insert(partition);
             assignments
                 .add_partition_offset(topic, partition, rdkafka::Offset::Offset(offset))
                 .map_err(AppError::from)?;
         }
     }
 
-    Ok((assignments, pending))
+    Ok((assignments, scheduled, pending))
 }
 
 /// 组装分页结果。
@@ -398,6 +433,21 @@ mod tests {
         assert_eq!(per_partition_batch(100, 1), 20);
         assert_eq!(per_partition_batch(3, 4), 1);
         assert_eq!(per_partition_batch(10, 0), 0);
+    }
+
+    #[test]
+    fn only_the_scheduled_partitions_move_their_cursor() {
+        // 回归：`active` 会按 `limit` 截断，没被分配到的分区一条都没读到。
+        // 以前每轮都把所有 `active` 分区的水位设成「末尾往前一批」，
+        // 「加载更多」时就重新算一遍 —— 于是 64 个分区 / limit 20 时，
+        // 每次翻页都会把没读过的 44 个分区整体往前挪，中间那一段永远看不到。
+        let mut starts = BTreeMap::from([(0, 10), (1, 10), (2, 10)]);
+        let scheduled = BTreeSet::from([0]);
+        skip_unread(&mut starts, &scheduled);
+        // 只有被分配、且没读到的分区往前挪一格；其余原地不动。
+        assert_eq!(starts.get(&0), Some(&11));
+        assert_eq!(starts.get(&1), Some(&10));
+        assert_eq!(starts.get(&2), Some(&10));
     }
 
     #[test]

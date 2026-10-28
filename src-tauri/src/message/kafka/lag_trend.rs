@@ -12,6 +12,7 @@ use rdkafka::ClientConfig;
 use rdkafka::consumer::BaseConsumer;
 
 use crate::broker::kafka::{KafkaClient, admin};
+use crate::domain::group_assignment::partition_query;
 use crate::domain::lag_trend::{LagSample, LagTrend, compute};
 use crate::error::{AppError, AppResult};
 
@@ -80,7 +81,11 @@ fn run(worker: &BaseConsumer, group: &str, window_ms: u64) -> AppResult<LagTrend
 /// 很健康。先确认组在，再谈它的位点。
 fn snapshot(worker: &BaseConsumer, group: &str) -> AppResult<LagSample> {
     admin::probe_group(worker, group)?;
-    let offsets = admin::fetch_committed_offsets(worker, group)?;
+    // 分区表必须先读出来：`committed_offsets` 查的是「表里列出的分区」，
+    // 空表等于没查（会算成「滞后 0、持平」）。归属也顺手拿到了，
+    // 顺便能判断「这个组根本没有分区」和「读不到归属」的区别。
+    let assignment = admin::fetch_assignment(worker, group)?;
+    let offsets = admin::fetch_committed_offsets(worker, group, &partition_query(&assignment))?;
     Ok(LagSample::new(now_ms(), offsets))
 }
 

@@ -14,6 +14,12 @@ pub struct PartitionLoad {
     pub partition: i32,
     /// 该分区的消息条数（`high - low`，不会为负）。
     pub messages: i64,
+    /// 水位读不到时为 `true`，此时 `messages` 恒为 0 且**不代表空分区**。
+    ///
+    /// 读不到水位与「分区是空的」在数字上一模一样，结论却相反：前者这一行没有数据，
+    /// 后者说明 key 分布不均。混成同一个 0，会得到一个「空分区」计数偏高的结论 ——
+    /// 而用户正是冲着「分布是不是偏了」来的。
+    pub unknown: bool,
 }
 
 impl PartitionLoad {
@@ -21,6 +27,16 @@ impl PartitionLoad {
         Self {
             partition,
             messages: (high - low).max(0),
+            unknown: false,
+        }
+    }
+
+    /// 水位读不到时的占位。**不要**用 `new(partition, 0, 0)` 冒充 —— 那是另一个结论。
+    pub fn unavailable(partition: i32) -> Self {
+        Self {
+            partition,
+            messages: 0,
+            unknown: true,
         }
     }
 }
@@ -53,7 +69,13 @@ pub struct PartitionSpread {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hottest: Option<i32>,
     /// 空分区数量。空分区说明 key 分布不均或写入稀疏。
+    ///
+    /// 只数**读得到**且确实为 0 的分区：水位读不到的分区不是空的，是不知道。
     pub empty: usize,
+    /// 水位读不到的分区号。它们不参与任何结论，但必须露出来 ——
+    /// 否则「14 个分区都均匀」可能只是「只读到了其中 4 个」。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unavailable: Vec<i32>,
     /// 是否判定为热点。
     pub hotspot: bool,
     /// 判定说明，`hotspot` 为假时也可能有内容（例如「分区全部为空」）。
@@ -72,9 +94,19 @@ impl PartitionSpread {
 pub fn summarize(topic: &str, loads: &[PartitionLoad]) -> PartitionSpread {
     let partitions = loads.len();
     let messages: i64 = loads.iter().map(|item| item.messages).sum();
-    let empty = loads.iter().filter(|item| item.messages == 0).count();
+    // 读不到水位的分区既不算空、也不参与「最热」，它们只是没有数据。
+    let empty = loads
+        .iter()
+        .filter(|item| !item.unknown && item.messages == 0)
+        .count();
+    let mut unavailable: Vec<i32> = loads
+        .iter()
+        .filter(|item| item.unknown)
+        .map(|item| item.partition)
+        .collect();
+    unavailable.sort_unstable();
 
-    let hottest = loads.iter().max_by(|a, b| {
+    let hottest = loads.iter().filter(|item| !item.unknown).max_by(|a, b| {
         a.messages
             .cmp(&b.messages)
             .then_with(|| b.partition.cmp(&a.partition))
@@ -110,6 +142,21 @@ pub fn summarize(topic: &str, loads: &[PartitionLoad]) -> PartitionSpread {
     } else if empty > 0 && note.is_none() {
         note = Some(format!("{empty} 个分区为空"));
     }
+    // 读不到的分区必须单说：把「不知道」混进上面任何一句都是编结论。
+    if !unavailable.is_empty() {
+        let detail = format!(
+            "分区 {} 的水位读不到（多半是权限或 leader 迁移），它们既不算空分区也不参与分布判定",
+            unavailable
+                .iter()
+                .map(i32::to_string)
+                .collect::<Vec<_>>()
+                .join("、")
+        );
+        note = Some(match note {
+            Some(existing) => format!("{existing}；{detail}"),
+            None => detail,
+        });
+    }
 
     PartitionSpread {
         topic: topic.to_owned(),
@@ -118,6 +165,7 @@ pub fn summarize(topic: &str, loads: &[PartitionLoad]) -> PartitionSpread {
         max_messages,
         hottest: hottest_partition,
         empty,
+        unavailable,
         hotspot,
         note,
     }
@@ -160,6 +208,42 @@ mod tests {
         assert_eq!(spread.partitions, 1);
         assert!(!spread.hotspot);
         assert!(spread.note.is_none());
+    }
+
+    #[test]
+    fn unreadable_watermarks_are_not_empty_partitions() {
+        // 回归：读不到水位曾经被当成 `(0, 0)` 喂进来，于是这些分区被算成「空分区」。
+        // 用户是来查「分布偏不偏」的，一行假空分区会把他带去改 key 设计。
+        let spread = summarize(
+            "orders",
+            &[
+                load(0, 1000),
+                PartitionLoad::unavailable(1),
+                PartitionLoad::unavailable(2),
+                load(3, 0),
+            ],
+        );
+        assert_eq!(spread.empty, 1, "只有真正读到 0 的那个分区才算空");
+        assert_eq!(spread.unavailable, vec![1, 2]);
+        // 总量、最热分区都不受未知分区影响。
+        assert_eq!(spread.messages, 1_000);
+        assert_eq!(spread.hottest, Some(0));
+        let note = spread.note.expect("读不到必须说出来");
+        assert!(note.contains("水位读不到"));
+        assert!(note.contains('1') && note.contains('2'));
+    }
+
+    #[test]
+    fn all_partitions_unreadable_is_not_a_empty_topic() {
+        // 全部读不到时更不能说「所有分区都为空」—— 那是一句没有任何数据支撑的结论。
+        let spread = summarize(
+            "orders",
+            &[PartitionLoad::unavailable(0), PartitionLoad::unavailable(1)],
+        );
+        assert!(!spread.hotspot);
+        assert_eq!(spread.empty, 0);
+        assert_eq!(spread.unavailable, vec![0, 1]);
+        assert!(spread.note.is_some_and(|note| note.contains("水位读不到")));
     }
 
     #[test]

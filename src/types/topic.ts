@@ -59,8 +59,15 @@ export interface PartitionSpread {
   maxMessages: number;
   /** 最热分区号；全空主题没有。 */
   hottest?: number;
-  /** 空分区数量。 */
+  /** 空分区数量。只数读得到、且确实为 0 的分区。 */
   empty: number;
+  /**
+   * 水位读不到的分区号。
+   *
+   * 它们既不算空分区也不参与「最热」判定 —— 「读不到」和「是空的」是两件事，
+   * 混成一个 0 会把用户带去调 key 分布。
+   */
+  unavailable?: number[];
   /** 是否判定为热点（少数分区扛住绝大部分流量）。 */
   hotspot: boolean;
   /** 判定说明。 */

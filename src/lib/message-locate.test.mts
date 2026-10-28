@@ -76,6 +76,19 @@ test("empty page still advances counters and keeps the scanner honest", () => {
   expect(second.items.length).toBe(1);
 });
 
+test("没有时间戳的说明不会因为翻页而消失", () => {
+  // 遇到无时间戳消息的往往是第一页。后面几页没再遇到时，如果把说明换成本页的
+  // `undefined`，用户就再也不知道那批消息去哪了 —— 它们既不在结果里，
+  // 也没人告诉他为什么。
+  const first = appendPage(undefined, { ...page(["a"], 100, "c1"), undated: "另有 2 条没有时间戳" });
+  const second = appendPage(first, page(["b"], 80, "c2"));
+  expect(second.undated).toBe("另有 2 条没有时间戳");
+
+  // 新一页自己带了说明时以新的为准（那是这一轮的真实情况）。
+  const third = appendPage(second, { ...page(["c"], 60, "c3"), undated: "另有 5 条没有时间戳" });
+  expect(third.undated).toBe("另有 5 条没有时间戳");
+});
+
 test("no cursor means the scan reached the end", () => {
   const result = appendPage(undefined, page(["a"], 10, undefined));
   expect(result.cursor).toBe(undefined);

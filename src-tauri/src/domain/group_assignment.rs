@@ -228,6 +228,29 @@ pub fn assemble(members: Vec<(String, Vec<u8>)>) -> GroupAssignment {
     result
 }
 
+/// 把归属摊平成「要查哪些分区的位点」的清单：`(topic, partition)`，已排序去重。
+///
+/// 为什么要从归属里取而不是「所有主题的所有分区」：`committed_offsets` 要的是一张
+/// 明确的分区表（见 `broker::kafka::admin::fetch_committed_offsets`），而一个组的
+/// 已提交位点只可能落在它读过的分区上。拿全集群的主题去问，几百个主题上千个分区
+/// 的集群会变成一次几千行的请求，读回来还大部分是 `Invalid`。
+///
+/// 归属读不懂（`Broken`）时**不把成员排除**：那些分区依然可能有已提交位点，
+/// 少问一批的代价是「滞后少算」，而少算滞后正是这个面板最不该犯的错。
+/// 反过来，协议的 `protocol_type` 不是 `consumer` 时归属必然为空 ——
+/// 那种组本来就没有分区位点，空清单在这里是正确答案，由调用方决定怎么说。
+pub fn partition_query(assignment: &GroupAssignment) -> Vec<(String, i32)> {
+    let mut partitions: Vec<(String, i32)> = assignment
+        .by_member
+        .iter()
+        .flat_map(|member| member.partitions.iter())
+        .map(|item| (item.topic.clone(), item.partition))
+        .collect();
+    partitions.sort();
+    partitions.dedup();
+    partitions
+}
+
 /// 协议的 `protocol_type` 不是 `consumer` 时用的结论：不猜、不报警，只说明。
 pub fn not_consumer_protocol(protocol_type: &str) -> GroupAssignment {
     let mut result = GroupAssignment::empty();
@@ -323,6 +346,39 @@ mod tests {
             }
         }
         out
+    }
+
+    #[test]
+    fn partition_query_flattens_assignment_sorted_and_deduped() {
+        // 位点查询要一张明确的分区表：这里交出的是「这个组读过的分区」全集，
+        // 重复归属（再均衡中）不能被问两次，顺序还要稳定 —— 否则同一份集群状态
+        // 每次请求的分区表都不一样，出问题时比不了。
+        let assignment = assemble(vec![
+            (
+                "m-1".to_owned(),
+                encode(&[("orders", &[1, 0]), ("audit", &[2])]),
+            ),
+            ("m-2".to_owned(), encode(&[("orders", &[1])])),
+        ]);
+        assert_eq!(
+            partition_query(&assignment),
+            vec![
+                ("audit".to_owned(), 2),
+                ("orders".to_owned(), 0),
+                ("orders".to_owned(), 1),
+            ]
+        );
+    }
+
+    #[test]
+    fn partition_query_keeps_broken_members_out_but_not_their_peers() {
+        // 一个成员的分配读不懂，不代表别的成员也没有分区：
+        // 少问一批的代价是「滞后少算」，那正是这个面板最不该犯的错。
+        let assignment = assemble(vec![
+            ("m-1".to_owned(), vec![0xff, 0xff]),
+            ("m-2".to_owned(), encode(&[("orders", &[3])])),
+        ]);
+        assert_eq!(partition_query(&assignment), vec![("orders".to_owned(), 3)]);
     }
 
     #[test]

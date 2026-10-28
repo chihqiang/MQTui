@@ -170,7 +170,12 @@ pub fn fetch_detail(worker: &BaseConsumer, group_name: &str) -> AppResult<Consum
         .collect::<Vec<_>>();
 
     // rdkafka 的 `GroupInfo` 只带成员，不带位点；已提交位点要另行查服务端。
-    let offsets = fetch_committed_offsets(worker, group_name)?;
+    //
+    // 而且**必须把分区表一起交出去**：`committed_offsets` 查的是「这张表里列出的
+    // 分区」，空表就等于什么都没查（见 `fetch_committed_offsets` 的说明）。
+    // 分区清单来自成员的分配 —— 一个组读过的分区，只可能是它成员拿到的那些。
+    let partitions = crate::domain::partition_query(&assemble_assignment(group));
+    let offsets = fetch_committed_offsets(worker, group_name, &partitions)?;
 
     Ok(assemble_detail(
         group.name(),
@@ -270,15 +275,36 @@ pub fn probe_group(worker: &BaseConsumer, group_name: &str) -> AppResult<()> {
 
 /// 查询消费组已提交位点并计算滞后。
 ///
-/// rdkafka 的 `committed_offsets` 只返回「当前 consumer 的 group.id 视角」下的分区，
+/// `partitions` 是**要查的分区清单**，必须由调用方给全（通常是元数据里属于这个组的
+/// 全部主题 × 分区）。
+///
+/// 为什么不能传一张空表让服务端「自己看着办」：`rd_kafka_committed` 的语义是
+/// 「查这张表里列出的分区的已提交位点」，空表就是「一个分区都不查」，
+/// 于是它原样返回一张空表、错误码是 0。客户端这边看起来像「这个组一个位点都没提交」——
+/// 滞后显示 0、趋势显示「持平」。一个积压十几万条的组会被报成健康的。
+///
+/// rdkafka 的 `committed_offsets` 只认当前 consumer 的 group.id，
 /// 因此调用方的 `worker` 必须是以目标组名作为 `group.id` 建出来的 consumer，
 /// 见 `message::kafka::consumer_groups`。
 pub fn fetch_committed_offsets(
     worker: &BaseConsumer,
     group_name: &str,
+    partitions: &[(String, i32)],
 ) -> AppResult<Vec<ConsumerGroupOffset>> {
+    if partitions.is_empty() {
+        // 空清单不是「查完了」，是「没查」。这里返回空表就等于编了一个结论。
+        return Err(AppError::Broker(format!(
+            "消费组 {group_name} 没有可查询的分区：成员分配与已提交位点需要先读到分区清单"
+        )));
+    }
+
+    let mut query = rdkafka::TopicPartitionList::with_capacity(partitions.len());
+    for (topic, partition) in partitions {
+        query.add_partition(topic, *partition);
+    }
+
     let committed = worker
-        .committed_offsets(rdkafka::TopicPartitionList::new(), GROUPS_TIMEOUT)
+        .committed_offsets(query, GROUPS_TIMEOUT)
         .map_err(|error| AppError::Broker(format!("查询消费组 {group_name} 位点失败: {error}")))?;
 
     let mut offsets = Vec::new();

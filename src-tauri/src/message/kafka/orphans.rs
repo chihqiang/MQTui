@@ -20,13 +20,30 @@ use crate::error::{AppError, AppResult};
 /// 元数据与水位查询的超时。
 const TIMEOUT: Timeout = Timeout::After(Duration::from_secs(10));
 
-/// 一个分区的原始事实：末尾位点 + 是否被某个消费组提交过位点。
+/// 一个分区的原始事实：可读区间 + 是否被某个消费组提交过位点。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PartitionFact {
     pub partition: i32,
+    /// 分区最早可读位点。位点小于它的消息已经被 retention 清掉了。
+    pub low: i64,
     pub high: i64,
     /// 是否已有消费组提交过该分区的位点。已提交即视为「有人在消费」。
     pub consumed: bool,
+}
+
+impl PartitionFact {
+    /// 这个分区现在真正读得到的消息条数。
+    ///
+    /// 不是 `high`。`high` 是「从这个分区出生到现在写进来过多少条」，
+    /// 而 retention 把低位点推走了之后，`[low, high)` 之前的那些已经不在磁盘上、
+    /// 也没人会再读到它们。拿 `high` 当堆积量，等于把三个月前就被清掉的消息
+    /// 也算成「正在堆积」：一个从来没被消费、但 retention 已经跑过好几轮的主题，
+    /// 会显示成十几万条积压，而实际只剩最近一小时的量。
+    ///
+    /// 位点是单调的，`low <= high` 恒成立；这里仍然夹一道，避免畸形元数据算出负数。
+    pub fn backlog(&self) -> i64 {
+        (self.high - self.low).max(0)
+    }
 }
 
 /// 由分区事实推出某个主题的堆积情况。
@@ -36,10 +53,12 @@ pub struct PartitionFact {
 pub fn evaluate(topic: &str, facts: &[PartitionFact]) -> Option<OrphanTopic> {
     let mut partitions: Vec<OrphanPartition> = facts
         .iter()
-        .filter(|fact| !fact.consumed && fact.high > 0)
+        .filter(|fact| !fact.consumed && fact.backlog() > 0)
         .map(|fact| OrphanPartition {
             partition: fact.partition,
+            low: fact.low,
             high: fact.high,
+            backlog: fact.backlog(),
         })
         .collect();
 
@@ -51,8 +70,8 @@ pub fn evaluate(topic: &str, facts: &[PartitionFact]) -> Option<OrphanTopic> {
     Some(OrphanTopic {
         topic: topic.to_owned(),
         partitions: partitions.len(),
-        // 未消费分区的末尾位点之和即为堆积量。
-        messages: partitions.iter().map(|item| item.high).sum(),
+        // 堆积量是可读区间之和，不是末尾位点之和：见 `PartitionFact::backlog`。
+        messages: partitions.iter().map(|item| item.backlog).sum(),
         detail: partitions,
     })
 }
@@ -244,11 +263,13 @@ fn collect(worker: &BaseConsumer, scope: &OrphanScanScope) -> AppResult<Collecte
         let mut facts = Vec::with_capacity(topic.partitions().len());
         for partition in topic.partitions() {
             // 每个分区问一次水位是唯一可行的办法：Kafka 协议没有批量水位接口。
-            let (_low, high) = worker
+            // 低位点必须一起读回来：堆积量要减掉已经被 retention 清走的那一段。
+            let (low, high) = worker
                 .fetch_watermarks(topic.name(), partition.id(), TIMEOUT)
                 .map_err(AppError::from)?;
             facts.push(PartitionFact {
                 partition: partition.id(),
+                low,
                 high,
                 consumed: consumed.contains(&(topic.name().to_owned(), partition.id())),
             });
@@ -277,9 +298,21 @@ fn build(config: &ClientConfig) -> AppResult<BaseConsumer> {
 mod tests {
     use super::*;
 
+    /// 从 0 开始、没有任何 retention 清理过的分区。
     fn fact(partition: i32, high: i64, consumed: bool) -> PartitionFact {
         PartitionFact {
             partition,
+            low: 0,
+            high,
+            consumed,
+        }
+    }
+
+    /// 低位点已经被 retention 推走的分区。
+    fn trimmed(partition: i32, low: i64, high: i64, consumed: bool) -> PartitionFact {
+        PartitionFact {
+            partition,
+            low,
             high,
             consumed,
         }
@@ -294,6 +327,24 @@ mod tests {
     #[test]
     fn empty_partitions_are_ignored() {
         let topic = evaluate("orders", &[fact(0, 0, false)]);
+        assert!(topic.is_none());
+    }
+
+    #[test]
+    fn backlog_excludes_messages_retention_already_removed() {
+        // 回归：堆积量曾经等于末尾位点，于是「从未被消费、但 retention 跑过几轮」
+        // 的主题会显示成「积压 100 万条」，而实际只读得到最近的 500 条。
+        let topic = evaluate("orders", &[trimmed(0, 999_500, 1_000_000, false)])
+            .expect("确实还有可读的堆积");
+        assert_eq!(topic.messages, 500);
+        assert_eq!(topic.detail[0].backlog, 500);
+        assert_eq!(topic.detail[0].low, 999_500);
+    }
+
+    #[test]
+    fn fully_expired_partition_is_not_a_backlog() {
+        // 位点区间被 retention 清空（low == high）：没有可读消息，不该出现在列表里。
+        let topic = evaluate("orders", &[trimmed(0, 42, 42, false)]);
         assert!(topic.is_none());
     }
 

@@ -286,7 +286,8 @@ function OrphanRow({
                   key={partition.partition}
                   className="rounded border border-slate-200 px-2 py-1 font-mono text-(length:--text-app-meta) text-slate-500"
                 >
-                  p{partition.partition} · {formatNumber(partition.high)}
+                  {/* 展开行显示积压量，不是末尾位点：后者含已被 retention 清掉的部分。 */}
+                  p{partition.partition} · {formatNumber(partition.backlog)}
                 </span>
               ))}
             </div>

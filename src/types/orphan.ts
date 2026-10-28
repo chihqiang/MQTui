@@ -2,8 +2,12 @@
 
 export interface OrphanPartition {
   partition: number;
-  /** 分区末尾位点，即待消费消息量。 */
+  /** 分区最早可读位点；老于它的消息已被 retention 清掉。 */
+  low: number;
+  /** 分区末尾位点。它**不是**待消费消息量 —— 那是 `backlog`。 */
   high: number;
+  /** 当前积压条数（`high - low`）。 */
+  backlog: number;
 }
 
 export interface OrphanTopic {

@@ -241,6 +241,12 @@ export function MessageLocatePanel({ connectionId, target, onSelect, initialKey 
                 已达本轮扫描上限，更早/更晚的消息还没读到，请收窄时间区间或继续扫描
               </span>
             ) : null}
+            {/*
+              没有时间戳的那批单独说一句。它们符合 key / 内容条件，却永远进不了
+              时间区间 —— 和「扫得不够多」是两件事，混进 `truncated` 的措辞里
+              会让人一遍遍点「继续扫描」。
+            */}
+            {page.undated ? <span className="text-amber-700">{page.undated}</span> : null}
             <span className="text-slate-500">{page.note}</span>
           </div>
 
@@ -261,6 +267,7 @@ export function MessageLocatePanel({ connectionId, target, onSelect, initialKey 
             <p className="p-4 text-(length:--text-app-title) text-slate-500">
               已扫描 {formatNumber(page.totalScanned)} 条消息，没有命中
               {page.truncated ? "（扫描被截断，较早的消息还没读到）" : ""}
+              {page.undated ? "（另有满足条件但没有时间戳的消息，见上方说明）" : ""}
             </p>
           )}
 

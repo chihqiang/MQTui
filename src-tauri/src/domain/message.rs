@@ -206,6 +206,12 @@ pub struct MessageSearch {
     /// 用户就分不清「再点一次能继续」和「再点一次也扫不动」。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content_budget: Option<String>,
+    /// 条件对得上、却因为没有时间戳而无法判断是否落在区间里的消息条数说明。
+    ///
+    /// 这些消息到过眼前，所以扫描读到过；但它们永远进不了时间区间，
+    /// 「没找到」这句话对它们不成立。只在真的遇到时才给。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub undated: Option<String>,
 }
 
 /// 发送消息请求：Kafka 与 RabbitMQ 各一个变体。

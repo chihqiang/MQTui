@@ -97,8 +97,9 @@ pub struct CollectedSpreads {
 
 /// 阻塞读取：一次元数据请求拿到布局，再逐分区问水位。
 ///
-/// 水位查询失败的分区按 0 处理而不是整页报错：权限受限的账号能看到元数据、
-/// 读不到水位，此时「哪些主题有倾斜」的结论仍然成立，只是少了一批数据。
+/// 水位查询失败的分区记成「未知」而不是整页报错：权限受限的账号能看到元数据、
+/// 读不到水位，此时其余分区的分布结论仍然成立，只是少了一批数据 ——
+/// 但少掉的那几个必须点名，不能当成空分区参与统计。
 fn collect(worker: &BaseConsumer, names: &[String]) -> AppResult<CollectedSpreads> {
     let metadata = worker
         .fetch_metadata(None, TIMEOUT)
@@ -116,10 +117,12 @@ fn collect(worker: &BaseConsumer, names: &[String]) -> AppResult<CollectedSpread
             .partitions()
             .iter()
             .map(|partition| {
-                let (low, high) = worker
-                    .fetch_watermarks(name, partition.id(), TIMEOUT)
-                    .unwrap_or((0, 0));
-                PartitionLoad::new(partition.id(), low, high)
+                // 读不到就是读不到：`(0, 0)` 会被算成「这个分区是空的」，
+                // 而空分区正是这一屏要解释的现象之一 —— 拿失败冒充它等于编了个结论。
+                match worker.fetch_watermarks(name, partition.id(), TIMEOUT) {
+                    Ok((low, high)) => PartitionLoad::new(partition.id(), low, high),
+                    Err(_) => PartitionLoad::unavailable(partition.id()),
+                }
             })
             .collect();
         available.push((name.clone(), loads));

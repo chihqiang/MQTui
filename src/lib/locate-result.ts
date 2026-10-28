@@ -36,6 +36,9 @@ export function appendPage(previous: LocatePage | undefined, page: MessageSearch
     totalHits: previous.totalHits + fresh.length,
     totalScanned: previous.totalScanned + page.scanned,
     pages: previous.pages + 1,
+    // 「有多少条没有时间戳」是累加的：只有第一页遇到、后面几页没遇到时，
+    // 丢掉这句话，用户就再也不知道那批消息去哪了。
+    undated: page.undated ?? previous.undated,
   };
 }
 

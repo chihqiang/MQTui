@@ -91,6 +91,13 @@ export interface MessageSearch {
   resumedFrom?: string;
   /** 内容扫描的条数预算说明；只在按内容查找时出现。 */
   contentBudget?: string;
+  /**
+   * 条件对得上、但没有时间戳因而无法判断区间的消息说明。
+   *
+   * 与 `truncated` 分开：那个是「还没读完」，这个是「读到了但判不了」。
+   * 合起来说会让用户以为再点一次「继续扫描」就能找到它们。
+   */
+  undated?: string;
 }
 
 /**

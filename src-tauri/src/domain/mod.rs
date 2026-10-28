@@ -81,7 +81,7 @@ pub use consumer_ownership::{
 pub use group_assignment::{
     AssignedPartition, AssignmentState, GroupAssignment, MemberAssignment,
     assemble as assemble_group_assignment, decode as decode_group_assignment,
-    not_consumer_protocol as group_assignment_unavailable,
+    not_consumer_protocol as group_assignment_unavailable, partition_query,
 };
 pub use group_block::{BlockReport, PartitionShift, StuckPartition, detect as detect_group_block};
 pub use group_removal::{
