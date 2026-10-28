@@ -1,19 +1,14 @@
 /**
  * 外壳布局规则的测试。
  *
- * 两条规则错了都不会崩：窄屏不降级只是挤、折叠状态存反了只是新连接被藏住。
- * 所以逐条钉住。
+ * 这些规则错了都不会崩：窄屏不降级只是挤，连接没按中间件分段只是点「主题」
+ * 前得先自己确认在哪台机器上。所以逐条钉住。
  */
 
 import { expect, test } from "vitest";
 
-import {
-  DEFAULT_LAYOUT,
-  NARROW_WIDTH,
-  groupConnectionsByKind,
-  isGroupExpanded,
-  resolveLayout,
-} from "./layout.ts";
+import * as layout from "./layout.ts";
+import { DEFAULT_LAYOUT, NARROW_WIDTH, connectionFoldKey, resolveLayout } from "./layout.ts";
 
 test("宽度未知时不降级，按默认布局先铺一版", () => {
   expect(resolveLayout(null)).toBe(DEFAULT_LAYOUT);
@@ -32,20 +27,26 @@ test("默认布局是侧栏，窄屏降级为图标条", () => {
   expect(resolveLayout(NARROW_WIDTH - 1)).toBe("rail");
 });
 
-test("连接按中间件分组，组内保持原顺序", () => {
-  const groups = groupConnectionsByKind([
-    { a: 1, kind: "kafka" },
-    { b: 2, kind: "rabbitMq" },
-    { c: 3, kind: "kafka" },
-  ]);
-  expect(groups.map((group) => group.kind)).toEqual(["kafka", "rabbitMq"]);
-  expect(groups[0].items.map((item) => item.a ?? item.c)).toEqual([1, 3]);
+test("侧栏只要两层：不导出任何「分类分组」或「集合式折叠」的规则", () => {
+  // 分类（中间件分组）这一层已经删掉，折叠归每条连接行自己持有 ——
+  // 集合式折叠在这里判不出错，但会让箭头点了没反应，见 `useConnectionFold`。
+  const exported = Object.keys(layout);
+  expect(exported).not.toContain("groupConnectionsByKind");
+  expect(exported).not.toContain("isConnectionExpanded");
+  expect(exported).not.toContain("toggleConnectionFold");
+  expect(exported).not.toContain("isGroupExpanded");
 });
 
-test("组默认展开，手动折起来的那几个才算折叠", () => {
-  const collapsed = new Set(["kind:rabbitMq"]);
-  expect(isGroupExpanded(collapsed, "kind:kafka")).toBe(true);
-  expect(isGroupExpanded(collapsed, "kind:rabbitMq")).toBe(false);
-  // 存的是「折起来的」，所以新出现的组不会继承一份旧的折叠状态。
-  expect(isGroupExpanded(collapsed, "pages:new-connection")).toBe(true);
+const kafkaProd = { kind: "kafka", endpoint: "10.0.1.12:9092" };
+
+test("折叠键按 kind + endpoint 记，不认运行时 ID", () => {
+  // ID 重启就换，用它当键的话折起来的连接每次开机都会自己弹开。
+  expect(connectionFoldKey(kafkaProd)).toBe("kafka@10.0.1.12:9092");
+  expect(connectionFoldKey({ ...kafkaProd, id: "abc" } as never)).toBe("kafka@10.0.1.12:9092");
+});
+
+test("折叠键认得出同一台机器上的两种中间件", () => {
+  expect(connectionFoldKey({ kind: "rabbitmq", endpoint: "10.0.1.12:9092" })).toBe(
+    "rabbitmq@10.0.1.12:9092",
+  );
 });

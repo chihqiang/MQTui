@@ -1,17 +1,19 @@
 /**
- * 外壳布局：侧栏形态、连接分组、窄屏降级。
+ * 外壳布局：侧栏形态、折叠键、窄屏降级。
  *
  * 抽成纯函数的原因和 `list-view` 一样：这些规则做错了不报错，只是用起来别扭。
- * 典型的三处：
+ * 典型的两处：
  *
  * 1. **两列侧栏各占一份宽度**。早先是「连接列表 224 + 菜单 144」并排，
  *    窗口缩到 1200px 就有 30% 的宽度不在看数据。现在合成一列 232px：
- *    连接列表是该列的一节，当前连接的页面菜单在同一列里展开。
+ *    连接列表是该列的一节，页面菜单在同一列里跟着各自的连接。
  * 2. **连接不做顶部 Tab**。Tab 的形态要求「几个字宽、数量少、地位平行」，
  *    而连接带着名字和端点（`kafka-prod · 10.0.1.12:9092`），五条就排不下 ——
- *    这不是 Tab 该承担的密度。所以在侧栏里用「树 + 折叠」。
- * 3. **健康条和页面标题各说一句「连接状态」**。全绿时那行是纯占位，
- *    异常时才该占位置。
+ *    这不是 Tab 该承担的密度。所以在侧栏里用「连接 + 它自己的页面」两层。
+ *
+ * 侧栏只要两层，所以没有「中间件分组」这一层：Kafka / RabbitMQ 的区别
+ * 已经画在每条连接的徽标上（形状 + 身份色），再罩一个可折叠的分组标题，
+ * 等于让人每次先点一次才看得见自己连的那些机器。
  */
 
 /** 侧边栏形态。 */
@@ -38,44 +40,19 @@ export function resolveLayout(width: number | null): LayoutMode {
 }
 
 /**
- * 连接按中间件分组。
+ * 一条连接该不该摊开自己的页面菜单。
  *
- * 侧栏把「Kafka」和「RabbitMQ」各自收成一个折叠组：两种中间件的能力清单
- * 完全不同，混在一列里排下来，用户点「主题」时得先确认自己在哪个组。
- * 组内保持后端给的原顺序（最近一次连上的在前），不重排。
+ * 侧栏只有两层：连接 → 它的页面。层级既然只剩两层，摊开 / 收起就该
+ * 直接做在连接行上（见 `connection-node.tsx` 里的 `setFolded`），不再需要
+ * 一个「窗口里谁被折起来了」的集合 —— 早先那份集合是为了让「折叠状态可判、
+ * 可测」，可它也带来了一个更贵的副作用：连接是查询结果，折叠是组件里的
+ * 局部状态，两者不同步时箭头点了没反应（改了集合，列表并不重渲染）。
+ *
+ * 现在折叠就是行自己的事，`lib` 只留 `connectionFoldKey` 一个做持久化键。
  */
-export function groupConnectionsByKind<T extends { kind: string }>(
-  connections: T[],
-): { kind: string; items: T[] }[] {
-  const buckets = new Map<string, T[]>();
-  for (const connection of connections) {
-    const bucket = buckets.get(connection.kind);
-    if (bucket) bucket.push(connection);
-    else buckets.set(connection.kind, [connection]);
-  }
-  return [...buckets.entries()].map(([kind, items]) => ({ kind, items }));
-}
 
-/**
- * 侧栏当前该展开哪个连接。
- *
- * 只有「正在看的那条」有页面菜单：五条连接各摊一份菜单等于把 13 项乘 5，
- * 而面板工具的实际上限是「同时对照两条」，切换靠的是点另一条连接。
- * 没有选中连接时（连接页）谁都不展开。
- */
-export function expandedConnectionId(connectionId: string | undefined): string | null {
-  return connectionId ?? null;
-}
-
-/**
- * 组是否展开。
- *
- * `set` 里存的是「与默认状态相反」的那几个键：一条连接都没有的组本来就不渲染，
- * 有连接的组默认展开。用户折起来只影响他自己，不影响默认值 ——
- * 存「展开的那几个」会在连接增删之后把新连接一直藏在折叠里。
- */
-export function isGroupExpanded(collapsed: ReadonlySet<string>, key: string): boolean {
-  return !collapsed.has(key);
+export function connectionFoldKey(connection: { kind: string; endpoint: string }): string {
+  return `${connection.kind}@${connection.endpoint}`;
 }
 
 /** 窄屏（图标条）时侧栏宽度。 */

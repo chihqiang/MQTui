@@ -26,8 +26,8 @@ export const STORAGE_KEYS = {
   messageTargets: "message-targets",
   /** 最近用过的消费组名，按连接隔离：位点重置的唯一手输项。 */
   consumerGroups: "consumer-groups",
-  /** 侧栏里被手动折起来的组（中间件 / 当前连接的页面菜单）。 */
-  collapsedGroups: "collapsed-groups",
+  /** 侧栏里被折起来的连接，按 kind + endpoint 记，重启后仍然折着。 */
+  collapsedConnections: "collapsed-connections",
 } as const;
 
 function fullKey(key: string): string {
