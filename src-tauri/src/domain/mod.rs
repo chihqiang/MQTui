@@ -95,7 +95,8 @@ pub use lag_trend::{
 };
 pub use message::{
     MessageDetail, MessageHeader, MessageLocate, MessagePage, MessageQuery, MessageSearch,
-    MessageSummary, SendOutcome, SendRequest, content_type_problem, delivery_mode,
+    MessageSummary, RawMessageHeader, SendOutcome, SendRequest, content_type_problem,
+    delivery_mode,
 };
 pub use message_route::{ReachableQueue, SendRoute, predict as predict_send_route};
 pub use migration_runbook::{
@@ -157,7 +158,8 @@ pub use topic_config::{
     KNOWN_CONFIGS, lock_of as config_lock_of, plan as plan_config_changes,
 };
 pub use topic_purge::{
-    PurgeKind, PurgeOutcome, PurgePartitionPlan, PurgePlan, PurgeRequest, plan as plan_topic_purge,
+    Boundary as PurgeBoundary, PurgeKind, PurgeOutcome, PurgePartitionPlan, PurgePlan,
+    PurgeRequest, plan as plan_topic_purge,
 };
 pub use topic_throughput::{
     MAX_WINDOW_MS, MIN_WINDOW_MS, PartitionRate, PartitionWatermark, SampleWindow, TopicSample,

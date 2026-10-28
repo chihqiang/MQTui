@@ -1,7 +1,9 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 import { Button, ComboInput, Field, Input, Modal } from "@/components/ui";
 import { useResendMessage } from "@/hooks/use-message-disposal";
+import { messageService, queryKeys } from "@/services";
 import type { MessageResendProps } from "@/types/message";
 
 
@@ -25,7 +27,19 @@ export function MessageResendDialog({ connectionId, message, onClose, topicNames
   */
   const strictTopic = topicNames !== null;
 
+  /*
+    原消息的 base64 内容：只有二进制消息才有。带回它，重发才真的是「同一份内容」——
+    文本域里的预览是 lossy 解码的产物，照它发出去就是把 Avro / Protobuf 洗成乱码。
+  */
+  const detail = useQuery({
+    queryKey: queryKeys.message(connectionId, message.id),
+    queryFn: () => messageService.getMessage(connectionId, message.id),
+  });
+  const originalBase64 = detail.data?.payloadBase64;
+
   const submit = () => {
+    // 用户没动过内容 → 用 base64 逐字节还原；动过 → 以他打的字为准。
+    const untouched = payload === "";
     resend.mutate(
       {
         connectionId,
@@ -33,6 +47,7 @@ export function MessageResendDialog({ connectionId, message, onClose, topicNames
         topic: topic.trim(),
         key: key.trim() || undefined,
         payload: payload.trim() ? payload : undefined,
+        payloadBase64: untouched ? originalBase64 : undefined,
         keepHeaders,
       },
       { onSuccess: onClose },
@@ -96,7 +111,14 @@ export function MessageResendDialog({ connectionId, message, onClose, topicNames
           </Field>
         </div>
 
-        <Field label="消息内容" hint="留空沿用原内容；首尾空白会被当成内容的一部分保留">
+        <Field
+          label="消息内容"
+          hint={
+            originalBase64
+              ? "留空沿用原内容（逐字节还原，包括二进制）；改了就以你填的为准"
+              : "留空沿用原内容；首尾空白会被当成内容的一部分保留"
+          }
+        >
           <textarea
             value={payload}
             onChange={(event) => setPayload(event.currentTarget.value)}

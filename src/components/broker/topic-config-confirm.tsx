@@ -1,5 +1,5 @@
 import { Button, Modal } from "@/components/ui";
-import { describePlan, isRisky } from "@/lib/topic-config";
+import { describePlan, isRisky, planImpacts, planItems } from "@/lib/topic-config";
 import type { ConfigCompatReport, ConfigPlan } from "@/types";
 
 /**
@@ -28,9 +28,12 @@ export function ConfigConfirmModal({
   onConfirm: () => void;
 }) {
   const open = plan !== null;
-  const lines = plan ? describePlan(plan) : [];
-  const impacts = plan?.impacts ?? [];
-  const resets = plan?.items.filter((item) => item.value.trim() === "") ?? [];
+  // `plan` 可能来自缓存或另一版后端：字段缺失时按「没有」处理，不能直接取值。
+  const items = planItems(plan);
+  const lines = describePlan(plan);
+  const impacts = planImpacts(plan);
+  // `value` 也可能缺：非空判断要容得下 undefined，不能让一行数据把整页带下去。
+  const resets = items.filter((item) => (item.value ?? "").trim() === "");
 
   return (
     <Modal
@@ -44,7 +47,7 @@ export function ConfigConfirmModal({
           </Button>
           <Button
             size="sm"
-            disabled={pending || !plan?.items.length || compat?.ok === false}
+            disabled={pending || !items.length || compat?.ok === false}
             onClick={onConfirm}
           >
             {pending ? "提交中…" : compat?.ok === false ? "版本不支持" : "确认修改"}
@@ -53,7 +56,7 @@ export function ConfigConfirmModal({
       }
     >
       <div className="flex flex-col gap-3 text-(length:--text-app-body) text-slate-600">
-        {plan && plan.items.length === 0 ? (
+        {plan && !items.length ? (
           <p className="text-slate-500">配置没有变化，无需提交。</p>
         ) : null}
 
@@ -75,7 +78,7 @@ export function ConfigConfirmModal({
           </p>
         ) : null}
 
-        {isRisky(plan as ConfigPlan) ? (
+        {isRisky(plan) && impacts.length ? (
           <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-800">
             <p className="mb-1 text-(length:--text-app-meta) uppercase tracking-wide text-amber-700">
               提交前请确认后果
@@ -108,11 +111,13 @@ export function ConfigConfirmModal({
  * - `supported`：只在有额外注意事项时才列出，否则一行「全部满足」就够。
  */
 export function CompatBlock({ report }: { report: ConfigCompatReport }) {
-  const blocked = report.items.filter((item) => item.verdict === "unsupported");
-  const unknown = report.items.filter((item) => item.verdict === "unknown");
-  const supported = report.items.filter((item) => item.verdict === "supported");
+  // 体检项同样可能缺席（后端不下发空数组），与计划一样按「没有」兜底。
+  const items = report.items ?? [];
+  const blocked = items.filter((item) => item.verdict === "unsupported");
+  const unknown = items.filter((item) => item.verdict === "unknown");
+  const supported = items.filter((item) => item.verdict === "supported");
 
-  if (!report.items.length) return null;
+  if (!items.length) return null;
 
   const version = report.clusterVersion ?? "未知";
 

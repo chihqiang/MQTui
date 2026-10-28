@@ -1,9 +1,10 @@
 import { Suspense, lazy, type ComponentType } from "react";
-import { Outlet, createBrowserRouter } from "react-router";
+import { Outlet, createBrowserRouter, useLocation } from "react-router";
 
 import { RootLayout } from "@/App";
 import { AppShell } from "@/components/layout/app-shell";
 import { PageLoading } from "@/components/ui";
+import { ErrorBoundary as RenderErrorBoundary } from "@/lib/error-boundary";
 import {
   AccessPage,
   AdminPage,
@@ -47,6 +48,17 @@ const ConnectPage = lazy(async () => {
 void loadConnectPage();
 
 /**
+ * 内容区兜底。
+ *
+ * 渲染异常发生在哪一层，哪一层就整块消失 —— 不兜的话是整棵树（白屏），
+ * 兜在这里则只丢内容区，外壳照常在。`pathname` 传进去，换页面自动恢复。
+ */
+function ErrorBoundary() {
+  const { pathname } = useLocation();
+  return <RenderErrorBoundary pathname={pathname} />;
+}
+
+/**
  * 路由表。
  *
  * 结构与布局一致：
@@ -71,9 +83,13 @@ export const router = createBrowserRouter([
       {
         element: (
           <Suspense fallback={<PageLoading />}>
-            <ContentOutlet />
+            <RenderErrorBoundary>
+              <ContentOutlet />
+            </RenderErrorBoundary>
           </Suspense>
         ),
+        // 路由级兜底：页面懒加载失败或渲染抛错时，只替换内容区。
+        errorElement: <ErrorBoundary />,
         children: [
           { index: true, element: <ConnectPage /> },
           {

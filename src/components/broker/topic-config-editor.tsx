@@ -7,6 +7,7 @@ import {
   hasChanges,
   missingConfigs,
   rowState,
+  submitChanges,
   type ConfigRow,
 } from "@/lib/topic-config";
 import type { ConfigPreview, TopicDetail } from "@/types";
@@ -97,8 +98,8 @@ export function TopicConfigEditor({
   };
 
   const confirm = () => {
-    if (!plan) return;
-    const changes = plan.items.map((item) => ({ key: item.key, value: item.value }));
+    const changes = submitChanges(plan);
+    if (changes.length === 0) return;
     update.mutate(changes, { onSuccess: () => setPreviewResult(null) });
   };
 

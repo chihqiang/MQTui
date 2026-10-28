@@ -51,7 +51,7 @@ fn read(client: &KafkaClient, filter: &AclFilter) -> AppResult<Vec<AclEntry>> {
     }
     let queue = QueueGuard(queue);
 
-    let filter = FilterGuard::new(filter)?;
+    let mut filter = FilterGuard::new(filter)?;
     let options = OptionsGuard::new(
         rk,
         bindings::rd_kafka_admin_op_t::RD_KAFKA_ADMIN_OP_DESCRIBEACLS,
@@ -60,15 +60,11 @@ fn read(client: &KafkaClient, filter: &AclFilter) -> AppResult<Vec<AclEntry>> {
     unsafe {
         bindings::rd_kafka_DescribeAcls(rk, filter.0, options.0, queue.0);
     }
+    // 请求发出去之后所有权归 librdkafka（它内部会 copy 过滤器）。
+    filter.release();
 
-    let event = unsafe { bindings::rd_kafka_queue_poll(queue.0, ACL_TIMEOUT.as_millis() as c_int) };
-    if event.is_null() {
-        return Err(AppError::Broker(format!(
-            "等待 ACL 结果超时（{} 秒）",
-            ACL_TIMEOUT.as_secs()
-        )));
-    }
-    let event = EventGuard(event);
+    // 事件一拿到就进守卫：后面的每个 `return Err` 都不该把它漏在堆上。
+    let event = poll(&queue, "ACL 列表")?;
 
     let error = unsafe { bindings::rd_kafka_event_error(event.0) };
     if error != rd_kafka_resp_err_t::RD_KAFKA_RESP_ERR_NO_ERROR {
@@ -162,7 +158,6 @@ fn write_create(client: &KafkaClient, entries: &[AclEntry]) -> AppResult<Vec<Acl
     std::mem::forget(owned);
 
     let event = poll(&queue, "新建 ACL")?;
-    let event = EventGuard(event);
     let result = unsafe { bindings::rd_kafka_event_CreateAcls_result(event.0) };
     if result.is_null() {
         return Err(AppError::Broker("新建 ACL 没有返回结果".to_owned()));
@@ -229,7 +224,6 @@ fn write_delete(client: &KafkaClient, entries: &[AclEntry]) -> AppResult<Vec<Acl
     std::mem::forget(owned);
 
     let event = poll(&queue, "删除 ACL")?;
-    let event = EventGuard(event);
     let result = unsafe { bindings::rd_kafka_event_DeleteAcls_result(event.0) };
     if result.is_null() {
         return Err(AppError::Broker("删除 ACL 没有返回结果".to_owned()));
@@ -237,29 +231,125 @@ fn write_delete(client: &KafkaClient, entries: &[AclEntry]) -> AppResult<Vec<Acl
 
     let mut count: usize = 0;
     let responses = unsafe { bindings::rd_kafka_DeleteAcls_result_responses(result, &mut count) };
+    let receipts = unsafe { delete_receipts(responses, count) };
+
+    // 回执与请求不是按下标对齐的：协议只保证「每个过滤器一条回执」，
+    // 而回执里带的是**实际命中的 ACL 内容**。按下标取会让 A 规则的命中数
+    // 安到 B 规则头上 —— 比不提示更糟。所以这里按内容把回执匹配回请求。
+    let mut used = vec![false; receipts.len()];
     let mut each = Vec::with_capacity(entries.len());
-    for (index, entry) in entries.iter().enumerate() {
-        if responses.is_null() || index >= count {
-            each.push(outcome_of(entry, None, "删除"));
-            continue;
+    for entry in entries {
+        match receipts
+            .iter()
+            .enumerate()
+            .position(|(index, receipt)| !used[index] && receipt.matches(entry))
+        {
+            Some(index) => {
+                used[index] = true;
+                let receipt = &receipts[index];
+                let mut item = outcome_of(entry, receipt.error, "删除");
+                // 命中条数：0 说明这条规则本来就没了，>1 说明过滤器比想象中宽。
+                item.matched = receipt.matched.len();
+                each.push(item);
+            }
+            // 找不到能对上的回执：可能是服务端根本没回，也可能是回执条数与请求
+            // 对不上。两种都说「刷新确认」，绝不编一个「已删除」。
+            None => {
+                let mut item = outcome_of(entry, None, "删除");
+                item.ok = false;
+                item.matched = 0;
+                item.message =
+                    "服务端没有返回这条规则的结果（回执条数与请求不一致），请刷新确认".to_owned();
+                each.push(item);
+            }
         }
+    }
+    Ok(each)
+}
+
+/// 一条删除回执：过滤器的错误、命中的 ACL、以及命中的条数。
+struct DeleteReceipt<'a> {
+    error: Option<*const bindings::rd_kafka_error_t>,
+    matched: Vec<AclEntry>,
+    _marker: std::marker::PhantomData<&'a ()>,
+}
+
+impl DeleteReceipt<'_> {
+    /// 这条回执是不是某个精确过滤器产生的。
+    ///
+    /// 只有「请求本身就是精确过滤器」时才谈得上匹配：`DeleteAcls` 的过滤器
+    /// 留空表示「这一类都要」，而这种请求本来就不该出现在面板上。
+    fn matches(&self, entry: &AclEntry) -> bool {
+        self.matched.iter().all(|hit| same_binding(hit, entry))
+    }
+}
+
+/// 两条规则是否指同一条 ACL。
+///
+/// 通配在 Kafka 里是「精确匹配 + 名字 `*`」，而 `AclEntry` 把名字清空、
+/// 用 `pattern == Wildcard` 表达 —— 两边都归一化之后才比得准。
+fn same_binding(hit: &AclEntry, wanted: &AclEntry) -> bool {
+    hit.resource_type == wanted.resource_type
+        && normalize_name(hit) == normalize_name(wanted)
+        && hit.pattern == wanted.pattern
+        && hit.principal == wanted.principal
+        && hit.host == wanted.host
+        && hit.operation == wanted.operation
+        && hit.permission == wanted.permission
+}
+
+fn normalize_name(entry: &AclEntry) -> &str {
+    if entry.pattern == AclPattern::Wildcard {
+        "*"
+    } else {
+        entry.resource_name.as_str()
+    }
+}
+
+/// 读出全部删除回执。命中清单在事件销毁后就不在了，所以先把它们抄成自己的结构。
+///
+/// # Safety
+///
+/// `responses` 必须是 `rd_kafka_DeleteAcls_result_responses` 返回的数组，
+/// 且长度不小于 `count`。
+unsafe fn delete_receipts<'a>(
+    responses: *mut *const bindings::rd_kafka_DeleteAcls_result_response_t,
+    count: usize,
+) -> Vec<DeleteReceipt<'a>> {
+    if responses.is_null() {
+        return Vec::new();
+    }
+    let mut receipts = Vec::with_capacity(count);
+    for index in 0..count {
         let response = unsafe { *responses.add(index) };
         if response.is_null() {
-            each.push(outcome_of(entry, None, "删除"));
             continue;
         }
         let error = unsafe { bindings::rd_kafka_DeleteAcls_result_response_error(response) };
-        // 命中条数：0 说明这条规则本来就没了，>1 说明过滤器比想象中宽。
-        let mut matched: usize = 0;
-        let matched_ptrs = unsafe {
-            bindings::rd_kafka_DeleteAcls_result_response_matching_acls(response, &mut matched)
+        let mut matched_count: usize = 0;
+        let list = unsafe {
+            bindings::rd_kafka_DeleteAcls_result_response_matching_acls(
+                response,
+                &mut matched_count,
+            )
         };
-        let _ = matched_ptrs;
-        let mut item = outcome_of(entry, (!error.is_null()).then_some(error), "删除");
-        item.matched = matched;
-        each.push(item);
+        let mut matched = Vec::with_capacity(matched_count);
+        for hit in 0..matched_count {
+            let binding = unsafe { *list.add(hit) };
+            if binding.is_null() {
+                continue;
+            }
+            if let Some(entry) = unsafe { to_entry(binding) } {
+                matched.push(entry);
+            }
+        }
+        receipts.push(DeleteReceipt {
+            error: (!error.is_null()).then_some(error),
+            matched,
+            _marker: std::marker::PhantomData,
+        });
     }
-    Ok(each)
+    receipts
 }
 
 /// 组装一条规则的 binding。写路径必须带真实名字（通配写 `*`），不能像过滤器那样留空。
@@ -357,7 +447,11 @@ fn to_permission(permission: AclPermission) -> bindings::rd_kafka_AclPermissionT
 }
 
 /// 轮询结果事件。超时不说「成功」，也不说「失败」—— 它只说明「不知道」。
-fn poll(queue: &QueueGuard, action: &str) -> AppResult<*mut bindings::rd_kafka_event_t> {
+///
+/// 返回值**已经**是守卫：调用方拿到它的那一刻起，任何一条退出路径都会销毁事件。
+/// 早先这里是「返回裸指针、由调用方包守卫」，而调用方习惯先判错再造守卫 ——
+/// 权限不足、broker 不支持这两条最常见路径上，事件就这样漏了。
+fn poll(queue: &QueueGuard, action: &str) -> AppResult<EventGuard> {
     let event = unsafe { bindings::rd_kafka_queue_poll(queue.0, ACL_TIMEOUT.as_millis() as c_int) };
     if event.is_null() {
         return Err(AppError::Broker(format!(
@@ -365,7 +459,7 @@ fn poll(queue: &QueueGuard, action: &str) -> AppResult<*mut bindings::rd_kafka_e
             ACL_TIMEOUT.as_secs()
         )));
     }
-    Ok(event)
+    Ok(EventGuard(event))
 }
 
 /// 把单条回执翻成一句人能读懂的话。
@@ -512,10 +606,17 @@ impl FilterGuard {
     }
 }
 
+impl FilterGuard {
+    /// 标记「请求已发出，对象不再归我」。不置空就会二次释放 ——
+    /// `rd_kafka_DescribeAcls` 内部会 copy 过滤器，原对象仍归调用方。
+    fn release(&mut self) {
+        self.0 = std::ptr::null_mut();
+    }
+}
+
 impl Drop for FilterGuard {
     fn drop(&mut self) {
-        // 请求发出去之后所有权归 librdkafka，它会自己释放；这里对已移交的指针
-        // 再 destroy 一次会二次释放。所以调用方在发送成功后把指针置空。
+        // 只有「请求没发出去」时这个指针还归我。
         if !self.0.is_null() {
             unsafe { bindings::rd_kafka_AclBinding_destroy(self.0) };
         }
@@ -784,6 +885,48 @@ mod tests {
         ] {
             assert_eq!(from_operation(to_operation(operation)), Some(operation));
         }
+    }
+
+    fn entry(name: &str, pattern: AclPattern, operation: AclOperation) -> AclEntry {
+        AclEntry {
+            resource_type: AclResourceType::Topic,
+            resource_name: name.to_owned(),
+            pattern,
+            principal: "User:alice".to_owned(),
+            host: "*".to_owned(),
+            operation,
+            permission: AclPermission::Allow,
+        }
+    }
+
+    #[test]
+    fn wildcard_name_does_not_match_literal_star_topic() {
+        // 通配是「精确匹配 + 名字 `*`」，而 literally 叫 `*` 的主题是另一条规则。
+        let wildcard = entry("", AclPattern::Wildcard, AclOperation::Read);
+        let literal_star = entry("*", AclPattern::Literal, AclOperation::Read);
+        assert!(!same_binding(&wildcard, &literal_star));
+        assert!(same_binding(&wildcard, &wildcard.clone()));
+    }
+
+    #[test]
+    fn receipts_are_matched_by_content_not_by_position() {
+        // 服务端回执顺序与请求顺序不一致时，按下标对齐会把 A 的命中数安到 B 头上。
+        let a = entry("orders", AclPattern::Literal, AclOperation::Read);
+        let b = entry("payments", AclPattern::Literal, AclOperation::Write);
+        // 回执数组是 [b, a]：b 命中两条（过滤器比想象中宽），a 命中一条。
+        let receipts = [(b.clone(), 2usize), (a.clone(), 1usize)];
+        let mut used = vec![false; receipts.len()];
+        let mut found = Vec::new();
+        for wanted in [&a, &b] {
+            let index = receipts
+                .iter()
+                .enumerate()
+                .position(|(index, (hit, _))| !used[index] && same_binding(hit, wanted))
+                .expect("每条请求都该对上一条回执");
+            used[index] = true;
+            found.push(receipts[index].1);
+        }
+        assert_eq!(found, vec![1, 2]);
     }
 
     #[test]

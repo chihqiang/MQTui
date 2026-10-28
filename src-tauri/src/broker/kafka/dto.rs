@@ -20,7 +20,16 @@ pub fn client_config(config: &KafkaConfig) -> ClientConfig {
         .set("client.id", "mqtui");
 
     match config.tls {
-        TlsMode::Disabled | TlsMode::Optional => {
+        // `Optional` 在 Kafka 里没有对应物：协议没有「先试明文再升级」这一步，
+        // 只有 plaintext / ssl / sasl_*。映射成 plaintext 会让用户在表单里
+        // 选着「可选 TLS」、实际拿到「永不加密」。所以这里按最接近他意图的
+        // 一档处理：`ssl`，但关掉证书校验（“尽最大努力加密，不因此连不上”）。
+        TlsMode::Optional => {
+            client
+                .set("security.protocol", "ssl")
+                .set("enable.ssl.certificate.verification", "false");
+        }
+        TlsMode::Disabled => {
             client.set("security.protocol", "plaintext");
         }
         TlsMode::Required => {
@@ -30,10 +39,9 @@ pub fn client_config(config: &KafkaConfig) -> ClientConfig {
 
     if let Some(mechanism) = config.auth.mechanism.as_kafka_str() {
         // SASL 需要与 TLS 组合，否则协议不匹配。
-        let protocol = if config.tls == TlsMode::Required {
-            "sasl_ssl"
-        } else {
-            "sasl_plaintext"
+        let protocol = match config.tls {
+            TlsMode::Required | TlsMode::Optional => "sasl_ssl",
+            TlsMode::Disabled => "sasl_plaintext",
         };
         client
             .set("security.protocol", protocol)
@@ -94,6 +102,25 @@ mod tests {
         assert_eq!(config.get("security.protocol"), Some("sasl_ssl"));
         assert_eq!(config.get("sasl.mechanism"), Some("SCRAM-SHA-512"));
         assert_eq!(config.get("sasl.username"), Some("user"));
+    }
+
+    #[test]
+    fn optional_tls_means_encrypted_without_verification() {
+        // Kafka 没有「可选 TLS」这一档。映射成 plaintext 会让用户以为加密了
+        // 其实没有；映射成 ssl 但关掉校验，才是他要的那个「尽力加密、别连不上」。
+        let config = client_config(&sample(TlsMode::Optional, SaslMechanism::None));
+        assert_eq!(config.get("security.protocol"), Some("ssl"));
+        assert_eq!(
+            config.get("enable.ssl.certificate.verification"),
+            Some("false")
+        );
+    }
+
+    #[test]
+    fn required_tls_keeps_certificate_verification() {
+        let config = client_config(&sample(TlsMode::Required, SaslMechanism::None));
+        assert_eq!(config.get("security.protocol"), Some("ssl"));
+        assert_eq!(config.get("enable.ssl.certificate.verification"), None);
     }
 
     #[test]

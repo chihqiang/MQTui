@@ -91,6 +91,15 @@ pub struct PurgePlan {
     pub notes: Vec<String>,
 }
 
+/// 早于这个时间的毫秒值一定不是「消息时间」。
+///
+/// Kafka 0.10 之前没有时间戳，老数据读回来是 `-1`；而 1970 / 2001 这类值
+/// 只会来自「把秒当成毫秒」或「选错了年份」。这类值算出来的 `target_low` 是 0，
+/// 小于 `current_low`，于是被 `is_noop()` 静静跳过，最后整份计划变成
+/// 「没有符合条件、需要删除的消息」—— 用户会以为时间填错了，其实是他填对了、
+/// 面板把它吃掉了。
+const EARLIEST_PLAUSIBLE_MS: i64 = 946_684_800_000; // 2000-01-01T00:00:00Z
+
 /// 时间戳的上限：`before` 不可能晚于「现在」太多。
 ///
 /// 允许一点余量（一分钟）：用户拿着别处的日志时间去查，那台机器的时钟
@@ -98,15 +107,28 @@ pub struct PurgePlan {
 /// 那会把整个主题清空 —— 这类事情必须在本地拦下。
 const CLOCK_SKEW_MS: i64 = 60_000;
 
+/// 按时间反查分区边界的结论。
+///
+/// 「没有要删的」和「查不到」必须分开：混成同一个 `None`，
+/// 权限不足就会被当成「全部删完了」静默跳过分区 —— 摘要里还看不到它。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Boundary {
+    /// 分区里早于该时间的消息从这条位点开始。
+    At(i64),
+    /// 分区里没有早于该时间的消息，不需要处理。
+    Nothing,
+    /// 查不到，附原因。这个分区不会被处理，必须进 `unresolved`。
+    Unknown(String),
+}
+
 /// 校验并生成计划。
 ///
-/// `now_ms` 由调用方给，便于单测；`low_of` 用于按时间反查分区边界，
-/// 返回 `None` 表示「该分区没有早于这个时间的消息」（不需要处理）。
+/// `now_ms` 由调用方给，便于单测；`low_of` 用于按时间反查分区边界。
 pub fn plan(
     detail: &TopicDetail,
     request: &PurgeRequest,
     now_ms: i64,
-    low_of: &dyn Fn(i32, i64) -> Option<i64>,
+    low_of: &dyn Fn(i32, i64) -> Boundary,
 ) -> PurgePlan {
     let mut notes = Vec::new();
     let topic = detail.name.clone();
@@ -143,6 +165,17 @@ pub fn plan(
                     &topic,
                     request.kind,
                     "截止时间在未来，这会把整个主题清空；请确认填的是毫秒时间戳".to_owned(),
+                    notes,
+                );
+            }
+            Some(before) if before < EARLIEST_PLAUSIBLE_MS => {
+                return blocked(
+                    &topic,
+                    request.kind,
+                    format!(
+                        "截止时间 {before} 太早（早于 2000 年），几乎肯定是单位或年份填错了；\
+                         这个值会让「要删到哪儿」算不出来，请填毫秒时间戳"
+                    ),
                     notes,
                 );
             }
@@ -210,12 +243,16 @@ pub fn plan(
                 let before = request.before.unwrap_or_default();
                 match low_of(item.partition, before) {
                     // 分区里没有更早的消息：没有可删的，跳过而不是报错。
-                    None => continue,
-                    Some(low) if low < 0 => {
+                    Boundary::Nothing => continue,
+                    Boundary::Unknown(_) => {
                         unresolved.push(item.partition);
                         continue;
                     }
-                    Some(low) => low.min(item.high),
+                    Boundary::At(low) if low < 0 => {
+                        unresolved.push(item.partition);
+                        continue;
+                    }
+                    Boundary::At(low) => low.min(item.high),
                 }
             }
         };
@@ -246,7 +283,14 @@ pub fn plan(
         let reason = if unresolved.is_empty() {
             "所选分区里没有符合条件、需要删除的消息".to_owned()
         } else {
-            "所选分区的边界都查不到，无法确定要删到哪里".to_owned()
+            format!(
+                "分区 {} 的按时间边界查不到（权限或 leader 迁移），无法确定要删到哪里；                 请确认账号有 DESCRIBE 权限后重试",
+                unresolved
+                    .iter()
+                    .map(i32::to_string)
+                    .collect::<Vec<_>>()
+                    .join("、")
+            )
         };
         return blocked(&topic, request.kind, reason, notes);
     }
@@ -332,7 +376,9 @@ mod tests {
     #[test]
     fn truncate_pushes_low_to_high_on_every_partition() {
         let snapshot = detail("orders", &[(0, 10, 30), (1, 0, 5)]);
-        let result = plan(&snapshot, &request(PurgeKind::Truncate), NOW, &|_, _| None);
+        let result = plan(&snapshot, &request(PurgeKind::Truncate), NOW, &|_, _| {
+            Boundary::Nothing
+        });
         assert!(result.blocked.is_none());
         assert_eq!(result.removed, 25);
         assert_eq!(result.partitions.len(), 2);
@@ -342,7 +388,9 @@ mod tests {
     #[test]
     fn internal_topic_is_refused() {
         let snapshot = detail("__consumer_offsets", &[(0, 0, 10)]);
-        let result = plan(&snapshot, &request(PurgeKind::Truncate), NOW, &|_, _| None);
+        let result = plan(&snapshot, &request(PurgeKind::Truncate), NOW, &|_, _| {
+            Boundary::Nothing
+        });
         // 内部标记与 `__` 前缀任一命中都要挡住。
         assert!(result.blocked.is_some());
         assert!(result.removed == 0);
@@ -351,7 +399,9 @@ mod tests {
     #[test]
     fn already_empty_partitions_are_skipped_not_failed() {
         let snapshot = detail("orders", &[(0, 10, 10), (1, 0, 3)]);
-        let result = plan(&snapshot, &request(PurgeKind::Truncate), NOW, &|_, _| None);
+        let result = plan(&snapshot, &request(PurgeKind::Truncate), NOW, &|_, _| {
+            Boundary::Nothing
+        });
         assert_eq!(result.partitions.len(), 1);
         assert_eq!(result.partitions[0].partition, 1);
         assert_eq!(result.removed, 3);
@@ -360,7 +410,9 @@ mod tests {
     #[test]
     fn nothing_to_do_reports_reason_instead_of_empty_success() {
         let snapshot = detail("orders", &[(0, 10, 10)]);
-        let result = plan(&snapshot, &request(PurgeKind::Truncate), NOW, &|_, _| None);
+        let result = plan(&snapshot, &request(PurgeKind::Truncate), NOW, &|_, _| {
+            Boundary::Nothing
+        });
         assert!(result.blocked.is_some());
         assert!(result.partitions.is_empty());
     }
@@ -370,15 +422,38 @@ mod tests {
         let snapshot = detail("orders", &[(0, 0, 100)]);
         let mut ask = request(PurgeKind::DeleteBefore);
 
-        let missing = plan(&snapshot, &ask, NOW, &|_, _| None);
+        let missing = plan(&snapshot, &ask, NOW, &|_, _| Boundary::Nothing);
         assert!(missing.blocked.expect("必须拒绝").contains("截止时间"));
 
         ask.before = Some(0);
         assert!(
-            plan(&snapshot, &ask, NOW, &|_, _| None)
+            plan(&snapshot, &ask, NOW, &|_, _| Boundary::Nothing)
                 .blocked
                 .expect("必须拒绝")
                 .contains("毫秒")
+        );
+    }
+
+    #[test]
+    fn absurdly_early_boundary_is_rejected_instead_of_silently_noop() {
+        // 1970 毫秒会算出 target_low = 0 < current_low，被当成「没有要删的」，
+        // 整份计划变成「没有符合条件的消息」—— 用户会以为是自己的时间填错了。
+        let snapshot = detail("orders", &[(0, 100, 200)]);
+        let mut ask = request(PurgeKind::DeleteBefore);
+        ask.before = Some(0);
+        assert!(
+            plan(&snapshot, &ask, NOW, &|_, _| Boundary::Nothing)
+                .blocked
+                .expect("必须拒绝")
+                .contains("毫秒")
+        );
+
+        ask.before = Some(931_000_000_000); // 1999 年
+        assert!(
+            plan(&snapshot, &ask, NOW, &|_, _| Boundary::Nothing)
+                .blocked
+                .expect("必须拒绝")
+                .contains("太早")
         );
     }
 
@@ -390,13 +465,13 @@ mod tests {
         // 把秒当毫秒填：时间是过去，但算出来要删的边界会超过末尾。
         // 这里只拦「明显在未来」，所以先把秒级时间戳放大到毫秒级才触发。
         ask.before = Some(NOW + 3_600_000);
-        let result = plan(&snapshot, &ask, NOW, &|_, _| None);
+        let result = plan(&snapshot, &ask, NOW, &|_, _| Boundary::Nothing);
         assert!(result.blocked.expect("必须拒绝").contains("未来"));
 
         // 一分钟内的偏差（本机与集群时钟不同步）应当放行。
         ask.before = Some(NOW - 1);
         assert!(
-            plan(&snapshot, &ask, NOW, &|_, _| Some(50))
+            plan(&snapshot, &ask, NOW, &|_, _| Boundary::At(50))
                 .blocked
                 .is_none()
         );
@@ -409,7 +484,11 @@ mod tests {
         ask.before = Some(NOW);
         // 分区 1 没有更早的消息（反查返回 None），只处理分区 0。
         let result = plan(&snapshot, &ask, NOW, &|partition, _| {
-            (partition == 0).then_some(60)
+            if partition == 0 {
+                Boundary::At(60)
+            } else {
+                Boundary::Nothing
+            }
         });
         assert!(result.blocked.is_none());
         assert_eq!(result.partitions.len(), 1);
@@ -422,7 +501,11 @@ mod tests {
         let mut ask = request(PurgeKind::DeleteBefore);
         ask.before = Some(NOW);
         let result = plan(&snapshot, &ask, NOW, &|partition, _| {
-            if partition == 0 { Some(50) } else { Some(-1) }
+            if partition == 0 {
+                Boundary::At(50)
+            } else {
+                Boundary::Unknown("权限不足".to_owned())
+            }
         });
         assert!(result.blocked.is_none());
         assert_eq!(result.unresolved, vec![1]);
@@ -435,7 +518,7 @@ mod tests {
         let snapshot = detail("orders", &[(0, 0, 10)]);
         let mut ask = request(PurgeKind::Truncate);
         ask.partitions = vec![0, 7];
-        let result = plan(&snapshot, &ask, NOW, &|_, _| None);
+        let result = plan(&snapshot, &ask, NOW, &|_, _| Boundary::Nothing);
         let reason = result.blocked.expect("必须拒绝");
         assert!(reason.contains('7'), "{reason}");
     }
@@ -445,7 +528,7 @@ mod tests {
         let snapshot = detail("orders", &[(0, 0, 10), (1, 0, 10)]);
         let mut ask = request(PurgeKind::Truncate);
         ask.partitions = vec![1, 1];
-        let result = plan(&snapshot, &ask, NOW, &|_, _| None);
+        let result = plan(&snapshot, &ask, NOW, &|_, _| Boundary::Nothing);
         assert_eq!(result.partitions.len(), 1);
         assert_eq!(result.partitions[0].partition, 1);
     }
@@ -456,7 +539,7 @@ mod tests {
         let mut ask = request(PurgeKind::DeleteBefore);
         ask.before = Some(NOW);
         // 反查回来的位点比末尾还大（位点被截断、日志回退都可能出现），夹到 high。
-        let result = plan(&snapshot, &ask, NOW, &|_, _| Some(500));
+        let result = plan(&snapshot, &ask, NOW, &|_, _| Boundary::At(500));
         assert_eq!(result.partitions[0].target_low, 100);
         assert_eq!(result.removed, 100);
     }

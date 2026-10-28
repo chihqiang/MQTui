@@ -160,10 +160,25 @@ pub async fn list(client: &KafkaClient, query: MessageQuery) -> AppResult<Messag
             }
         };
 
+        // 要读的分区可能远多于 limit（64 分区 / limit 20 很常见）。`plan` 每轮都要
+        // 为**全部**分区查一次水位并 reassign —— 一次「加载更多」就是几十次水位请求。
+        // 所以这里按住「每个分区至少还要读一条」，挑出前 `remaining` 个分区，
+        // 其余留到下一轮：它们的进度都在游标里，不会丢。
+        let mut active: Vec<i32> = partitions.clone();
+
         // 读满 limit 条，或者所有分区都追上水位为止。
         let mut collected = Vec::with_capacity(limit);
         while collected.len() < limit {
-            let (assignments, pending) = plan(&worker, &task_topic, &starts)?;
+            let remaining = limit - collected.len();
+            if active.len() > remaining {
+                active.truncate(remaining);
+            }
+            let round: BTreeMap<i32, i64> = starts
+                .iter()
+                .filter(|(partition, _)| active.contains(partition))
+                .map(|(partition, next)| (*partition, *next))
+                .collect();
+            let (assignments, pending) = plan(&worker, &task_topic, &round)?;
             if pending == 0 {
                 // 所有分区都读尽了（此时 collected 为空，否则上面已经退出循环）。
                 break;
@@ -193,7 +208,20 @@ pub async fn list(client: &KafkaClient, query: MessageQuery) -> AppResult<Messag
                 }
             }
             if !progressed {
-                break;
+                // 本轮挑出来的分区要么读尽了、要么压根还没开始读：「没读到消息」
+                // 不等于「读完了」，两件事的退出条件不同。
+                // - 读尽的（游标退到低位点）移出候选，换下一批；
+                // - 还有没读的是一个 `break`（第一次 assign 前的 `poll` 可能立刻回
+                //   空队列），继续循环会是死循环 —— 与改动前的行为保持一致。
+                let before = active.len();
+                active.retain(|partition| {
+                    starts
+                        .get(partition)
+                        .is_some_and(|next| floors.get(partition).is_none_or(|low| next > low))
+                });
+                if active.len() == before {
+                    break;
+                }
             }
         }
 
@@ -312,11 +340,7 @@ pub async fn send(
     payload: &[u8],
     headers: &[MessageHeader],
 ) -> AppResult<String> {
-    let headers: Vec<(String, Option<String>)> = headers
-        .iter()
-        .map(|header| (header.key.clone(), header.value.clone()))
-        .collect();
-    client.send(topic, key, payload, &headers).await
+    client.send(topic, key, payload, headers).await
 }
 
 #[cfg(test)]

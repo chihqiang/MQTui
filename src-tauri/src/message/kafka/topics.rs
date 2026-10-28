@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use rdkafka::consumer::BaseConsumer;
 
+use crate::broker::kafka::purge::Boundary;
 use crate::broker::kafka::{KafkaClient, topics as admin};
 use crate::domain::{
     BrokerKind, ConfigChange, ConfigCompatReport, ConfigOutcome, ConfigPlan, KeyValue,
@@ -251,9 +252,10 @@ pub async fn preview_purge(client: &KafkaClient, request: PurgeRequest) -> AppRe
     let worker = build(client)?;
     let now = now_millis();
     // 按时间删记录要逐分区反查边界；清空只用末尾位点，不必问。
-    let boundaries = |partition: i32, before: i64| -> Option<i64> {
+    // 「没有要删的」和「查不到」必须分开回报：后者会被静默跳过分区。
+    let boundaries = |partition: i32, before: i64| -> Boundary {
         if request.kind != PurgeKind::DeleteBefore {
-            return None;
+            return Boundary::Nothing;
         }
         crate::broker::kafka::purge::seek_low_by_timestamp(
             &worker,

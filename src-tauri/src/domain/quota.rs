@@ -344,7 +344,12 @@ pub fn assemble_quota(entries: Vec<QuotaEntry>, error: Option<String>) -> QuotaS
 
     let mut notes = Vec::new();
     if deduped.is_empty() && error.is_none() {
-        notes.push("没有配置任何配额：Kafka 会退回 broker 端的默认值，通常等于不限速".to_owned());
+        // 空表不能读成「没有人被限速」：这里压根没读到，不是一个结论。
+        notes.push(
+            "这张列表不是「没有配额」：面板当前读不到配额（librdkafka 未导出 \
+             DescribeClientQuotas），空表只表示「没查」。下面只能给出 broker 级默认值"
+                .to_owned(),
+        );
     }
     notes.push(
         "面板只能查看配额：librdkafka 尚未导出 DescribeClientQuotas，改配额请用 kafka-configs.sh"
@@ -470,18 +475,21 @@ mod tests {
     }
 
     #[test]
-    fn empty_snapshot_explains_itself() {
+    fn empty_snapshot_says_it_is_not_a_clean_result() {
+        // 空表必须说清「没查到」，而不是「没人被限速」——
+        // 后者会让用户以为放行名单是干净的。
         let snapshot = assemble_quota(Vec::new(), None);
         assert!(snapshot.is_empty());
-        assert!(snapshot.notes.iter().any(|note| note.contains("不限速")));
+        assert!(snapshot.notes.iter().any(|note| note.contains("没查")));
+        assert!(!snapshot.notes.iter().any(|note| note.contains("不限速")));
     }
 
     #[test]
     fn error_snapshot_does_not_claim_health() {
         let snapshot = assemble_quota(Vec::new(), Some("权限不足".to_owned()));
         assert_eq!(snapshot.error.as_deref(), Some("权限不足"));
-        // 报错时不能再补「没有配置任何配额」——那是在假装读成功了。
-        assert!(!snapshot.notes.iter().any(|note| note.contains("不限速")));
+        // 报错时不能再补「没查到配额」这类解释——错误本身已经把话说清了。
+        assert!(!snapshot.notes.iter().any(|note| note.contains("这张列表")));
     }
 
     #[test]

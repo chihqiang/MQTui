@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { clusterService, queryKeys } from "@/services";
+import type { BrokerKind } from "@/types";
 
 /**
  * 集群视图。
@@ -25,12 +26,23 @@ export function useRuntime(connectionId: string | undefined) {
   });
 }
 
-/** RabbitMQ 节点指标。 */
-export function useNodeStats(connectionId: string | undefined) {
+/**
+ * 节点运行时指标（内存 / 磁盘 / fd）。
+ *
+ * 只有 RabbitMQ 有这套指标，Kafka 的节点卡靠元数据就够了。所以 `enabled`
+ * 里带了中间件判断：对 Kafka 也发这个请求，只会换来一句永远成立的
+ * 「节点指标读取失败」，以及一份空的 `verdicts` —— 后者会让「只看需处理」
+ * 这个筛选静默失效（controller 缺失、副本掉队都筛不出来）。
+ *
+ * `null` 表示「中间件还没读出来」：此时也不发，避免刚进页面时先打一次空请求。
+ */
+export function useNodeStats(connectionId: string | undefined, kind: BrokerKind | null) {
   return useQuery({
     queryKey: queryKeys.nodeStats(connectionId ?? ""),
     queryFn: () => clusterService.loadNodeStats(connectionId as string),
-    enabled: Boolean(connectionId),
+    enabled: Boolean(connectionId) && kind !== null,
+    // Kafka 这边后端会回空报告：没必要每次进页面都再问一遍。
+    staleTime: kind === "kafka" ? Infinity : 0,
   });
 }
 

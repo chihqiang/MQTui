@@ -243,10 +243,17 @@ fn assemble_raw(metadata: &rdkafka::metadata::Metadata) -> ClusterRaw {
             let replicas = partition.replicas();
             let isr = partition.isr();
             replica_ids.extend(replicas.iter().copied());
-            if isr.len() < replicas.len()
-                && let Some(broker) = brokers.get_mut(&partition.leader())
-            {
-                broker.under_replicated += 1;
+            if isr.len() < replicas.len() {
+                // 记到**任何一个**存活的副本所在 broker 上，而不是 leader 头上：
+                // 选主期间 leader 是 -1，leader 落在离线 broker 上时也查不到人。
+                // 以前那条 `get_mut(&leader)` 在这两种时刻会静默归零 ——
+                // 而掉副本最严重的时刻正好是这种时刻。
+                for replica in replicas {
+                    if let Some(broker) = brokers.get_mut(replica) {
+                        broker.under_replicated += 1;
+                        break;
+                    }
+                }
             }
         }
     }

@@ -96,6 +96,33 @@ impl MessageHeader {
     }
 }
 
+/// 一个 header 的**原始**字节值，以及它的文本形式。
+///
+/// `MessageHeader` 只装得下文本，够展示不够重发：Avro / Protobuf 消息的 header
+/// 可能是任意字节，`String::from_utf8_lossy` 一过就再也回不到原样；
+/// 而 `value: None` 是「有这个 header 但没有值」，被过滤掉之后消息就少了一个头。
+/// 所以读写原消息的路径（`decode_payload` / 重发）走这一对，展示层仍用 `MessageHeader`。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RawMessageHeader {
+    pub key: String,
+    /// `None` 表示 header 存在但没有值，**不是**空串。
+    pub value: Option<Vec<u8>>,
+}
+
+impl RawMessageHeader {
+    /// 给界面用的文本形式。非 UTF-8 的字节在这里被替换成 `�`，
+    /// 但也只有这一步会「损坏」——原始字节在 `value` 里原封不动。
+    pub fn to_header(&self) -> MessageHeader {
+        MessageHeader {
+            key: self.key.clone(),
+            value: self
+                .value
+                .as_deref()
+                .map(|raw| String::from_utf8_lossy(raw).into_owned()),
+        }
+    }
+}
+
 /// 分页结果。具体中间件的分页语义不同，这里只统一承载形态。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

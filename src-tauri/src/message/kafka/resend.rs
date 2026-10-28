@@ -11,14 +11,14 @@
 use rdkafka::Offset;
 use rdkafka::TopicPartitionList;
 use rdkafka::consumer::{BaseConsumer, Consumer};
-use rdkafka::message::{Headers, Message};
+use rdkafka::message::Message;
 
 use crate::broker::kafka::KafkaClient;
 use crate::domain::resend::{OriginalMessage, build_plan, compare_partition};
-use crate::domain::{MessageHeader, ResendOutcome, ResendRequest};
+use crate::domain::{ResendOutcome, ResendRequest};
 use crate::error::{AppError, AppResult};
 
-use super::dto::parse_id;
+use super::dto::{parse_id, raw_headers};
 
 /// 单次回源的等待时间。
 const FETCH_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(1500);
@@ -28,14 +28,13 @@ pub async fn resend(client: &KafkaClient, request: &ResendRequest) -> AppResult<
     let original = read_original(client, &request.message_id).await?;
     let plan = build_plan(&original, request).map_err(|block| AppError::Invalid(block.reason()))?;
 
-    let headers: Vec<(String, Option<String>)> = plan
-        .headers
-        .iter()
-        .map(|header| (header.key.clone(), header.value.clone()))
-        .collect();
-
     let receipt = client
-        .deliver(&plan.topic, plan.key.as_deref(), &plan.payload, &headers)
+        .deliver(
+            &plan.topic,
+            plan.key.as_deref(),
+            &plan.payload,
+            &plan.headers,
+        )
         .await?;
 
     let check = compare_partition(&plan, receipt.partition);
@@ -73,11 +72,12 @@ async fn read_original(client: &KafkaClient, message_id: &str) -> AppResult<Orig
             Some(Ok(message)) => Ok(OriginalMessage {
                 topic: message.topic().to_owned(),
                 partition: Some(message.partition()),
+                // key 也是裸字节：非 UTF-8 的 key 被 lossy 一过就换了分区。
                 key: message
                     .key()
                     .map(|key| String::from_utf8_lossy(key).into_owned()),
                 payload: message.payload().unwrap_or_default().to_vec(),
-                headers: headers_of(&message),
+                headers: message.headers().map(raw_headers).unwrap_or_default(),
             }),
             Some(Err(error)) => Err(AppError::from(error)),
             // 读不到通常是日志清理把这段裁掉了。说清原因，别让人以为是 ID 写错。
@@ -88,24 +88,4 @@ async fn read_original(client: &KafkaClient, message_id: &str) -> AppResult<Orig
     })
     .await
     .map_err(|error| AppError::Internal(format!("Kafka 重发任务失败: {error}")))?
-}
-
-/// 读出消息的 headers。
-///
-/// 用 `try_get` 而不是 `get`：后者索引越界会 panic，header 数量来自 broker，
-/// 不该因为一条畸形消息把整个进程带下去。
-fn headers_of<M: Message>(message: &M) -> Vec<MessageHeader> {
-    let Some(headers) = message.headers() else {
-        return Vec::new();
-    };
-    (0..headers.count())
-        .filter_map(|index| headers.try_get(index))
-        .filter_map(|header| {
-            let value = header.value?;
-            Some(MessageHeader {
-                key: header.key.to_owned(),
-                value: Some(String::from_utf8_lossy(value).into_owned()),
-            })
-        })
-        .collect()
 }

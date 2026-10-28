@@ -71,16 +71,10 @@ fn read_scram(client: &KafkaClient) -> AppResult<Vec<ScramUser>> {
         );
     }
 
-    let event =
-        unsafe { bindings::rd_kafka_queue_poll(guard.0, ADMIN_TIMEOUT.as_millis() as c_int) };
-    if event.is_null() {
-        return Err(AppError::Broker(format!(
-            "等待 SCRAM 凭据结果超时（{} 秒）",
-            ADMIN_TIMEOUT.as_secs()
-        )));
-    }
-    // 事件归调用方，解析完必须销毁。
-    let owned = EventGuard(event);
+    // 事件归调用方，解析完必须销毁 —— 所以拿到它之后第一件事就是交给守卫，
+    // 而不是等解析完再交：中间任何一个 `return Err` 都会把事件漏在堆上。
+    let owned = poll_event(guard.0, "SCRAM 凭据")?;
+    let event = owned.0;
 
     let error = unsafe { bindings::rd_kafka_event_error(event) };
     if error != rd_kafka_resp_err_t::RD_KAFKA_RESP_ERR_NO_ERROR {
@@ -96,6 +90,20 @@ fn read_scram(client: &KafkaClient) -> AppResult<Vec<ScramUser>> {
     }
 
     Ok(unsafe { collect_users(owned.0) })
+}
+
+/// 轮询结果事件。超时不说「成功」，也不说「失败」—— 它只说明「不知道」。
+///
+/// 返回值**已经**是守卫：调用方拿到它的那一刻起，任何一条退出路径都会销毁事件。
+fn poll_event(guard: *mut bindings::rd_kafka_queue_t, action: &str) -> AppResult<EventGuard> {
+    let event = unsafe { bindings::rd_kafka_queue_poll(guard, ADMIN_TIMEOUT.as_millis() as c_int) };
+    if event.is_null() {
+        return Err(AppError::Broker(format!(
+            "等待{action}结果超时（{} 秒）",
+            ADMIN_TIMEOUT.as_secs()
+        )));
+    }
+    Ok(EventGuard(event))
 }
 
 /// 事件指针的销毁守卫。

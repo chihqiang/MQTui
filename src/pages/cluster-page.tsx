@@ -33,7 +33,8 @@ export function ClusterPage() {
   const brokerLabel = brokerBadgeLabel(kind);
   const brokerTone = brokerBadgeTone(kind);
   // 节点指标（内存 / 磁盘 / fd）单独一次请求：拿不到不影响「谁在运行」这个结论。
-  const stats = useNodeStats(connectionId);
+  // 只有 RabbitMQ 提供这套指标；Kafka 传 null，hook 便不会发这个请求。
+  const stats = useNodeStats(connectionId, kind ?? null);
   const [onlyAttention, setOnlyAttention] = useState(false);
 
   const verdicts = useMemo(

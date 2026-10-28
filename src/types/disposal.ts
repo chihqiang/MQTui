@@ -50,6 +50,13 @@ export interface ResendRequest {
   key?: string;
   /** 消息内容，留空沿用原内容。 */
   payload?: string;
+  /**
+   * 原消息内容的 base64。
+   *
+   * 表单里没改内容时原样带回：`payload` 是文本，二进制内容（Avro / Protobuf）
+   * 经过一次 UTF-8 解码就再也回不到原样，重发会静默改掉消息体。
+   */
+  payloadBase64?: string;
   /** 是否带上原消息的 headers。 */
   keepHeaders: boolean;
 }

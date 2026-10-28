@@ -24,7 +24,10 @@ export interface ConfigPlanItem {
 export interface ConfigPlan {
   topic: string;
   items: ConfigPlanItem[];
-  /** 提交前必须让用户读到的后果汇总。 */
+  /**
+   * 提交前必须让用户读到的后果汇总。
+   * 后端在没有后果时不下发这个字段（`skip_serializing_if`），读到 `undefined` 是正常状态。
+   */
   impacts?: string[];
 }
 

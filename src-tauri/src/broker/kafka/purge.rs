@@ -31,40 +31,42 @@ pub struct PartitionPurgeResult {
     pub error: Option<String>,
 }
 
+/// 按时间反查分区边界的结论，与领域层共用同一个类型 ——
+/// 「查不到」必须能一路传到摘要里，两处各定义一份就会在边界上被抹平。
+pub use crate::domain::PurgeBoundary as Boundary;
+
 /// 按时间反查分区边界：返回「第一条不早于 `before` 的消息」的位点。
 ///
 /// Kafka 的 `ListOffsets` 语义就是这样，而删记录要的是「早于该时间的都删掉」，
 /// 两者正好对齐 —— 不需要 ±1 的修正。这点值得写下来，因为差一位的删除
 /// 在界面上完全看不出来，只会在某天有人发现少了一条消息。
-///
-/// 三种情况都返回 `None`，都表示「这个分区没有要删的」：
-/// - 分区里所有消息都晚于 `before`（反查落到低位点）；
-/// - 反查结果带错误（权限受限、leader 迁移中）；
-/// - 服务端给了 `Offset::End`/`Invalid` 这类无意义的位点。
 pub fn seek_low_by_timestamp(
     worker: &BaseConsumer,
     topic: &str,
     partition: i32,
     before: i64,
-) -> Option<i64> {
+) -> Boundary {
     let mut list = TopicPartitionList::new();
-    list.add_partition_offset(topic, partition, Offset::Offset(before))
-        .ok()?;
-
-    let found = worker.offsets_for_times(list, SEEK_TIMEOUT).ok()?;
-    let element = found.find_partition(topic, partition)?;
-    if element.error().is_err() {
-        return None;
+    if let Err(error) = list.add_partition_offset(topic, partition, Offset::Offset(before)) {
+        return Boundary::Unknown(format!("位点查询参数不合法: {error}"));
     }
-    positive(element.offset().to_raw())
-}
 
-/// 反查结果清洗：负值（含偏移过的 `Invalid`）统一当作「查不到」。
-///
-/// librdkafka 在没有匹配消息时会回 `-1`。把它当成位点用会算出
-/// 「要删到 -1」，那不是任何一个分区上真实存在的边界。
-fn positive(raw: Option<i64>) -> Option<i64> {
-    raw.filter(|value| *value >= 0)
+    let found = match worker.offsets_for_times(list, SEEK_TIMEOUT) {
+        Ok(found) => found,
+        Err(error) => return Boundary::Unknown(format!("按时间查询位点失败: {error}")),
+    };
+    let Some(element) = found.find_partition(topic, partition) else {
+        return Boundary::Unknown("服务端没有返回这个分区的反查结果".to_owned());
+    };
+    if let Err(error) = element.error() {
+        return Boundary::Unknown(format!("反查边界失败: {error}"));
+    }
+    match element.offset().to_raw() {
+        // 负值（含偏移过的 `Invalid`、`End`）不是任何一个分区上真实存在的边界，
+        // 把它当成位点用会算出「要删到 -1」。
+        Some(offset) if offset >= 0 => Boundary::At(offset),
+        Some(_) | None => Boundary::Nothing,
+    }
 }
 
 /// 提交删除记录。
@@ -299,11 +301,21 @@ mod tests {
     }
 
     #[test]
-    fn invalid_offsets_from_seek_are_treated_as_missing() {
-        assert_eq!(positive(Some(-1)), None);
-        assert_eq!(positive(None), None);
-        assert_eq!(positive(Some(0)), Some(0));
-        assert_eq!(positive(Some(42)), Some(42));
+    fn invalid_offsets_from_seek_are_treated_as_nothing_to_delete() {
+        // 负值不是任何一个分区上真实存在的边界：当成「没有要删的」，
+        // 而不是「要删到 -1」，也不是「查不到」—— 三者对应的界面动作完全不同。
+        assert_eq!(negative_as_nothing(Some(-1)), Boundary::Nothing);
+        assert_eq!(negative_as_nothing(None), Boundary::Nothing);
+        assert_eq!(negative_as_nothing(Some(0)), Boundary::At(0));
+        assert_eq!(negative_as_nothing(Some(42)), Boundary::At(42));
+    }
+
+    /// `seek_low_by_timestamp` 里清洗位点的那一步，抽出来便于单测。
+    fn negative_as_nothing(raw: Option<i64>) -> Boundary {
+        match raw {
+            Some(offset) if offset >= 0 => Boundary::At(offset),
+            Some(_) | None => Boundary::Nothing,
+        }
     }
 
     #[test]

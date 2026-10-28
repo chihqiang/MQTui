@@ -107,20 +107,41 @@ export function describeValue(value: string): string {
 }
 
 /**
+ * 计划里的改动项。
+ *
+ * 后端对空数组不序列化（`skip_serializing_if`），所以 `items` 缺失是正常状态；
+ * `plan` 本身也可能是 `null`（确认框关着、或缓存里那一份被清掉了）。
+ * 渲染路径上一律走这里，不要直接摸 `plan.items`。
+ */
+export function planItems(plan: ConfigPlan | null | undefined): ConfigPlanItem[] {
+  return plan?.items ?? [];
+}
+
+/**
  * 把后端计划渲染成确认框里的一行行文字。
  *
  * 「从什么改成什么」是确认框里唯一必须说清的事：只说「将修改 3 项配置」，
  * 用户没法判断自己是不是填错了一格。
  */
-export function describePlan(plan: ConfigPlan): string[] {
-  return plan.items.map((item: ConfigPlanItem) => {
+export function describePlan(plan: ConfigPlan | null | undefined): string[] {
+  return planItems(plan).map((item) => {
     const before = describeValue(item.previous);
     const after = describeValue(item.value);
     return `${item.key}: ${before} → ${after}`;
   });
 }
 
+/** 计划里必须让用户先读到的后果。后端为空时不下发该字段，这里统一兜成空数组。 */
+export function planImpacts(plan: ConfigPlan | null | undefined): string[] {
+  return plan?.impacts ?? [];
+}
+
 /** 计划里是否含「不可回退」的后果。有则确认框要用更强的语气。 */
-export function isRisky(plan: ConfigPlan): boolean {
-  return (plan.impacts?.length ?? 0) > 0;
+export function isRisky(plan: ConfigPlan | null | undefined): boolean {
+  return planImpacts(plan).length > 0;
+}
+
+/** 要提交流的改动：只取 key 与值，计划为空时一个都不交。 */
+export function submitChanges(plan: ConfigPlan | null | undefined): { key: string; value: string }[] {
+  return planItems(plan).map((item) => ({ key: item.key, value: item.value }));
 }

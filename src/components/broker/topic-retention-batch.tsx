@@ -11,7 +11,7 @@ import {
   summarizeRetention,
   type RetentionInput,
 } from "@/lib/retention";
-import { describePlan } from "@/lib/topic-config";
+import { describePlan, submitChanges } from "@/lib/topic-config";
 import { topicService } from "@/services";
 import { useSessionStore } from "@/stores";
 import { ConfigConfirmModal } from "./topic-config-confirm";
@@ -92,7 +92,7 @@ export function TopicRetentionBatchModal({
     setRunning(true);
     const results: { topic: string; ok: boolean; detail: string }[] = [];
     for (const item of plans) {
-      const next = item.preview.plan.items.map(({ key, value }) => ({ key, value }));
+      const next = submitChanges(item.preview?.plan);
       try {
         const outcome = await topicService.updateConfigs(
           connectionId as string,

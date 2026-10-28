@@ -81,17 +81,35 @@ pub async fn load_queue_placements(
 }
 
 /// 节点运行时指标 + 每个节点的一句话结论。
+///
+/// 只有 RabbitMQ 有这套指标（走管理 API 的 `/api/nodes`）。Kafka 的节点卡
+/// 靠元数据就够了，这里返回一份**空的报告**而不是报错：
+/// 报错会变成页头一句恒真的「节点指标读取失败」噪音，
+/// 而 `verdicts` 一空，「只看需处理」这个筛选对 Kafka 就彻底失效了。
 #[tauri::command]
 pub async fn load_node_stats(
     state: State<'_, AppState>,
     id: ConnectionId,
 ) -> AppResult<NodeReport> {
     let connection = state.connections.get(&id).await?;
-    let stats = connection.as_rabbitmq()?.nodes().await?;
-    Ok(NodeReport {
-        verdicts: node_verdicts(&stats),
-        stats,
-    })
+    let NodeReportParts { stats, verdicts } = match connection.as_ref() {
+        Connection::Kafka(_) => NodeReportParts::default(),
+        Connection::RabbitMq(client) => {
+            let stats = client.nodes().await?;
+            NodeReportParts {
+                verdicts: node_verdicts(&stats),
+                stats,
+            }
+        }
+    };
+    Ok(NodeReport { stats, verdicts })
+}
+
+/// 两种中间件共用一份报告形状：没有指标的那一边给空值，而不是造一堆 0。
+#[derive(Debug, Default)]
+struct NodeReportParts {
+    stats: Vec<NodeStat>,
+    verdicts: Vec<NodeVerdict>,
 }
 
 /// 节点报告：原始指标 + 判读结论。

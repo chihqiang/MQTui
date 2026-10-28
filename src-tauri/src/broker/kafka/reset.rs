@@ -46,6 +46,10 @@ impl KafkaClient {
         let topic = topic.to_owned();
         let group = group.to_owned();
 
+        // 主题不存在时 `partition_count` 就是 `NotFound`，错误原样往上抛。
+        // 这一步必须在 `??` 之后、过滤之前做完 —— 曾经的写法是
+        // 「把空结果当成该组没提交过位点」，于是把主题名打错一个字母，
+        // 用户看到的是「该消费组没有提交过任何分区位点」，查错方向直接偏了。
         tokio::task::spawn_blocking(move || collect_states(&worker, &group, &topic))
             .await
             .map_err(|error| AppError::Internal(format!("位点查询任务失败: {error}")))?
@@ -212,13 +216,18 @@ fn partition_count(worker: &BaseConsumer, topic: &str) -> AppResult<i32> {
         .fetch_metadata(Some(topic), Timeout::After(OFFSET_TIMEOUT))
         .map_err(AppError::from)?;
 
-    let partitions = metadata
-        .topics()
-        .iter()
-        .find(|item| item.name() == topic)
-        .map_or(0, |item| item.partitions().len() as i32);
+    // 名字对不上就是「主题不存在」；名字对上了但分区数是 0 才是别的问题
+    // （正在创建、或元数据这个视角只认得残缺的分区表）—— 两者的下一步动作不同。
+    let Some(found) = metadata.topics().iter().find(|item| item.name() == topic) else {
+        return Err(AppError::NotFound(format!(
+            "主题 {topic}：主题不存在，或者当前账号没有它的 DESCRIBE 权限"
+        )));
+    };
+    let partitions = found.partitions().len() as i32;
     if partitions == 0 {
-        return Err(AppError::NotFound(format!("主题 {topic}")));
+        return Err(AppError::Broker(format!(
+            "主题 {topic} 读不到分区：主题可能正在创建，或元数据尚未同步，稍后刷新"
+        )));
     }
     Ok(partitions)
 }

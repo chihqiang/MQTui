@@ -3,7 +3,7 @@
 use rdkafka::Message;
 use rdkafka::message::Headers;
 
-use crate::domain::{MessageDetail, MessageHeader, MessageSummary};
+use crate::domain::{MessageDetail, MessageHeader, MessageSummary, RawMessageHeader};
 use crate::error::{AppError, AppResult};
 
 /// 解析 `topic:partition:offset` 形式的消息 ID。
@@ -68,19 +68,27 @@ pub fn detail_from_message<M: Message>(message: &M) -> MessageDetail {
     }
 }
 
-/// rdkafka 的头集合转换为领域头列表。
+/// rdkafka 的头集合转换为领域头列表（展示用）。
 ///
 /// 用 `try_get` 而不是 `get`：后者在索引越界时 panic，而 headers 数量来自
 /// broker，面板不该因为一条畸形消息把整个进程带下去。
 fn headers_to_headers<H: Headers>(headers: &H) -> Vec<MessageHeader> {
+    raw_headers(headers)
+        .iter()
+        .map(RawMessageHeader::to_header)
+        .collect()
+}
+
+/// 原样抄下每个 header 的字节值。
+///
+/// 与 `headers_to_headers` 的区别只有一个，但很关键：`value: None` 的 header
+/// **保留**，二进制值**不做** UTF-8 转换。重发要靠这份数据才能逐字节还原。
+pub fn raw_headers<H: Headers>(headers: &H) -> Vec<RawMessageHeader> {
     (0..headers.count())
         .filter_map(|index| headers.try_get(index))
-        .filter_map(|header| {
-            let value = header.value?;
-            Some(MessageHeader {
-                key: header.key.to_owned(),
-                value: Some(String::from_utf8_lossy(value).into_owned()),
-            })
+        .map(|header| RawMessageHeader {
+            key: header.key.to_owned(),
+            value: header.value.map(<[u8]>::to_vec),
         })
         .collect()
 }

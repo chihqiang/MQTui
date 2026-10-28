@@ -8,6 +8,9 @@ import {
   hasChanges,
   isRisky,
   lockOf,
+  planImpacts,
+  planItems,
+  submitChanges,
   missingConfigs,
   rowState,
 } from "./topic-config.ts";
@@ -66,7 +69,41 @@ test("计划描述说清改动前后", () => {
 test("没有副作用的计划不算高风险", () => {
   const plan: ConfigPlan = { topic: "orders", items: [] };
   expect(isRisky(plan)).toBe(false);
+  expect(planImpacts(plan)).toEqual([]);
   expect(describePlan(plan)).toEqual([]);
+});
+
+test("后端省略 impacts 与 items 时按空处理", () => {
+  // 后端对空数组不序列化，屏幕上却必须还能渲染 —— 缺字段不是崩溃的理由。
+  const plan = { topic: "orders" } as ConfigPlan;
+  expect(planImpacts(plan)).toEqual([]);
+  expect(isRisky(plan)).toBe(false);
+  expect(describePlan(plan)).toEqual([]);
+});
+
+test("整个计划缺席时确认框不崩", () => {
+  // 确认框关着的时候 plan 就是 null；渲染路径不能假定它一定在。
+  expect(isRisky(null)).toBe(false);
+  expect(planImpacts(null)).toEqual([]);
+  expect(planItems(null)).toEqual([]);
+  expect(describePlan(null)).toEqual([]);
+  expect(submitChanges(null)).toEqual([]);
+  expect(isRisky(undefined)).toBe(false);
+});
+
+test("提交只取计划里的 key 与值", () => {
+  const plan: ConfigPlan = {
+    topic: "orders",
+    items: [
+      { key: "retention.ms", value: "1000", previous: "", impact: "调小会立刻触发清理" },
+      { key: "segment.bytes", value: "", previous: "2048" },
+    ],
+  };
+  expect(submitChanges(plan)).toEqual([
+    { key: "retention.ms", value: "1000" },
+    { key: "segment.bytes", value: "" },
+  ]);
+  expect(submitChanges(plan)).toEqual(plan.items.map(({ key, value }) => ({ key, value })));
 });
 
 test("只列出尚未配置的可选项", () => {

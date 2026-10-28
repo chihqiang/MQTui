@@ -12,7 +12,8 @@ use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::util::Timeout;
 
 use crate::domain::{
-    CheckStatus, HealthCheck, HealthReport, KafkaConfig, KeyValue, Overview, TopicInfo,
+    CheckStatus, HealthCheck, HealthReport, KafkaConfig, KeyValue, MessageHeader, Overview,
+    RawMessageHeader, TopicInfo,
 };
 use crate::error::{AppError, AppResult};
 
@@ -21,6 +22,13 @@ use super::dto::client_config;
 /// 元数据请求超时。
 pub(super) const META_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// 发送一条消息时等 broker 确认的上限。
+///
+/// 这个值必须**大于** producer 自己的 `message.timeout.ms`（30s）：
+/// 比它小的话，librdkafka 还在重试，这边已经先超时了 —— 用户看到「发送失败」，
+/// 而消息可能过几秒真的写进去了，再点一次就是重复消息。
+pub(super) const DELIVERY_TIMEOUT: Duration = Duration::from_secs(45);
+
 /// Kafka 客户端。
 ///
 /// `BaseConsumer` 不是 `Sync`，因此内部统一用 `Arc` 包裹并在使用时独占访问。
@@ -28,7 +36,6 @@ pub struct KafkaClient {
     config: ClientConfig,
     bootstrap: String,
     admin: Arc<BaseConsumer>,
-    producer: FutureProducer,
 }
 
 impl KafkaClient {
@@ -37,13 +44,9 @@ impl KafkaClient {
         let base = client_config(&config);
         let bootstrap = config.brokers.join(",");
 
-        let build = |base: &ClientConfig| -> AppResult<(BaseConsumer, FutureProducer)> {
-            let admin: BaseConsumer = base.create()?;
-            let producer: FutureProducer = base.create()?;
-            Ok((admin, producer))
-        };
-
-        let (admin, producer) = build(&base)?;
+        // 只建一个 consumer：发送走 `deliver` 里的按需 producer（幂等 + 明确的重试窗口），
+        // 这里再养一个长连接没有人用，只会让 broker 上多出一条说不清的连接。
+        let admin: BaseConsumer = base.create()?;
         let admin = Arc::new(admin);
 
         // 元数据请求是阻塞调用，放到阻塞线程池，避免卡住 Tauri 的异步运行时。
@@ -59,7 +62,6 @@ impl KafkaClient {
             config: base,
             bootstrap,
             admin,
-            producer,
         })
     }
 
@@ -112,20 +114,10 @@ impl KafkaClient {
         topic: &str,
         key: Option<&str>,
         payload: &[u8],
-        headers: &[(String, Option<String>)],
+        headers: &[MessageHeader],
     ) -> AppResult<String> {
-        let mut record = FutureRecord::<str, [u8]>::to(topic).payload(payload);
-        if let Some(key) = key {
-            record = record.key(key);
-        }
-
-        record = record.headers(owned_headers(headers));
-
-        let delivery = self
-            .producer
-            .send(record, Timeout::After(META_TIMEOUT))
-            .await
-            .map_err(|(error, _)| AppError::from(error))?;
+        let headers = headers.iter().map(text_header).collect::<Vec<_>>();
+        let delivery = self.deliver(topic, key, payload, &headers).await?;
 
         Ok(format!(
             "partition={} offset={}",
@@ -146,7 +138,7 @@ impl KafkaClient {
         topic: &str,
         key: Option<&str>,
         payload: &[u8],
-        headers: &[(String, Option<String>)],
+        headers: &[RawMessageHeader],
     ) -> AppResult<DeliveryReceipt> {
         let producer = self.resend_producer()?;
 
@@ -156,15 +148,29 @@ impl KafkaClient {
         }
         record = record.headers(owned_headers(headers));
 
-        let delivery = producer
-            .send(record, Timeout::After(META_TIMEOUT))
+        match producer
+            .send(record, Timeout::After(DELIVERY_TIMEOUT))
             .await
-            .map_err(|(error, _)| AppError::from(error))?;
-
-        Ok(DeliveryReceipt {
-            partition: delivery.partition,
-            offset: delivery.offset,
-        })
+        {
+            Ok(delivery) => Ok(DeliveryReceipt {
+                partition: delivery.partition,
+                offset: delivery.offset,
+            }),
+            // `QueueFull` 是「压根没进队列」：可以放心重试。
+            Err((
+                rdkafka::error::KafkaError::MessageProduction(
+                    rdkafka::types::RDKafkaErrorCode::QueueFull,
+                ),
+                _,
+            )) => Err(AppError::Broker(
+                "发送队列已满，消息没有发出：稍后重试是安全的".to_owned(),
+            )),
+            // 其余错误分不清「没写进去」和「写进去了但没等到 ack」。
+            // 说「未知」而不是「失败」：后者会让人立刻再点一次，制造重复消息。
+            Err((error, _)) => Err(AppError::Broker(format!(
+                "等待 broker 确认超时或失败（{error}）：消息可能已经写进 {topic}，                 请刷新确认之后再决定要不要重发。重试可能产生重复消息"
+            ))),
+        }
     }
 
     /// 健康检查：bootstrap 可达 + 元数据可取。
@@ -211,7 +217,13 @@ impl KafkaClient {
             .set("enable.idempotence", "true")
             // acks=all 是幂等的前提，显式写出来免得被环境配置覆盖。
             .set("acks", "all")
-            .set("max.in.flight.requests.per.connection", "5");
+            .set("max.in.flight.requests.per.connection", "5")
+            // 重试窗口必须落在 `DELIVERY_TIMEOUT` 之内，否则「等待确认」先超时，
+            // 而 librdkafka 还在后台重试 —— 界面上是失败，日志里却写进去了。
+            .set(
+                "message.timeout.ms",
+                (DELIVERY_TIMEOUT.as_secs() * 1000 - 5_000).to_string(),
+            );
         config
             .create()
             .map_err(|error| AppError::Broker(format!("创建 Kafka 发送客户端失败: {error}")))
@@ -268,14 +280,10 @@ impl KafkaClient {
     /// 再建一个走同一份配置的客户端句柄，**不建连**。
     ///
     /// 给需要把阻塞调用挪进线程池的读取用：`KafkaClient` 自己不是 `Send` 的
-    /// （内含 `BaseConsumer` 与生产者），直接 `move` 进 `spawn_blocking` 会编译不过。
+    /// （内含 `BaseConsumer`），直接 `move` 进 `spawn_blocking` 会编译不过。
     /// 这里只复制配置，句柄本身由线程池那边新建，用完即弃。
     pub fn clone_handle(&self) -> AppResult<Self> {
         let admin: BaseConsumer = self
-            .config
-            .create()
-            .map_err(|error| AppError::Broker(format!("创建 Kafka 客户端失败: {error}")))?;
-        let producer: FutureProducer = self
             .config
             .create()
             .map_err(|error| AppError::Broker(format!("创建 Kafka 客户端失败: {error}")))?;
@@ -283,7 +291,6 @@ impl KafkaClient {
             config: self.config.clone(),
             bootstrap: self.bootstrap.clone(),
             admin: Arc::new(admin),
-            producer,
         })
     }
 
@@ -295,12 +302,10 @@ impl KafkaClient {
     pub fn detached(config: &KafkaConfig) -> AppResult<Self> {
         let base = client_config(config);
         let admin = base.create()?;
-        let producer = base.create()?;
         Ok(Self {
             config: base,
             bootstrap: config.brokers.join(","),
             admin: Arc::new(admin),
-            producer,
         })
     }
 
@@ -346,14 +351,25 @@ pub struct DeliveryReceipt {
 /// 值为 `None` 时写成「没有值」的 header（Kafka 协议允许 `value` 为 null），
 /// 而不是一个空串 —— 两者在消费端是两种不同的判断。表单里的空值
 /// 就是「这个 key 存在但没有值」，透传过去即可。
-fn owned_headers(headers: &[(String, Option<String>)]) -> rdkafka::message::OwnedHeaders {
-    headers.iter().fold(
-        rdkafka::message::OwnedHeaders::new(),
-        |headers, (name, value)| {
-            headers.insert(rdkafka::message::Header {
-                key: name.as_str(),
-                value: value.as_deref().map(str::as_bytes),
+fn owned_headers(headers: &[RawMessageHeader]) -> rdkafka::message::OwnedHeaders {
+    headers
+        .iter()
+        .fold(rdkafka::message::OwnedHeaders::new(), |acc, header| {
+            acc.insert(rdkafka::message::Header {
+                key: header.key.as_str(),
+                value: header.value.as_deref(),
             })
-        },
-    )
+        })
+}
+
+/// 界面上填的文本 header 转成原始字节：`None` 就是「有这个头但没有值」。
+fn text_header(header: &MessageHeader) -> RawMessageHeader {
+    RawMessageHeader {
+        key: header.key.clone(),
+        value: header
+            .value
+            .as_deref()
+            .map(str::as_bytes)
+            .map(<[u8]>::to_vec),
+    }
 }

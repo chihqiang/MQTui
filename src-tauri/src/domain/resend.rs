@@ -13,7 +13,9 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::MessageHeader;
+use base64::Engine;
+
+use super::RawMessageHeader;
 
 /// Kafka 主题名长度上限，超过服务端一定拒绝，不如在本地拦下。
 pub const TOPIC_NAME_MAX_LEN: usize = 249;
@@ -35,8 +37,16 @@ pub struct ResendRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key: Option<String>,
     /// 消息内容，留空沿用原内容。
+    ///
+    /// 这里只收文本，因为用户在表单里只打得出文本；要逐字节还原原消息，
+    /// 走下面的 `payload_base64`。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub payload: Option<String>,
+    /// 原消息的二进制内容（base64）。表单没改内容时由前端原样回传，
+    /// 用它而不是 `payload` 才能做到「写进去的和原来逐字节相同」——
+    /// Avro / Protobuf 主题上一次 lossy 解码就是一次静默损坏。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub payload_base64: Option<String>,
     /// 是否带上原消息的 headers（默认带）。
     #[serde(default)]
     pub keep_headers: bool,
@@ -48,7 +58,8 @@ pub struct ResendPlan {
     pub topic: String,
     pub key: Option<String>,
     pub payload: Vec<u8>,
-    pub headers: Vec<MessageHeader>,
+    /// 原样保留的 headers：二进制值不做 UTF-8 转换，`None` 值的 header 也不丢。
+    pub headers: Vec<RawMessageHeader>,
     /// 原消息所在分区，用于事后比对 key 是否还落在同一个分区。
     pub original_partition: Option<i32>,
     /// key 是否沿用原消息。只有沿用才谈得上「同一条 key 换了分区」。
@@ -66,6 +77,8 @@ pub enum ResendBlock {
     InvalidTopic(String),
     /// 最终内容为空：原消息内容为空且用户也没填。
     EmptyPayload,
+    /// 前端带回来的 base64 解不开：宁可中断，也不要重发一条内容已经不对的消息。
+    InvalidPayloadBase64,
 }
 
 impl ResendBlock {
@@ -81,6 +94,9 @@ impl ResendBlock {
                  且不能是 . 或 .."
             ),
             Self::EmptyPayload => "消息内容为空：原消息没有 payload，也没有填写新的内容".to_owned(),
+            Self::InvalidPayloadBase64 => {
+                "原消息内容无法解码（base64 损坏），本次重发已取消：原消息可能已被 retention 清理，刷新后再试".to_owned()
+            }
         }
     }
 }
@@ -106,6 +122,13 @@ pub fn validate_topic(topic: &str) -> Option<ResendBlock> {
     None
 }
 
+/// 解 base64。解不开就是解不开 —— 不退回 lossy 文本，那正是要修的那个坑。
+fn decode_base64(encoded: &str) -> Option<Vec<u8>> {
+    base64::engine::general_purpose::STANDARD
+        .decode(encoded.trim())
+        .ok()
+}
+
 /// 原消息的 key / payload / headers，作为重发时的兜底来源。
 #[derive(Debug, Clone, Default)]
 pub struct OriginalMessage {
@@ -113,7 +136,7 @@ pub struct OriginalMessage {
     pub partition: Option<i32>,
     pub key: Option<String>,
     pub payload: Vec<u8>,
-    pub headers: Vec<MessageHeader>,
+    pub headers: Vec<RawMessageHeader>,
 }
 
 /// 组装重发计划。
@@ -137,11 +160,21 @@ pub fn build_plan(
         Some(key) => (Some(key.to_owned()), false),
     };
 
-    let payload = match request.payload.as_deref() {
+    // 内容的三条来源，按「保真度」从高到低取第一个可用的：
+    // 1. 用户在表单里真的改了 → 用他打的字；
+    // 2. 前端带回了原消息的 base64 → 逐字节还原（这才是「用同样的内容再发一次」）；
+    // 3. 都没有 → 用刚才回源读到的字节。
+    let typed = request
+        .payload
+        .as_deref()
         // 内容和 key 不同：payload 的首尾空白可能就是业务数据的一部分，
         // 只把「整段都是空白」当成没填，不能擅自 trim 用户内容。
-        Some(text) if !text.trim().is_empty() => text.as_bytes().to_vec(),
-        _ => original.payload.clone(),
+        .filter(|text| !text.trim().is_empty())
+        .map(|text| text.as_bytes().to_vec());
+    let payload = match (typed, request.payload_base64.as_deref()) {
+        (Some(typed), _) => typed,
+        (None, Some(encoded)) => decode_base64(encoded).ok_or(ResendBlock::InvalidPayloadBase64)?,
+        (None, None) => original.payload.clone(),
     };
     if payload.is_empty() {
         return Err(ResendBlock::EmptyPayload);
@@ -232,9 +265,9 @@ mod tests {
             partition: Some(3),
             key: Some("order-1001".to_owned()),
             payload: b"{\"id\":1001}".to_vec(),
-            headers: vec![MessageHeader {
+            headers: vec![RawMessageHeader {
                 key: "trace-id".to_owned(),
-                value: Some("abc".to_owned()),
+                value: Some(b"abc".to_vec()),
             }],
         }
     }
@@ -246,6 +279,7 @@ mod tests {
             topic: String::new(),
             key: None,
             payload: None,
+            payload_base64: None,
             keep_headers: true,
         }
     }
@@ -280,6 +314,42 @@ mod tests {
         assert_eq!(plan.key.as_deref(), Some("order-2002"));
         // payload 不 trim：首尾空白可能是业务数据本身。
         assert_eq!(plan.payload, b" bye ".to_vec());
+    }
+
+    #[test]
+    fn base64_payload_is_restored_byte_for_byte() {
+        // Avro / Protobuf 的 payload 不是 UTF-8：任何一次 lossy 解码都是静默损坏。
+        let binary = vec![0xff_u8, 0xfe, 0x00, 0x80];
+        let mut source = original();
+        source.payload = binary.clone();
+
+        let mut req = request();
+        req.payload_base64 = Some(base64::engine::general_purpose::STANDARD.encode(&binary));
+        // 回源读到的字节也可能是被弄坏的：能走 base64 就不该走它。
+        source.payload = b"garbage".to_vec();
+
+        let plan = build_plan(&source, &req).expect("应当可以重发");
+        assert_eq!(plan.payload, binary);
+    }
+
+    #[test]
+    fn typed_text_beats_base64() {
+        // 用户真在表单里改了内容，就该发他打的那份。
+        let mut req = request();
+        req.payload = Some("changed".to_owned());
+        req.payload_base64 = Some(base64::engine::general_purpose::STANDARD.encode(b"unchanged"));
+        let plan = build_plan(&original(), &req).expect("应当可以重发");
+        assert_eq!(plan.payload, b"changed".to_vec());
+    }
+
+    #[test]
+    fn broken_base64_blocks_instead_of_sending_something_else() {
+        let mut req = request();
+        req.payload_base64 = Some("this is not base64!!!".to_owned());
+        assert_eq!(
+            build_plan(&original(), &req).expect_err("解不开就不该发"),
+            ResendBlock::InvalidPayloadBase64
+        );
     }
 
     #[test]
