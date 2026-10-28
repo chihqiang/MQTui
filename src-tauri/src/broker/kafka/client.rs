@@ -13,7 +13,7 @@ use rdkafka::util::Timeout;
 
 use crate::domain::{
     CheckStatus, HealthCheck, HealthReport, KafkaConfig, KeyValue, MessageHeader, Overview,
-    RawMessageHeader, TopicInfo,
+    ProducerGuarantee, RawMessageHeader, TopicInfo, inspect_producer_options,
 };
 use crate::error::{AppError, AppResult};
 
@@ -50,6 +50,13 @@ pub struct KafkaClient {
     /// 第二次是另一个实例，于是日志里出现两条一模一样的内容。
     /// 常驻一个实例之后，幂等才是用户以为它一直在做的那个幂等。
     producer: Arc<Mutex<Option<FutureProducer>>>,
+    /// 用户的高级选项把 producer 的哪些保证改掉了。
+    ///
+    /// 在 `connect()` 里算一次：librdkafka 遇到「开幂等但 acks=1」这类组合时
+    /// 是**悄悄关掉幂等**，不报错也不警告，所以这件事必须由我们自己发现并说出来。
+    guarantee: ProducerGuarantee,
+    /// 已经警告过的那一轮的 `overridden`，避免同一次发送里连报两遍。
+    warned: Arc<Mutex<bool>>,
 }
 
 impl KafkaClient {
@@ -72,12 +79,20 @@ impl KafkaClient {
         .map_err(|error| AppError::Internal(format!("Kafka 元数据任务失败: {error}")))?;
         result.map_err(|error| AppError::Connect(format!("{bootstrap}: {error}")))?;
 
+        let guarantee = inspect_producer_options(&config.options);
         Ok(Self {
             config: base,
             bootstrap,
             admin,
             producer: Arc::new(Mutex::new(None)),
+            guarantee,
+            warned: Arc::new(Mutex::new(false)),
         })
+    }
+
+    /// 这条连接上的 producer 保证（幂等是否仍然生效）。
+    pub fn guarantee(&self) -> &ProducerGuarantee {
+        &self.guarantee
     }
 
     /// 概览信息。
@@ -191,6 +206,18 @@ impl KafkaClient {
             .create::<FutureProducer>()
             .map_err(|error| AppError::Broker(format!("创建 Kafka 发送客户端失败: {error}")))?;
         *slot = Some(producer.clone());
+
+        // 首次建 producer 时说一次，而不是每次发送都说：这是配置本身的问题，
+        // 不是这一条消息的结论，重复报会变成噪音。
+        let mut warned = self
+            .warned
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if !*warned && let Some(warning) = self.guarantee.warning() {
+            tracing::warn!(target: "mqtui::kafka", "{warning}");
+            *warned = true;
+        }
+
         Ok(producer)
     }
 
@@ -292,7 +319,10 @@ impl KafkaClient {
             admin: Arc::new(admin),
             // 不共享父客户端的 producer：这个句柄多半要 `move` 进别的线程池，
             // 共享一个 sender 只会让「谁在发」更难说清。
+            // 但警告要共享：同一个配置问题在一次操作里说两遍等于没说。
+            guarantee: self.guarantee.clone(),
             producer: Arc::new(Mutex::new(None)),
+            warned: Arc::clone(&self.warned),
         })
     }
 
@@ -305,10 +335,12 @@ impl KafkaClient {
         let base = client_config(config);
         let admin = base.create()?;
         Ok(Self {
+            guarantee: inspect_producer_options(&config.options),
             config: base,
             bootstrap: config.brokers.join(","),
             admin: Arc::new(admin),
             producer: Arc::new(Mutex::new(None)),
+            warned: Arc::new(Mutex::new(false)),
         })
     }
 
@@ -502,6 +534,51 @@ mod tests {
             &KafkaError::MessageProduction(Code::MessageSizeTooLarge),
         );
         assert!(matches!(receipt, DeliveryReceipt::NotSent(_)));
+    }
+
+    /// 高级选项关掉幂等这件事，客户端要能自己发现。
+    ///
+    /// librdkafka 的处置是「安静地把 enable.idempotence 改回 false」，
+    /// 所以这里不能指望建 producer 时报错。
+    #[test]
+    fn detached_client_reports_broken_idempotence() {
+        let config = KafkaConfig {
+            brokers: vec!["127.0.0.1:9092".to_owned()],
+            tls: crate::domain::TlsMode::Disabled,
+            auth: crate::domain::KafkaAuth {
+                mechanism: crate::domain::SaslMechanism::None,
+                username: String::new(),
+                password: String::new(),
+            },
+            options: std::collections::BTreeMap::from([(
+                "max.in.flight.requests.per.connection".to_owned(),
+                "10".to_owned(),
+            )]),
+        };
+
+        let client = KafkaClient::detached(&config).expect("构造客户端不该需要网络");
+        let warning = client
+            .guarantee()
+            .warning()
+            .expect("这一项会关掉幂等，必须给警告");
+        assert!(warning.contains("幂等"), "{warning}");
+    }
+
+    #[test]
+    fn detached_client_without_overrides_keeps_idempotence() {
+        let config = KafkaConfig {
+            brokers: vec!["127.0.0.1:9092".to_owned()],
+            tls: crate::domain::TlsMode::Disabled,
+            auth: crate::domain::KafkaAuth {
+                mechanism: crate::domain::SaslMechanism::None,
+                username: String::new(),
+                password: String::new(),
+            },
+            options: std::collections::BTreeMap::new(),
+        };
+
+        let client = KafkaClient::detached(&config).expect("构造客户端不该需要网络");
+        assert_eq!(client.guarantee().warning(), None);
     }
 
     /// 生产者配置里这几项互为前提：少一项，幂等就只是个名字。

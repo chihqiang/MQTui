@@ -25,6 +25,7 @@ pub mod orphan;
 pub mod parameter;
 pub mod partition_hotspot;
 pub mod policy;
+pub mod producer_guarantee;
 pub mod quota;
 pub mod reassignment;
 pub mod redeliver;
@@ -122,6 +123,10 @@ pub use policy::{
     DefinitionEntry, ImpactConfidence, ImpactEstimate, OperatorPolicyInfo, PolicyApplyTo,
     PolicyInfo, PolicyRemoval, PolicySnapshot, PolicySpec, PriorityConflict, effective_pattern,
     estimate_impact, overflow_hint, removal_caveats, suppressed_by,
+};
+pub use producer_guarantee::{
+    MAX_IN_FLIGHT_FOR_IDEMPOTENCE, ProducerGuarantee, inspect as inspect_producer_options,
+    success_footnote as producer_success_footnote,
 };
 pub use quota::{
     QuotaEntityKind, QuotaEntry, QuotaGroup, QuotaSnapshot, ScramCredential, ScramMechanism,

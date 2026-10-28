@@ -61,6 +61,9 @@ pub async fn resend(client: &KafkaClient, request: &ResendRequest) -> AppResult<
         partition,
         offset,
         note,
+        // 重发这条路径最需要这句话：幂等失效时，「再发一次」正是重复消息的来源，
+        // 而界面这一屏的全部意义就是「再发一次会怎样」。
+        warning: client.guarantee().warning(),
     })
 }
 

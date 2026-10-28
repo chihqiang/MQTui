@@ -7,7 +7,13 @@ import { messageService } from "@/services";
 import { useSessionStore } from "@/stores";
 import { listRecentTargets, connectionMemoryKey } from "@/lib/workspace-storage";
 import { errorMessage } from "@/lib/errors";
-import { kafkaKey, sendBlockers, toHeaders, type HeaderRow } from "@/lib/produce";
+import {
+  kafkaKey,
+  sendBlockers,
+  sendOutcomeMessage,
+  toHeaders,
+  type HeaderRow,
+} from "@/lib/produce";
 import type { ConnectionSummary } from "@/types";
 
 /**
@@ -58,9 +64,16 @@ export function KafkaProduceForm({
       });
       // 没拿到确认时不报「已写入」：那句话会让人以为可以放心进入下一步，
       // 而真实状态是「不知道」，要先刷新看一眼。
+      // 拿到确认时也要带上 producer 的保证提醒 —— 幂等被关掉时，
+      // 「已写入」就不再是「再点一次也没关系」的凭证。
       pushToast(
         outcome.unsure ? "error" : "success",
-        outcome.unsure ? outcome.detail : `已写入 topic ${topic.trim()}：${outcome.detail}`,
+        outcome.unsure
+          ? outcome.detail
+          : sendOutcomeMessage({
+              detail: `已写入 topic ${topic.trim()}：${outcome.detail}`,
+              producerWarning: outcome.producerWarning,
+            }),
       );
     } catch (error) {
       pushToast("error", errorMessage(error));

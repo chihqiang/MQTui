@@ -76,6 +76,13 @@ export interface ResendOutcome {
   offset: number;
   /** 落点提示：同一条 key 换了分区时会说明原因。 */
   note: string;
+  /**
+   * 这条连接上的 producer 保证被改掉时的提醒（目前只有幂等）。
+   *
+   * 与 `note` 分开：`note` 说的是**这一条**消息落到哪，
+   * 这个说的是**这条连接**的属性，不能当成同一种结论展示。
+   */
+  warning?: string;
 }
 
 /** 批量处置动作，与单条处置共用同一套动作名。 */

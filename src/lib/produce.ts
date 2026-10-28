@@ -204,3 +204,30 @@ export function emptyRouteHint(route: SendRoute): string {
   }
   return "没有任何队列会收到这条消息：publish 会成功，消息随即被丢弃";
 }
+
+/**
+ * 发送结果的一句话：正文 + 可能的 producer 保证提醒。
+ *
+ * `producerWarning` 在**成功**时也会来：`detail` 里的「已写入」很容易被读成
+ * 「以后也可以放心再点」，而幂等被高级选项关掉时这个假设不成立。
+ * 拼成一句而不是再加一条 toast —— toast 只留最近三条，第二条会被挤掉。
+ */
+export function sendOutcomeMessage(outcome: { detail: string; producerWarning?: string }): string {
+  return outcome.producerWarning ? `${outcome.detail}。${outcome.producerWarning}` : outcome.detail;
+}
+
+/**
+ * 重发结果的一句话。
+ *
+ * `warning` 与 `note` 是两件事：`note` 说的是这一条消息落到哪个分区，
+ * `warning` 说的是这条连接的 producer 少了什么保证。
+ */
+export function resendOutcomeMessage(outcome: {
+  topic: string;
+  partition: number;
+  offset: number;
+  warning?: string;
+}): string {
+  const base = `已写入 ${outcome.topic} 分区 ${outcome.partition} offset ${outcome.offset}`;
+  return outcome.warning ? `${base}。${outcome.warning}` : base;
+}

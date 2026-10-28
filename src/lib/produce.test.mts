@@ -14,6 +14,8 @@ import {
   emptyRouteHint,
   headerFingerprint,
   sendBlockers,
+  sendOutcomeMessage,
+  resendOutcomeMessage,
   toHeaders,
 } from "./produce.ts";
 
@@ -148,4 +150,33 @@ test("空路由：数据齐备时才敢说消息会被丢弃", () => {
   const hint = emptyRouteHint({ exchange: "t", queues: [] });
   expect(hint).toContain("丢弃");
   expect(hint).not.toContain("没法核对");
+});
+
+test("producer 保证被改掉时，成功提示也要带出那句提醒", () => {
+  // 「已写入」不是「再点一次也没关系」的凭证：幂等失效时后者不成立。
+  expect(
+    sendOutcomeMessage({
+      detail: "已写入 topic orders：分区 1 offset 42",
+      producerWarning: "这条连接上幂等已失效",
+    }),
+  ).toBe("已写入 topic orders：分区 1 offset 42。这条连接上幂等已失效");
+});
+
+test("没有提醒时不往成功提示里塞标点", () => {
+  expect(sendOutcomeMessage({ detail: "已写入 topic orders" })).toBe("已写入 topic orders");
+});
+
+test("重发结果把落点和连接属性分开说", () => {
+  // note 讲的是「这一条」落到哪，warning 讲的是「这条连接」少了什么保证。
+  const message = resendOutcomeMessage({
+    topic: "orders",
+    partition: 2,
+    offset: 7,
+    warning: "幂等已失效，别直接再发",
+  });
+  expect(message).toContain("分区 2 offset 7");
+  expect(message).toContain("幂等已失效");
+  expect(resendOutcomeMessage({ topic: "orders", partition: 2, offset: 7 })).toBe(
+    "已写入 orders 分区 2 offset 7",
+  );
 });

@@ -339,6 +339,12 @@ pub struct SendOutcome {
     /// 制造重复消息。
     #[serde(default)]
     pub unsure: bool,
+    /// 这条连接上的 producer 保证被高级选项改掉时的提示（目前只有幂等）。
+    ///
+    /// 成功时也要下发：`detail` 里的「已写入」最容易被读成「以后也可以放心再点」，
+    /// 而幂等失效时这话不成立 —— 只在下一次重发时才说，人已经又点过一次了。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub producer_warning: Option<String>,
 }
 
 #[cfg(test)]

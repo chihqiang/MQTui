@@ -161,6 +161,13 @@ export interface SendOutcome {
    * 那正是在制造重复消息。
    */
   unsure?: boolean;
+  /**
+   * 这条连接上的 producer 保证被高级选项改掉时的提示（目前只有幂等）。
+   *
+   * 成功时也会带：`detail` 里的「已写入」容易被读成「以后也可以放心再点」，
+   * 而幂等失效时这个假设不成立。
+   */
+  producerWarning?: string;
 }
 
 /** 一条消息最终能到达的队列。 */

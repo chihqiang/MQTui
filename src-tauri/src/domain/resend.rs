@@ -252,6 +252,12 @@ pub struct ResendOutcome {
     pub offset: i64,
     /// 落点提示：同 key 换了分区时会说明原因。
     pub note: String,
+    /// 这条连接上的 producer 保证被改掉时的提醒（目前只有幂等）。
+    ///
+    /// 单独一个字段而不是塞进 `note`：`note` 讲的是**这一条**消息落到哪，
+    /// 而这里是**这条连接**的属性。合并之后前端就没法只把前者当成功结论。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
 }
 
 /// key 与分区的比对结论，只在「沿用原 key」时才有意义。

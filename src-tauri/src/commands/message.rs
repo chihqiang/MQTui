@@ -339,20 +339,19 @@ pub async fn send_message(
                 .connections
                 .get(&ConnectionId(connection_id.clone()))
                 .await?;
-            let receipt = message::kafka::send(
-                connection.as_kafka()?,
-                topic,
-                key.as_deref(),
-                payload.as_bytes(),
-                headers,
-            )
-            .await?;
+            let client = connection.as_kafka()?;
+            let receipt =
+                message::kafka::send(client, topic, key.as_deref(), payload.as_bytes(), headers)
+                    .await?;
             // 投递结果三态原样带上：`unsure` 必须让界面说「可能已写入」，
             // 折成一句「失败」会把人推去再点一次，那才是重复消息。
             Ok(SendOutcome {
                 kind: BrokerKind::Kafka,
                 detail: receipt.message(topic),
                 unsure: matches!(receipt, DeliveryReceipt::Unsure(_)),
+                // 幂等被高级选项关掉时说清代价：那句「已写入」不再是
+                // 「再点一次也没关系」的凭证。
+                producer_warning: client.guarantee().warning(),
             })
         }
         SendRequest::RabbitMq {
@@ -390,6 +389,7 @@ pub async fn send_message(
                 kind: BrokerKind::RabbitMq,
                 detail,
                 unsure: false,
+                producer_warning: None,
             })
         }
     }

@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { errorMessage } from "@/lib/errors";
+import { resendOutcomeMessage } from "@/lib/produce";
 import { messageService, queryKeys } from "@/services";
 import { useSessionStore } from "@/stores";
 import type {
@@ -137,10 +138,7 @@ export function useResendMessage(connectionId: string | undefined) {
     mutationFn: (request: ResendRequest) =>
       messageService.resendMessage({ ...request, connectionId: connectionId as string }),
     onSuccess: (outcome) => {
-      pushToast(
-        "success",
-        `已写入 ${outcome.topic} 分区 ${outcome.partition} offset ${outcome.offset}`,
-      );
+      pushToast("success", resendOutcomeMessage(outcome));
       void queryClient.invalidateQueries({ queryKey: queryKeys.allConnections() });
     },
     onError: (error) => pushToast("error", errorMessage(error)),
