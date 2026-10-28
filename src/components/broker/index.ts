@@ -27,6 +27,7 @@ export { ConsumerDisconnectModal } from "./consumer-disconnect-dialog";
 export { ParameterEditor } from "./parameter-editor";
 export { PolicyEditor } from "./policy-editor";
 export { AclPrincipalTable, AclTable } from "./acl-table";
+export { AclEntryEditor } from "./acl-entry-editor";
 export { QuotaGroupRows, QuotaTable, ScramRow, ScramTable } from "./quota-tables";
 export { ShovelRuntimeSection } from "./shovel-runtime-section";
 export { ConsumerBlock, ConsumerQueueCard, DisconnectButton } from "./consumer-queue-card";

@@ -135,7 +135,7 @@ fn role_of(kind: &str) -> NodeRole {
 }
 
 /// 客户端连接名藏在 `client_properties.connection_name` 里，取不到就留空。
-fn client_name(properties: &serde_json::Map<String, serde_json::Value>) -> String {
+pub(super) fn client_name(properties: &serde_json::Map<String, serde_json::Value>) -> String {
     properties
         .get("connection_name")
         .and_then(|value| value.as_str())

@@ -89,6 +89,14 @@ export const queryKeys = {
   queue: (id: string, queue: string) => ["connections", "detail", id, "queue", queue] as const,
   /** 消费者连线：整连接一次拉全，队列详情里的消费者也从这里取。 */
   queueConsumers: (id: string) => ["connections", "detail", id, "queue-consumers"] as const,
+  /**
+   * 队列级消费者归属：与 `queueConsumers` 分开缓存。
+   *
+   * 两条命令读的是同一批接口但拼法不同 —— 归属要额外拉连接和 channel。
+   * 合在一份缓存里会让「只看消费者」的那一页被连接查询拖慢。
+   */
+  consumerOwnership: (id: string) =>
+    ["connections", "detail", id, "consumer-ownership"] as const,
   orphanCandidates: (id: string) => ["connections", "detail", id, "orphan-candidates"] as const,
   orphanTopics: (id: string, scopeKey: string) =>
     ["connections", "detail", id, "orphan-topics", scopeKey] as const,

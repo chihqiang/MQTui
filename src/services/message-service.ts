@@ -13,6 +13,7 @@ import type {
   ResendRequest,
 } from "@/types/disposal";
 import type { ConsumerGraph } from "@/types/consumer-graph";
+import type { OwnershipSnapshot } from "@/types/consumer-ownership";
 import type { ConsumerLinks, DisconnectRequest } from "@/types/consumer-link";
 import type { OrphanScanScope, OrphanTopicPage } from "@/types/orphan";
 import type { TopologyGraph } from "@/types/topology-graph";
@@ -60,6 +61,15 @@ export const messageService = {
 
   /** 队列到消费者的连线：每个队列被谁消费、预取与未确认情况。 */
   listQueueConsumers: (id: string) => call<ConsumerLinks>("list_queue_consumers", { id }),
+
+  /**
+   * 队列级消费者归属：谁在消费、从哪台机器、连接是不是卡住了。
+   *
+   * 与 `listQueueConsumers` 是两个问题：那条回答「有几个消费者」，
+   * 这条回答「这条连接到底占了什么」。断开消费者时后者才是要看的。
+   */
+  listConsumerOwnership: (id: string) =>
+    call<OwnershipSnapshot>("list_consumer_ownership", { id }),
 
   /**
    * 断开一个消费者。服务端会关掉它所在的 channel，对端立刻失去这个消费入口。

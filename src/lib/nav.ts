@@ -133,6 +133,12 @@ const NAV_LABELS: Record<
     description: "队列与消费者的连线、预取与未确认情况",
     Icon: IconGroups,
   },
+  consumerOwnership: {
+    label: "消费归属",
+    path: "consumer-ownership",
+    description: "谁在消费、从哪台机器、连接是不是卡住了",
+    Icon: IconGroups,
+  },
   topologyGraph: {
     label: "拓扑图",
     path: "topology",

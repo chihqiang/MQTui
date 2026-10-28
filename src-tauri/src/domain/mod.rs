@@ -10,6 +10,7 @@ pub mod consumer;
 pub mod consumer_disconnect;
 pub mod consumer_graph;
 pub mod consumer_link;
+pub mod consumer_ownership;
 pub mod group_block;
 pub mod group_removal;
 pub mod health;
@@ -38,8 +39,10 @@ pub mod topology_graph;
 pub mod topology_insight;
 
 pub use acl::{
-    AclEntry, AclFilter, AclOperation, AclPattern, AclPermission, AclResourceType, AclSnapshot,
-    PrincipalAcl, assemble_acls,
+    AclChange, AclChangePlan, AclChangeVerdict, AclEntry, AclFilter, AclOperation, AclPattern,
+    AclPermission, AclResourceType, AclSnapshot, AclWriteRequest, PrincipalAcl, assemble_acls,
+    entry_fingerprint as acl_entry_fingerprint, plan_create as plan_acl_create,
+    plan_delete as plan_acl_delete, validate_entry as validate_acl_entry,
 };
 pub use admin::{
     DEFAULT_VHOST, FULL_ACCESS, PasswordVerdict, PermissionInfo, RemovalBlock, SpecBlock, UserInfo,
@@ -69,6 +72,10 @@ pub use consumer_graph::{
 pub use consumer_link::{
     ConsumerHealth, ConsumerLinks, QueueConsumer, QueueConsumption,
     summarize as summarize_consumers,
+};
+pub use consumer_ownership::{
+    ChannelFacts, ConnectionFacts, ConsumerOwner, OwnershipSnapshot, QueueOwnership, UserOwnership,
+    assemble as assemble_ownership,
 };
 pub use group_block::{BlockReport, PartitionShift, StuckPartition, detect as detect_group_block};
 pub use group_removal::{

@@ -52,7 +52,10 @@ fn read(client: &KafkaClient, filter: &AclFilter) -> AppResult<Vec<AclEntry>> {
     let queue = QueueGuard(queue);
 
     let filter = FilterGuard::new(filter)?;
-    let options = OptionsGuard::new(rk)?;
+    let options = OptionsGuard::new(
+        rk,
+        bindings::rd_kafka_admin_op_t::RD_KAFKA_ADMIN_OP_DESCRIBEACLS,
+    )?;
 
     unsafe {
         bindings::rd_kafka_DescribeAcls(rk, filter.0, options.0, queue.0);
@@ -85,6 +88,354 @@ fn read(client: &KafkaClient, filter: &AclFilter) -> AppResult<Vec<AclEntry>> {
     }
 
     Ok(unsafe { collect(event.0) })
+}
+
+/// 新建一批 ACL 规则。
+///
+/// 逐条返回结果：服务端对每条规则单独回执，某一条主体写法不合法不会让整批失败。
+/// 所以这里返回「哪几条建成了、哪几条没建成、为什么」，而不是一个 `Result<()>` ——
+/// 合成一个 `Err` 会让人以为一条都没建成，然后重试一遍，把成功的那几条再发一次。
+pub async fn create(
+    client: &KafkaClient,
+    entries: Vec<AclEntry>,
+) -> AppResult<Vec<AclWriteOutcome>> {
+    if entries.is_empty() {
+        return Err(AppError::Invalid("没有要提交的规则".to_owned()));
+    }
+    let worker = client.clone_handle()?;
+    tokio::task::spawn_blocking(move || write_create(&worker, &entries))
+        .await
+        .map_err(|error| AppError::Internal(format!("ACL 写入任务失败: {error}")))?
+}
+
+/// 删除一批 ACL 规则。
+///
+/// 管理 API 收的是**过滤器**，所以最危险的情况是「以为删了一条，其实删了一类」：
+/// 一个空名字的过滤器会把同类资源上的规则一次删光。这里的过滤器严格由规则本身
+/// 逐字段构造，并且把「实际命中并删除的条数」回报出去 —— 命中数大于 1 时，
+/// 界面必须告诉用户这次删除的范围比想象中大。
+pub async fn delete(
+    client: &KafkaClient,
+    entries: Vec<AclEntry>,
+) -> AppResult<Vec<AclWriteOutcome>> {
+    if entries.is_empty() {
+        return Err(AppError::Invalid("没有要删除的规则".to_owned()));
+    }
+    let worker = client.clone_handle()?;
+    tokio::task::spawn_blocking(move || write_delete(&worker, &entries))
+        .await
+        .map_err(|error| AppError::Internal(format!("ACL 删除任务失败: {error}")))?
+}
+
+fn write_create(client: &KafkaClient, entries: &[AclEntry]) -> AppResult<Vec<AclWriteOutcome>> {
+    let admin = client.admin()?;
+    let rk = admin.inner().native_ptr();
+
+    let mut bindings: Vec<*mut bindings::rd_kafka_AclBinding_t> = Vec::with_capacity(entries.len());
+    for entry in entries {
+        bindings.push(binding_of(entry)?);
+    }
+    // 所有权在 `rd_kafka_CreateAcls` 调用之后归 librdkafka，失败路径要自己释放。
+    let owned = BindingList(bindings.into_iter().map(|ptr| ptr as *mut _).collect());
+
+    let queue = unsafe { bindings::rd_kafka_queue_new(rk) };
+    if queue.is_null() {
+        return Err(AppError::Internal("创建 Kafka 结果队列失败".to_owned()));
+    }
+    let queue = QueueGuard(queue);
+
+    let options = OptionsGuard::new(
+        rk,
+        bindings::rd_kafka_admin_op_t::RD_KAFKA_ADMIN_OP_CREATEACLS,
+    )?;
+
+    unsafe {
+        bindings::rd_kafka_CreateAcls(
+            rk,
+            owned.0.as_ptr() as *mut *mut bindings::rd_kafka_AclBinding_t,
+            owned.0.len(),
+            options.0,
+            queue.0,
+        );
+    }
+    // 请求已经发出，librdkafka 接管了数组里每个 binding 的所有权。
+    std::mem::forget(owned);
+
+    let event = poll(&queue, "新建 ACL")?;
+    let event = EventGuard(event);
+    let result = unsafe { bindings::rd_kafka_event_CreateAcls_result(event.0) };
+    if result.is_null() {
+        return Err(AppError::Broker("新建 ACL 没有返回结果".to_owned()));
+    }
+    // 回执顺序与请求顺序一致。缺一条就按「没建成」记 —— 少写一条是「谁掉线」。
+    let mut count: usize = 0;
+    let results = unsafe { bindings::rd_kafka_CreateAcls_result_acls(result, &mut count) };
+    let mut each = Vec::with_capacity(entries.len());
+    for (index, entry) in entries.iter().enumerate() {
+        let error = if results.is_null() || index >= count {
+            // 服务端没给这一条回执：不能说成功，也不能编一个错误。
+            each.push(AclWriteOutcome {
+                entry: entry.clone(),
+                ok: false,
+                message: "服务端没有返回这条规则的结果，请刷新确认".to_owned(),
+                matched: 0,
+            });
+            continue;
+        } else {
+            let item = unsafe { *results.add(index) };
+            if item.is_null() {
+                None
+            } else {
+                let error = unsafe { bindings::rd_kafka_acl_result_error(item) };
+                (!error.is_null()).then_some(error)
+            }
+        };
+        each.push(outcome_of(entry, error, "新建"));
+    }
+    Ok(each)
+}
+
+fn write_delete(client: &KafkaClient, entries: &[AclEntry]) -> AppResult<Vec<AclWriteOutcome>> {
+    let admin = client.admin()?;
+    let rk = admin.inner().native_ptr();
+
+    let mut filters: Vec<*mut bindings::rd_kafka_AclBindingFilter_t> =
+        Vec::with_capacity(entries.len());
+    for entry in entries {
+        filters.push(filter_of(entry)?);
+    }
+    let owned = BindingList(filters.into_iter().map(|ptr| ptr as *mut _).collect());
+
+    let queue = unsafe { bindings::rd_kafka_queue_new(rk) };
+    if queue.is_null() {
+        return Err(AppError::Internal("创建 Kafka 结果队列失败".to_owned()));
+    }
+    let queue = QueueGuard(queue);
+
+    let options = OptionsGuard::new(
+        rk,
+        bindings::rd_kafka_admin_op_t::RD_KAFKA_ADMIN_OP_DELETEACLS,
+    )?;
+
+    unsafe {
+        bindings::rd_kafka_DeleteAcls(
+            rk,
+            owned.0.as_ptr() as *mut *mut bindings::rd_kafka_AclBindingFilter_t,
+            owned.0.len(),
+            options.0,
+            queue.0,
+        );
+    }
+    std::mem::forget(owned);
+
+    let event = poll(&queue, "删除 ACL")?;
+    let event = EventGuard(event);
+    let result = unsafe { bindings::rd_kafka_event_DeleteAcls_result(event.0) };
+    if result.is_null() {
+        return Err(AppError::Broker("删除 ACL 没有返回结果".to_owned()));
+    }
+
+    let mut count: usize = 0;
+    let responses = unsafe { bindings::rd_kafka_DeleteAcls_result_responses(result, &mut count) };
+    let mut each = Vec::with_capacity(entries.len());
+    for (index, entry) in entries.iter().enumerate() {
+        if responses.is_null() || index >= count {
+            each.push(outcome_of(entry, None, "删除"));
+            continue;
+        }
+        let response = unsafe { *responses.add(index) };
+        if response.is_null() {
+            each.push(outcome_of(entry, None, "删除"));
+            continue;
+        }
+        let error = unsafe { bindings::rd_kafka_DeleteAcls_result_response_error(response) };
+        // 命中条数：0 说明这条规则本来就没了，>1 说明过滤器比想象中宽。
+        let mut matched: usize = 0;
+        let matched_ptrs = unsafe {
+            bindings::rd_kafka_DeleteAcls_result_response_matching_acls(response, &mut matched)
+        };
+        let _ = matched_ptrs;
+        let mut item = outcome_of(entry, (!error.is_null()).then_some(error), "删除");
+        item.matched = matched;
+        each.push(item);
+    }
+    Ok(each)
+}
+
+/// 组装一条规则的 binding。写路径必须带真实名字（通配写 `*`），不能像过滤器那样留空。
+fn binding_of(entry: &AclEntry) -> AppResult<*mut bindings::rd_kafka_AclBinding_t> {
+    let name = CString::new(resource_name_for_write(entry))
+        .map_err(|_| AppError::Invalid("资源名里不能包含 NUL 字符".to_owned()))?;
+    let principal = CString::new(entry.principal.clone())
+        .map_err(|_| AppError::Invalid("主体里不能包含 NUL 字符".to_owned()))?;
+    let host = CString::new(entry.host.clone())
+        .map_err(|_| AppError::Invalid("来源主机里不能包含 NUL 字符".to_owned()))?;
+    let mut errbuf = [0i8; 256];
+    let ptr = unsafe {
+        bindings::rd_kafka_AclBinding_new(
+            to_restype(entry.resource_type),
+            name.as_ptr(),
+            to_pattern(entry.pattern),
+            principal.as_ptr(),
+            host.as_ptr(),
+            to_operation(entry.operation),
+            to_permission(entry.permission),
+            errbuf.as_mut_ptr(),
+            errbuf.len(),
+        )
+    };
+    if ptr.is_null() {
+        return Err(AppError::Invalid(format!(
+            "规则参数不合法：{}",
+            unsafe { c_string(errbuf.as_ptr()) }.unwrap_or_default()
+        )));
+    }
+    Ok(ptr)
+}
+
+/// 组装一条精确匹配的过滤器。每一位都必须由规则本身给定 —— 留空就是「这一类都要删」。
+fn filter_of(entry: &AclEntry) -> AppResult<*mut bindings::rd_kafka_AclBindingFilter_t> {
+    let name = CString::new(resource_name_for_write(entry))
+        .map_err(|_| AppError::Invalid("资源名里不能包含 NUL 字符".to_owned()))?;
+    let principal = CString::new(entry.principal.clone())
+        .map_err(|_| AppError::Invalid("主体里不能包含 NUL 字符".to_owned()))?;
+    let host = CString::new(entry.host.clone())
+        .map_err(|_| AppError::Invalid("来源主机里不能包含 NUL 字符".to_owned()))?;
+    let mut errbuf = [0i8; 256];
+    let ptr = unsafe {
+        bindings::rd_kafka_AclBindingFilter_new(
+            to_restype(entry.resource_type),
+            name.as_ptr(),
+            to_pattern(entry.pattern),
+            principal.as_ptr(),
+            host.as_ptr(),
+            to_operation(entry.operation),
+            to_permission(entry.permission),
+            errbuf.as_mut_ptr(),
+            errbuf.len(),
+        )
+    };
+    if ptr.is_null() {
+        return Err(AppError::Invalid(format!(
+            "过滤条件不合法：{}",
+            unsafe { c_string(errbuf.as_ptr()) }.unwrap_or_default()
+        )));
+    }
+    Ok(ptr)
+}
+
+/// 写路径里的资源名：通配在 Kafka 里就是字面量 `*`。
+fn resource_name_for_write(entry: &AclEntry) -> String {
+    if entry.pattern == AclPattern::Wildcard {
+        "*".to_owned()
+    } else {
+        entry.resource_name.clone()
+    }
+}
+
+fn to_pattern(pattern: AclPattern) -> bindings::rd_kafka_ResourcePatternType_t {
+    match pattern {
+        // 通配在 Kafka 里是「精确匹配 + 名字 `*`」，不是 `MATCH`/`ANY` 这类过滤值。
+        AclPattern::Literal | AclPattern::Wildcard => {
+            bindings::rd_kafka_ResourcePatternType_t::RD_KAFKA_RESOURCE_PATTERN_LITERAL
+        }
+        AclPattern::Prefixed => {
+            bindings::rd_kafka_ResourcePatternType_t::RD_KAFKA_RESOURCE_PATTERN_PREFIXED
+        }
+    }
+}
+
+fn to_permission(permission: AclPermission) -> bindings::rd_kafka_AclPermissionType_t {
+    match permission {
+        AclPermission::Allow => {
+            bindings::rd_kafka_AclPermissionType_t::RD_KAFKA_ACL_PERMISSION_TYPE_ALLOW
+        }
+        AclPermission::Deny => {
+            bindings::rd_kafka_AclPermissionType_t::RD_KAFKA_ACL_PERMISSION_TYPE_DENY
+        }
+    }
+}
+
+/// 轮询结果事件。超时不说「成功」，也不说「失败」—— 它只说明「不知道」。
+fn poll(queue: &QueueGuard, action: &str) -> AppResult<*mut bindings::rd_kafka_event_t> {
+    let event = unsafe { bindings::rd_kafka_queue_poll(queue.0, ACL_TIMEOUT.as_millis() as c_int) };
+    if event.is_null() {
+        return Err(AppError::Broker(format!(
+            "等待「{action}」结果超时（{} 秒）：请求可能已经发出，刷新一次再决定要不要重试",
+            ACL_TIMEOUT.as_secs()
+        )));
+    }
+    Ok(event)
+}
+
+/// 把单条回执翻成一句人能读懂的话。
+fn outcome_of(
+    entry: &AclEntry,
+    error: Option<*const bindings::rd_kafka_error_t>,
+    action: &str,
+) -> AclWriteOutcome {
+    let message = error.map(|error| unsafe {
+        let code = bindings::rd_kafka_error_code(error);
+        let text = c_string(bindings::rd_kafka_error_string(error)).unwrap_or_default();
+        if text.is_empty() {
+            format!("{code:?}")
+        } else {
+            text
+        }
+    });
+    match message {
+        None => AclWriteOutcome {
+            entry: entry.clone(),
+            ok: true,
+            message: format!("已{action}"),
+            matched: 1,
+        },
+        Some(message) => {
+            // 权限不足的下一步动作是「给自己加一条 ALTER」，不是「换个版本」。
+            let message = if is_forbidden(&message) {
+                format!("没有{action} ACL 的权限：需要集群级的 ALTER 授权。{message}")
+            } else if is_unsupported(&message) {
+                format!("这台 broker 不支持{action} ACL（需要 2.0 以上且配置授权器）：{message}")
+            } else {
+                message
+            };
+            AclWriteOutcome {
+                entry: entry.clone(),
+                ok: false,
+                message,
+                matched: 0,
+            }
+        }
+    }
+}
+
+/// 一条规则的执行结果。
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AclWriteOutcome {
+    pub entry: AclEntry,
+    pub ok: bool,
+    pub message: String,
+    /// 删除时实际命中的条数。`0` 说明这条规则本来就不在集群上。
+    #[serde(default)]
+    pub matched: usize,
+}
+
+/// binding 数组的所有权守卫：请求发出去之前失败要自己释放，发出去之后交给 librdkafka。
+///
+/// `AclBindingFilter` 在 C 侧就是 `AclBinding` 的别名，释放接口也是同一个 ——
+/// 所以两种指针都收进同一个守卫，不写两遍。
+struct BindingList(Vec<*mut bindings::rd_kafka_AclBinding_t>);
+
+impl Drop for BindingList {
+    fn drop(&mut self) {
+        if self.0.is_empty() {
+            return;
+        }
+        unsafe {
+            bindings::rd_kafka_AclBinding_destroy_array(self.0.as_mut_ptr(), self.0.len());
+        }
+    }
 }
 
 /// 结果队列的销毁守卫。
@@ -176,13 +527,8 @@ impl Drop for FilterGuard {
 struct OptionsGuard(*mut bindings::rd_kafka_AdminOptions_t);
 
 impl OptionsGuard {
-    fn new(rk: *mut bindings::rd_kafka_t) -> AppResult<Self> {
-        let ptr = unsafe {
-            bindings::rd_kafka_AdminOptions_new(
-                rk,
-                bindings::rd_kafka_admin_op_t::RD_KAFKA_ADMIN_OP_DESCRIBEACLS,
-            )
-        };
+    fn new(rk: *mut bindings::rd_kafka_t, op: bindings::rd_kafka_admin_op_t) -> AppResult<Self> {
+        let ptr = unsafe { bindings::rd_kafka_AdminOptions_new(rk, op) };
         if ptr.is_null() {
             return Err(AppError::Internal("创建 Kafka 管理选项失败".to_owned()));
         }

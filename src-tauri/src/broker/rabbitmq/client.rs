@@ -437,6 +437,14 @@ impl RabbitMqClient {
         self.management()?.consumer_links(&self.config).await
     }
 
+    /// 队列级消费者归属：把消费者挂回「哪条连接、哪个账号、哪个对端地址」。
+    ///
+    /// 与 `consumer_links` 是两个问题：那条回答「有几个消费者」，
+    /// 这条回答「这条连接到底占了什么」。断开消费者时后者才是要看的。
+    pub async fn consumer_ownership(&self) -> AppResult<crate::domain::OwnershipSnapshot> {
+        self.management()?.consumer_ownership(&self.config).await
+    }
+
     /// 断开一个消费者。
     ///
     /// 服务端会关掉该 consumer 所在的 channel，对端随即失去这个消费入口。

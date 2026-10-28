@@ -21,6 +21,7 @@ export type BrokerCapability =
   | "parameters"
   | "exchanges"
   | "consumers"
+  | "consumerOwnership"
   | "routing"
   | "topologyGraph"
   | "consumerGraph"

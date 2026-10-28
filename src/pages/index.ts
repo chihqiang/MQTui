@@ -27,6 +27,7 @@ export {
   OffsetResetPage,
   OrphanTopicsPage,
   OverviewPage,
+  OwnershipPage,
   ParametersPage,
   PoliciesPage,
   ProducePage,

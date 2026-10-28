@@ -40,6 +40,7 @@ const kafka = {
 const rabbitmq = {
   RuntimePage: lazyNamed(() => import("./rabbitmq/runtime-page"), "RuntimePage"),
   ConsumersPage: lazyNamed(() => import("./rabbitmq/consumers-page"), "ConsumersPage"),
+  OwnershipPage: lazyNamed(() => import("./rabbitmq/ownership-page"), "OwnershipPage"),
   ConsumerGraphPage: lazyNamed(() => import("./rabbitmq/consumer-graph-page"), "ConsumerGraphPage"),
   ExchangesPage: lazyNamed(() => import("./rabbitmq/exchanges-page"), "ExchangesPage"),
   RoutingPage: lazyNamed(() => import("./rabbitmq/routing-page"), "RoutingPage"),
@@ -69,6 +70,7 @@ export const {
   AccessPage,
   RuntimePage,
   ConsumersPage,
+  OwnershipPage,
   ConsumerGraphPage,
   ExchangesPage,
   RoutingPage,

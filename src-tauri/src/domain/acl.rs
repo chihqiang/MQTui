@@ -401,6 +401,512 @@ pub fn assemble_acls(mut entries: Vec<AclEntry>, unsupported: Option<String>) ->
     }
 }
 
+/// 一条规则在「提交前」的比对结论。
+///
+/// 面板做写入的真正难点不是发请求，而是**在发之前说清这条规则会造成什么**。
+/// 四种结论各不相同，只有第一种是纯粹的「新增」：
+///
+/// - `New`：现在就没人这么写过。提交后多一条规则。
+/// - `Exists`：一模一样已经在了。再提交一次不会改变任何东西 —— 但它也不是错误，
+///   服务端会照常返回成功，所以界面不能报错，只能说明「本来就有」。
+/// - `Conflicts`：同一个主体、同一个资源上有方向相反的规则，或者同资源上已经有一条
+///   `全部` 的规则把它盖住。这类要让人看见再决定，不能顺手提交。
+/// - `Superseded`：同主体的 `全部` 规则已经覆盖了这条操作，新增这一条不会有额外效果。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AclChangeVerdict {
+    New,
+    Exists,
+    Conflicts,
+    Superseded,
+}
+
+impl AclChangeVerdict {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::New => "新增",
+            Self::Exists => "已存在",
+            Self::Conflicts => "冲突",
+            Self::Superseded => "被覆盖",
+        }
+    }
+
+    /// 会不会真的改变集群上的规则集合。
+    pub const fn is_effective(self) -> bool {
+        matches!(self, Self::New)
+    }
+}
+
+/// 一条待提交的规则，以及它在现有规则里的处境。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AclChange {
+    pub entry: AclEntry,
+    pub verdict: AclChangeVerdict,
+    /// 判定的理由 / 与它相干的既有规则。冲突与覆盖必须指出来，否则用户没法判断。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub related: Vec<String>,
+}
+
+impl AclChange {
+    /// 一句话说明，写在确认框里那一行规则下面。
+    pub fn note(&self) -> String {
+        match self.verdict {
+            AclChangeVerdict::New => "提交后新增这一条".to_owned(),
+            AclChangeVerdict::Exists => {
+                "集群上已经有完全相同的规则，提交不会改变任何东西".to_owned()
+            }
+            AclChangeVerdict::Conflicts => {
+                if self.related.is_empty() {
+                    "与现有规则冲突：同一个主体对同一个资源已经有方向相反的规则，DENY 优先"
+                        .to_owned()
+                } else {
+                    format!("与现有规则冲突：{}", self.related.join("；"))
+                }
+            }
+            AclChangeVerdict::Superseded => {
+                if self.related.is_empty() {
+                    "现有规则已经覆盖它，新增不会有额外效果".to_owned()
+                } else {
+                    format!("现有规则已经覆盖它：{}", self.related.join("；"))
+                }
+            }
+        }
+    }
+}
+
+/// 一次写入的完整预演。
+///
+/// 前端把它整块摆在确认框里，用户看的是这一份；提交时**重新算一遍**，
+/// 不复用预览 —— 确认框可能开着几十秒，期间别人可能刚改过 ACL。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AclChangePlan {
+    pub changes: Vec<AclChange>,
+    /// 会真正改变集群的条数。
+    pub effective: usize,
+    /// 提交前必须让人看见的事实（自锁风险等）。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub blockers: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub notes: Vec<String>,
+}
+
+impl AclChangePlan {
+    /// 一句话结论：新增几条、其中几条其实没变化、有没有拦路的地方。
+    pub fn verdict(&self) -> String {
+        if self.changes.is_empty() {
+            return "没有要提交的规则".to_owned();
+        }
+        let mut text = format!(
+            "{} 条规则，其中 {} 条会真的改变集群",
+            self.changes.len(),
+            self.effective
+        );
+        let conflicts = self
+            .changes
+            .iter()
+            .filter(|change| change.verdict == AclChangeVerdict::Conflicts)
+            .count();
+        if conflicts > 0 {
+            text.push_str(&format!("，{conflicts} 条与现有规则冲突"));
+        }
+        if !self.blockers.is_empty() {
+            text.push_str("；存在必须先确认的风险");
+        }
+        text
+    }
+
+    /// 有没有会把人挡在危险一侧的东西。
+    pub fn has_blockers(&self) -> bool {
+        !self.blockers.is_empty()
+    }
+}
+
+/// 写入 / 删除的请求。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AclWriteRequest {
+    pub entries: Vec<AclEntry>,
+    /// 用户在确认框里手打的主体名。
+    ///
+    /// ACL 写错是授权事故：多一条「谁能进来」，少一条「谁掉线」。手打一遍不是形式，
+    /// 它把「我到底在改谁的权限」从扫一眼变成了必须复述。留空则跳过校验（预演用）。
+    pub confirm: String,
+}
+
+impl AclWriteRequest {
+    /// 校验。返回的错误文案可直接展示。
+    pub fn validate(&self) -> Result<(), String> {
+        if self.entries.is_empty() {
+            return Err("没有选中任何规则".to_owned());
+        }
+        // 主体集合必须唯一：一次提交跨两个主体时，「手打主体名」这一道校验
+        // 就只能对着一个名字打勾，另一个主体等于没确认。
+        let principals: BTreeSet<&str> = self
+            .entries
+            .iter()
+            .map(|entry| entry.principal.as_str())
+            .collect();
+        if principals.len() > 1 {
+            return Err(
+                "一次只能改一个主体的规则：跨主体提交时「手打主体名」这道确认会形同虚设".to_owned(),
+            );
+        }
+        for entry in &self.entries {
+            validate_entry(entry)?;
+        }
+        if !self.confirm.is_empty() {
+            let expected = self.entries[0].principal_name();
+            if self.confirm.trim() != expected {
+                return Err(format!("确认名不一致：请输入 {expected}"));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// 单条规则的合法性。全部在发出请求之前拦掉 —— 服务端回的 `INVALID_REQUEST`
+/// 只会说「参数不合法」，不会说是哪一项。
+pub fn validate_entry(entry: &AclEntry) -> Result<(), String> {
+    if entry.principal.trim().is_empty() {
+        return Err("主体不能为空（形如 User:alice）".to_owned());
+    }
+    // 没有类型前缀的主体在 Kafka 里是合法的（有些自定义 principal builder 这么用），
+    // 但八成是手滑漏了 `User:`，而这会写出一条永远匹配不到任何连接的规则。
+    let principal = entry.principal.trim();
+    if !principal.contains(':') {
+        return Err(format!(
+            "主体 {principal} 缺少类型前缀，八成这样写永远匹配不到任何连接（应形如 User:{principal}）"
+        ));
+    }
+    if entry.principal.contains(char::is_whitespace) {
+        return Err("主体里不能有空白字符".to_owned());
+    }
+    if entry.host.trim().is_empty() {
+        return Err("来源主机不能为空，不限来源请填 *".to_owned());
+    }
+    if entry.host.chars().any(char::is_whitespace) {
+        return Err("来源主机里不能有空白字符".to_owned());
+    }
+    match entry.pattern {
+        // 通配由模式表达，名字必须为空 —— 名字填了 `*` 再配上 `Wildcard`，
+        // 会让「全部资源」和「一个叫 * 的主题」在两层之间反复打架。
+        AclPattern::Wildcard => {
+            if !entry.resource_name.is_empty() && entry.resource_name != "*" {
+                return Err("通配资源不能同时指定名字".to_owned());
+            }
+        }
+        AclPattern::Literal | AclPattern::Prefixed => {
+            if entry.resource_name.trim().is_empty() {
+                return Err("这个匹配方式必须填资源名；要覆盖全部资源请选通配".to_owned());
+            }
+        }
+    }
+    // 集群级资源只有一条合法名字，填别的服务端不认，报错还很难读。
+    if entry.resource_type == AclResourceType::Cluster
+        && entry.pattern == AclPattern::Literal
+        && !entry.resource_name.is_empty()
+        && entry.resource_name != "kafka-cluster"
+    {
+        return Err("集群级资源的名字只能是 kafka-cluster".to_owned());
+    }
+    Ok(())
+}
+
+/// 两条规则是不是「同一件事」：主体 / 资源 / 主机 / 操作 / 权限全都一样。
+///
+/// 不看 `permission` 之外的差别；`pattern` 参与比较，因为 `payments-` 前缀
+/// 与 `payments` 精确是两条不同的规则。
+pub fn same_rule(left: &AclEntry, right: &AclEntry) -> bool {
+    left.resource_type == right.resource_type
+        && left.resource_name == right.resource_name
+        && left.pattern == right.pattern
+        && left.principal == right.principal
+        && left.host == right.host
+        && left.operation == right.operation
+        && left.permission == right.permission
+}
+
+/// 资源范围是否重叠：通配覆盖同类资源的全部名字，前缀覆盖以它开头的名字。
+///
+/// 这是 `Conflicts` / `Superseded` 判定的基础。写成纯函数是为了能脱库单测 ——
+/// 这套判断错了，面板会给出与真实行为相反的结论，比不给结论更糟。
+pub fn resource_overlaps(left: &AclEntry, right: &AclEntry) -> bool {
+    if left.resource_type != right.resource_type {
+        return false;
+    }
+    // 集群级资源的名字没有区分度，同类型即同资源。
+    if left.resource_type == AclResourceType::Cluster {
+        return true;
+    }
+    let covers = |wide: &AclEntry, narrow: &AclEntry| match wide.pattern {
+        AclPattern::Wildcard => true,
+        AclPattern::Prefixed => {
+            narrow.pattern != AclPattern::Wildcard
+                && narrow.resource_name.starts_with(&wide.resource_name)
+        }
+        AclPattern::Literal => {
+            narrow.pattern == AclPattern::Literal && narrow.resource_name == wide.resource_name
+        }
+    };
+    covers(left, right) || covers(right, left)
+}
+
+/// 操作是否重叠：`All` 覆盖其余全部，其余只有相等才重叠。
+pub fn operation_overlaps(left: &AclEntry, right: &AclEntry) -> bool {
+    left.operation == AclOperation::All
+        || right.operation == AclOperation::All
+        || left.operation == right.operation
+}
+
+/// 来源主机是否重叠：`*` 覆盖任何主机；两条具体主机只有相等才互相命中。
+pub fn host_overlaps(left: &AclEntry, right: &AclEntry) -> bool {
+    left.host == "*" || right.host == "*" || left.host == right.host
+}
+
+/// 预演一次「新增这些规则」。
+///
+/// 结论只基于两份清单的比对，不发任何请求。`existing` 是当前集群上的全部规则
+/// （用空过滤器读的那一份），不是用户当前正在看的那张筛选后的表 ——
+/// 拿筛选结果去比对，「筛了主题之后新增」会把已有的规则报成「新增」。
+pub fn plan_create(existing: &[AclEntry], requested: &[AclEntry]) -> AclChangePlan {
+    let mut changes: Vec<AclChange> = Vec::new();
+    for entry in requested {
+        if changes.iter().any(|change| same_rule(&change.entry, entry)) {
+            // 一次提交里重复的同一条规则：合并成一条，不报「冲突」。
+            continue;
+        }
+        let same_principal: Vec<&AclEntry> = existing
+            .iter()
+            .filter(|current| current.principal == entry.principal)
+            .collect();
+
+        if same_principal
+            .iter()
+            .any(|current| same_rule(current, entry))
+        {
+            changes.push(AclChange {
+                entry: entry.clone(),
+                verdict: AclChangeVerdict::Exists,
+                related: Vec::new(),
+            });
+            continue;
+        }
+
+        let mut related: Vec<String> = Vec::new();
+        let mut conflicts = false;
+        let mut superseded = false;
+        for current in &same_principal {
+            if !resource_overlaps(current, entry)
+                || !operation_overlaps(current, entry)
+                || !host_overlaps(current, entry)
+            {
+                continue;
+            }
+            if current.permission != entry.permission {
+                conflicts = true;
+                related.push(format!(
+                    "已有「{}」{} {}（{}/{}）",
+                    current.permission.display_name(),
+                    current.resource_label(),
+                    current.operation.display_name(),
+                    current.host,
+                    current.pattern.display_name(),
+                ));
+                continue;
+            }
+            // 同方向：`全部` 操作盖住具体操作，或更宽的资源范围盖住更窄的。
+            let broader =
+                current.operation == AclOperation::All && entry.operation != AclOperation::All;
+            // 方向只能是「既有 → 本次」：`*` 盖住限定 IP、通配盖住具体名字、`全部` 盖住单项。
+            // 反过来（限定 IP 盖 `*`、具体名字盖通配）不成立，那是新增。
+            let wider = covers_resource_or_host(current, entry);
+            if broader || wider {
+                superseded = true;
+                related.push(format!(
+                    "已有「{}」{} {}（{}/{}）",
+                    current.permission.display_name(),
+                    current.resource_label(),
+                    current.operation.display_name(),
+                    current.host,
+                    current.pattern.display_name(),
+                ));
+            }
+        }
+
+        let verdict = if conflicts {
+            AclChangeVerdict::Conflicts
+        } else if superseded {
+            AclChangeVerdict::Superseded
+        } else {
+            AclChangeVerdict::New
+        };
+        changes.push(AclChange {
+            entry: entry.clone(),
+            verdict,
+            related,
+        });
+    }
+
+    let effective = changes
+        .iter()
+        .filter(|change| change.verdict.is_effective())
+        .count();
+
+    // 自锁风险放在最前面：这类规则一落地，面板「什么都读不到」看起来像 bug。
+    let mut blockers: Vec<String> = Vec::new();
+    for change in &changes {
+        if change.entry.blocks_introspection() {
+            blockers.push(format!(
+                "{} 在集群级资源上被拒了 {}：这条规则会命中所有请求，包括「读 ACL」这一条，提交后你可能连自己写的规则都看不到",
+                change.entry.principal,
+                change.entry.operation.display_name()
+            ));
+        }
+        if change.entry.principal_name() == "*" {
+            blockers.push(format!(
+                "主体 {} 是「所有用户」：它对本集群上的每一个客户端生效，不只是你以为的那一个",
+                change.entry.principal
+            ));
+        }
+        // 授权器一旦开了，没被允许的操作全部被拒。所以「只有 DENY」这类布局是陷阱：
+        // 看起来在收紧，实际上会连正常人一起挡掉。
+        if change.entry.permission == AclPermission::Deny && effective <= 1 {
+            blockers.push(
+                "本次提交没有配套的「允许」规则：集群一旦开启授权器，没被允许的操作全部被拒"
+                    .to_owned(),
+            );
+        }
+    }
+    blockers.dedup();
+
+    let mut notes = Vec::new();
+    if changes
+        .iter()
+        .any(|change| change.verdict == AclChangeVerdict::Exists)
+    {
+        notes.push("「已存在」的规则提交后不会改变集群，可以取消勾选".to_owned());
+    }
+    notes.push("同一个主体对同一个资源同时有「允许」和「拒绝」时，以「拒绝」为准".to_owned());
+
+    AclChangePlan {
+        changes,
+        effective,
+        blockers,
+        notes,
+    }
+}
+
+/// `wide` 是否比 `narrow` 更宽：资源范围更宽，或资源相同时来源主机更宽。
+///
+/// 方向性很重要 —— 反过来问会得出「限定 IP 的规则盖住了 `*`」这种结论，
+/// 而真实行为正好相反。
+fn covers_resource_or_host(wide: &AclEntry, narrow: &AclEntry) -> bool {
+    if wide.resource_type != narrow.resource_type {
+        return false;
+    }
+    if resource_overlaps_covers(wide, narrow) {
+        return true;
+    }
+    // 资源范围一模一样时，`*` 的主机位比限定 IP 宽。
+    let host_wider = wide.host == "*" && narrow.host != "*";
+    host_wider && same_scope(wide, narrow)
+}
+
+/// 同一段资源范围（前缀对前缀看名字是否相同）。
+fn same_scope(left: &AclEntry, right: &AclEntry) -> bool {
+    left.resource_type == right.resource_type
+        && left.resource_name == right.resource_name
+        && left.pattern == right.pattern
+}
+
+/// `wide` 是否覆盖 `narrow`（严格宽于，不是同一个）。
+fn resource_overlaps_covers(wide: &AclEntry, narrow: &AclEntry) -> bool {
+    // 这里只比「范围」，不比整条规则：前缀 vs 前缀、通配 vs 具体名字都要能判出来。
+    if wide.resource_type != narrow.resource_type {
+        return false;
+    }
+    match wide.pattern {
+        AclPattern::Wildcard => {
+            narrow.pattern != AclPattern::Wildcard || narrow.resource_name == "*"
+        }
+        AclPattern::Prefixed => {
+            narrow.pattern == AclPattern::Prefixed
+                && narrow.resource_name != wide.resource_name
+                && narrow.resource_name.starts_with(&wide.resource_name)
+        }
+        AclPattern::Literal => false,
+    }
+}
+
+/// 预演一次删除：只有和现有规则逐字相等的条目才算数。
+///
+/// 删除最容易出的事是「以为删了一条，其实删了一类」：管理 API 收的是过滤器，
+/// 一个空名字的过滤器会把同类资源上所有规则一次删光。所以这里坚持**精确匹配**，
+/// 并且把不在集群上的条目单独列出来 —— 它们提交时会被跳过，不报成功。
+pub fn plan_delete(existing: &[AclEntry], requested: &[AclEntry]) -> AclChangePlan {
+    let mut changes: Vec<AclChange> = Vec::new();
+    for entry in requested {
+        if changes.iter().any(|change| same_rule(&change.entry, entry)) {
+            continue;
+        }
+        let matched: Vec<&AclEntry> = existing
+            .iter()
+            .filter(|current| same_rule(current, entry))
+            .collect();
+        if matched.is_empty() {
+            // 「集群上没有这条」不是错误，但它也不该显示成「删除成功」。
+            changes.push(AclChange {
+                entry: entry.clone(),
+                verdict: AclChangeVerdict::Exists,
+                related: vec!["集群上已经找不到这条规则（可能刚被别人删过）".to_owned()],
+            });
+            continue;
+        }
+        changes.push(AclChange {
+            entry: entry.clone(),
+            verdict: AclChangeVerdict::New,
+            related: Vec::new(),
+        });
+    }
+
+    let effective = changes
+        .iter()
+        .filter(|change| change.verdict.is_effective())
+        .count();
+    let mut blockers = Vec::new();
+    for change in &changes {
+        if change.verdict.is_effective() && change.entry.blocks_introspection() {
+            blockers.push(format!(
+                "删掉 {} 的集群级「拒绝 {}」反而是在恢复访问 —— 确认你删的是对的那一条",
+                change.entry.principal,
+                change.entry.operation.display_name()
+            ));
+        }
+    }
+    AclChangePlan {
+        changes,
+        effective,
+        blockers,
+        notes: vec!["删除按规则逐字匹配，不会顺带删掉同类的其它规则".to_owned()],
+    }
+}
+
+/// 两条规则的界面指纹，用于表格 key 与勾选状态。顺序固定，别改。
+pub fn entry_fingerprint(entry: &AclEntry) -> String {
+    format!(
+        "{}|{}|{}|{:?}|{:?}|{:?}|{:?}",
+        entry.principal,
+        entry.host,
+        entry.resource_name,
+        entry.pattern,
+        entry.operation,
+        entry.permission,
+        entry.resource_type
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -661,5 +1167,294 @@ mod tests {
         );
         assert!(denied.notes.iter().any(|note| note.contains("拒绝」为准")));
         assert_eq!(denied.deny_count(), 1);
+    }
+
+    // ---- 写入预演：结论必须说得比「新增成功」更细 ----
+
+    fn allow(principal: &str, name: &str, operation: AclOperation) -> AclEntry {
+        entry(
+            AclResourceType::Topic,
+            name,
+            AclPattern::Literal,
+            principal,
+            operation,
+            AclPermission::Allow,
+        )
+    }
+
+    #[test]
+    fn identical_rule_is_already_there_not_new() {
+        let existing = vec![allow("User:alice", "orders", AclOperation::Read)];
+        let plan = plan_create(&existing, &existing);
+        assert_eq!(plan.changes[0].verdict, AclChangeVerdict::Exists);
+        // 已存在不是错误，但它也不该被算成「会改变集群」。
+        assert_eq!(plan.effective, 0);
+        assert!(plan.changes[0].note().contains("不会改变任何东西"));
+    }
+
+    #[test]
+    fn opposite_permission_is_a_conflict() {
+        let existing = vec![AclEntry {
+            permission: AclPermission::Deny,
+            ..allow("User:alice", "orders", AclOperation::Read)
+        }];
+        let plan = plan_create(
+            &existing,
+            &[allow("User:alice", "orders", AclOperation::Read)],
+        );
+        assert_eq!(plan.changes[0].verdict, AclChangeVerdict::Conflicts);
+        // 冲突必须指出是哪一条在相干，否则用户没法判断。
+        assert!(plan.changes[0].related[0].contains("拒绝"));
+        assert!(plan.verdict().contains("冲突"));
+    }
+
+    #[test]
+    fn allow_all_supersedes_a_specific_operation() {
+        let existing = vec![allow("User:alice", "orders", AclOperation::All)];
+        let plan = plan_create(
+            &existing,
+            &[allow("User:alice", "orders", AclOperation::Write)],
+        );
+        assert_eq!(plan.changes[0].verdict, AclChangeVerdict::Superseded);
+        assert_eq!(plan.effective, 0);
+    }
+
+    #[test]
+    fn wildcard_resource_supersedes_a_specific_topic() {
+        let existing = vec![entry(
+            AclResourceType::Topic,
+            "",
+            AclPattern::Wildcard,
+            "User:ops",
+            AclOperation::Read,
+            AclPermission::Allow,
+        )];
+        let plan = plan_create(
+            &existing,
+            &[allow("User:ops", "orders", AclOperation::Read)],
+        );
+        assert_eq!(plan.changes[0].verdict, AclChangeVerdict::Superseded);
+    }
+
+    #[test]
+    fn prefix_on_another_name_does_not_overlap() {
+        // payments- 与 orders 毫无关系：把不相关的规则报成「被覆盖」会让人白改一轮。
+        let existing = vec![entry(
+            AclResourceType::Topic,
+            "payments-",
+            AclPattern::Prefixed,
+            "User:ops",
+            AclOperation::Read,
+            AclPermission::Allow,
+        )];
+        let plan = plan_create(
+            &existing,
+            &[allow("User:ops", "orders", AclOperation::Read)],
+        );
+        assert_eq!(plan.changes[0].verdict, AclChangeVerdict::New);
+    }
+
+    #[test]
+    fn different_principal_is_never_a_conflict() {
+        // 别人的规则与这次提交无关；同一个资源上两个人各有一条允许是常态。
+        let existing = vec![allow("User:bob", "orders", AclOperation::Read)];
+        let plan = plan_create(
+            &existing,
+            &[allow("User:alice", "orders", AclOperation::Read)],
+        );
+        assert_eq!(plan.changes[0].verdict, AclChangeVerdict::New);
+        assert_eq!(plan.effective, 1);
+    }
+
+    #[test]
+    fn host_scope_matters_when_comparing() {
+        // 回归：模型里 `AclEntry.host` 的 `*` 是「不限来源」，比限定 IP 宽。
+        // 下面这条 restricted 是既有规则（限一个 IP），提交的是 `*`——更宽，属于新增。
+        let mut restricted = allow("User:alice", "orders", AclOperation::Read);
+        restricted.host = "10.0.0.1".to_owned();
+        let existing = vec![restricted];
+        // 反过来：既有规则限定 IP，提交的 `*` 是更宽的那条，不能被报成「已覆盖」。
+        let plan = plan_create(
+            &existing,
+            &[allow("User:alice", "orders", AclOperation::Read)],
+        );
+        assert_eq!(plan.changes[0].verdict, AclChangeVerdict::New);
+
+        // 已有 `*`，再提一条限定 IP 的，是更窄的规则，被 `*` 覆盖。
+        let wider = vec![allow("User:alice", "orders", AclOperation::Read)];
+        let mut narrow = allow("User:alice", "orders", AclOperation::Read);
+        narrow.host = "10.0.0.1".to_owned();
+        let plan = plan_create(&wider, &[narrow]);
+        assert_eq!(plan.changes[0].verdict, AclChangeVerdict::Superseded);
+    }
+
+    #[test]
+    fn duplicate_rows_in_one_request_are_merged() {
+        let item = allow("User:alice", "orders", AclOperation::Read);
+        let plan = plan_create(&[], &[item.clone(), item]);
+        assert_eq!(plan.changes.len(), 1);
+        assert_eq!(plan.effective, 1);
+    }
+
+    #[test]
+    fn self_lock_rule_is_a_blocker() {
+        let risky = entry(
+            AclResourceType::Cluster,
+            "kafka-cluster",
+            AclPattern::Literal,
+            "User:*",
+            AclOperation::Describe,
+            AclPermission::Deny,
+        );
+        let plan = plan_create(&[], &[risky]);
+        assert!(plan.has_blockers());
+        assert!(plan.blockers.iter().any(|text| text.contains("读 ACL")));
+        assert!(plan.verdict().contains("必须先确认"));
+    }
+
+    #[test]
+    fn wildcard_principal_is_called_out() {
+        // `User:*` 看起来像「某个用户」，其实是所有人 —— 这是最容易误提交的一条。
+        let plan = plan_create(&[], &[allow("User:*", "orders", AclOperation::Read)]);
+        assert!(plan.blockers.iter().any(|text| text.contains("所有用户")));
+    }
+
+    #[test]
+    fn deny_without_any_allow_is_a_blocker() {
+        let deny = AclEntry {
+            permission: AclPermission::Deny,
+            ..allow("User:alice", "orders", AclOperation::Read)
+        };
+        let plan = plan_create(&[], &[deny]);
+        assert!(
+            plan.blockers
+                .iter()
+                .any(|text| text.contains("没有配套的「允许」规则"))
+        );
+    }
+
+    #[test]
+    fn deny_with_a_companion_allow_is_not_blocked() {
+        let deny = AclEntry {
+            permission: AclPermission::Deny,
+            ..allow("User:alice", "orders", AclOperation::Read)
+        };
+        let plan = plan_create(
+            &[],
+            &[allow("User:alice", "orders", AclOperation::Read), deny],
+        );
+        assert!(
+            !plan
+                .blockers
+                .iter()
+                .any(|text| text.contains("没有配套的「允许」规则"))
+        );
+    }
+
+    #[test]
+    fn empty_request_is_rejected_before_any_network_call() {
+        let request = AclWriteRequest::default();
+        assert!(request.validate().is_err());
+    }
+
+    #[test]
+    fn cross_principal_submission_is_rejected() {
+        // 跨主体提交时「手打主体名」只能对上一个，另一个等于没确认。
+        let request = AclWriteRequest {
+            entries: vec![
+                allow("User:alice", "a", AclOperation::Read),
+                allow("User:bob", "b", AclOperation::Read),
+            ],
+            confirm: "alice".to_owned(),
+        };
+        let error = request.validate().expect_err("应当拒绝");
+        assert!(error.contains("一次只能改一个主体"));
+    }
+
+    #[test]
+    fn confirmation_must_match_the_principal() {
+        let mut request = AclWriteRequest {
+            entries: vec![allow("User:alice", "orders", AclOperation::Read)],
+            confirm: "alice".to_owned(),
+        };
+        assert!(request.validate().is_ok());
+        request.confirm = "bob".to_owned();
+        assert!(request.validate().is_err());
+    }
+
+    #[test]
+    fn principal_without_type_prefix_is_rejected() {
+        // 写成 `alice` 的规则能存进去，但永远匹配不到任何连接 —— 静默失败。
+        let item = allow("alice", "orders", AclOperation::Read);
+        let error = validate_entry(&item).expect_err("应当拒绝");
+        assert!(error.contains("User:alice"));
+    }
+
+    #[test]
+    fn wildcard_resource_must_not_carry_a_name() {
+        let mut item = entry(
+            AclResourceType::Topic,
+            "orders",
+            AclPattern::Wildcard,
+            "User:alice",
+            AclOperation::Read,
+            AclPermission::Allow,
+        );
+        assert!(validate_entry(&item).is_err());
+        item.resource_name = String::new();
+        assert!(validate_entry(&item).is_ok());
+    }
+
+    #[test]
+    fn cluster_resource_name_must_be_the_known_one() {
+        let mut item = entry(
+            AclResourceType::Cluster,
+            "prod-cluster",
+            AclPattern::Literal,
+            "User:alice",
+            AclOperation::Describe,
+            AclPermission::Allow,
+        );
+        assert!(validate_entry(&item).is_err());
+        item.resource_name = "kafka-cluster".to_owned();
+        assert!(validate_entry(&item).is_ok());
+    }
+
+    #[test]
+    fn empty_host_is_rejected() {
+        let mut item = allow("User:alice", "orders", AclOperation::Read);
+        item.host = String::new();
+        assert!(validate_entry(&item).is_err());
+    }
+
+    #[test]
+    fn delete_plans_only_exact_matches() {
+        let existing = vec![
+            allow("User:alice", "orders", AclOperation::Read),
+            allow("User:alice", "orders", AclOperation::Write),
+        ];
+        let plan = plan_delete(
+            &existing,
+            &[allow("User:alice", "orders", AclOperation::Read)],
+        );
+        assert_eq!(plan.changes.len(), 1);
+        assert!(plan.changes[0].verdict.is_effective());
+        assert_eq!(plan.effective, 1);
+    }
+
+    #[test]
+    fn deleting_something_absent_is_not_reported_as_success() {
+        let plan = plan_delete(&[], &[allow("User:alice", "orders", AclOperation::Read)]);
+        assert!(!plan.changes[0].verdict.is_effective());
+        assert!(plan.changes[0].related[0].contains("找不到"));
+        assert_eq!(plan.effective, 0);
+    }
+
+    #[test]
+    fn fingerprint_separates_rules_that_differ_in_one_field() {
+        let base = allow("User:alice", "orders", AclOperation::Read);
+        let other = allow("User:alice", "orders", AclOperation::Write);
+        assert_ne!(entry_fingerprint(&base), entry_fingerprint(&other));
+        assert_eq!(entry_fingerprint(&base), entry_fingerprint(&base.clone()));
     }
 }

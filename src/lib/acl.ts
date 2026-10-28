@@ -12,6 +12,9 @@ import {
   ACL_RESOURCE_LABEL,
 } from "../types/acl.ts";
 import type {
+  AclChange,
+  AclChangePlan,
+  AclChangeVerdict,
   AclEntry,
   AclFilter,
   AclOperation,
@@ -19,6 +22,7 @@ import type {
   AclPermission,
   AclResourceType,
   AclSnapshot,
+  AclWriteReport,
   PrincipalAcl,
 } from "../types/acl.ts";
 
@@ -193,3 +197,150 @@ export const ACL_PERMISSION_OPTIONS: AclPermission[] = ["allow", "deny"];
 
 /** 资源类型下拉。 */
 export const ACL_RESOURCE_TYPES: AclResourceType[] = ["topic", "group", "cluster", "broker"];
+
+/**
+ * 变更预演的判读。与 `src-tauri/src/domain/acl.rs` 保持同一套口径，
+ * 改一边记得改另一边。
+ *
+ * 后端已经算好了每条规则的处境与理由，这里只做两件事：
+ * 把它们排成能读的顺序，以及说清「提交按钮该不该灰」。
+ */
+
+/** 结论的中文名。 */
+export const ACL_CHANGE_LABEL: Record<AclChangeVerdict, string> = {
+  new: "新增",
+  exists: "已存在",
+  conflicts: "冲突",
+  superseded: "被覆盖",
+};
+
+/**
+ * 结论的语气。
+ *
+ * 冲突用危险色、被覆盖用警告色：「被覆盖」看起来无害，实际上提交了也不生效 ——
+ * 用中性色会让人以为它跟「新增」是一回事。
+ */
+export function changeTone(verdict: AclChangeVerdict): "danger" | "warning" | "success" | "neutral" {
+  switch (verdict) {
+    case "conflicts":
+      return "danger";
+    case "superseded":
+      return "warning";
+    case "new":
+      return "success";
+    default:
+      return "neutral";
+  }
+}
+
+/**
+ * 预演的一句话结论。
+ *
+ * 三种状态分开说：没有要提交的 / 全都没变化 / 有 N 条会真的改变集群。
+ * 把「已存在」混进「新增」会让界面报出一个虚高的数字，用户按那个数字判断风险。
+ */
+export function planVerdict(plan: AclChangePlan): string {
+  if (plan.changes.length === 0) return "没有要提交的规则";
+  if (plan.effective === 0) return `${plan.changes.length} 条规则全都已经在集群上，提交不会改变任何东西`;
+  const conflicts = plan.changes.filter((change) => change.verdict === "conflicts").length;
+  const base = `${plan.changes.length} 条规则，其中 ${plan.effective} 条会真的改变集群`;
+  return conflicts > 0 ? `${base}，${conflicts} 条与现有规则冲突` : base;
+}
+
+/**
+ * 提交按钮能不能按。
+ *
+ * 有拦路风险时**不**禁用，而是要求用户先勾一个「我知道」——禁用会让一个
+ * 合法的操作彻底做不了，而这类风险（比如删掉一条集群级拒绝）有时正是要做的。
+ */
+export function canSubmit(plan: AclChangePlan | undefined, acknowledged: boolean): boolean {
+  if (!plan || plan.changes.length === 0) return false;
+  if (plan.effective === 0) return false;
+  return plan.blockers.length === 0 || acknowledged;
+}
+
+/** 预演里有没有拦路风险。 */
+export function hasBlockers(plan: AclChangePlan | undefined): boolean {
+  return Boolean(plan?.blockers.length);
+}
+
+/**
+ * 提交前必须手打的名字：主体名（去掉 `User:` 前缀）。
+ *
+ * 一次只能改一个主体 —— 跨主体提交时「手打主体名」这道确认只能对上其中一个，
+ * 另一个等于没确认。后端也会拦，这里只是别让用户白按一次按钮。
+ */
+export function confirmTarget(entries: AclEntry[]): string | null {
+  const principals = new Set(entries.map((entry) => entry.principal));
+  if (principals.size !== 1) return null;
+  return principalName(entries[0].principal);
+}
+
+/** 待提交的规则里涉及几个主体。跨主体时提交按钮必须禁用并说明原因。 */
+export function entryPrincipalCount(entries: AclEntry[]): number {
+  return new Set(entries.map((entry) => entry.principal)).size;
+}
+
+/**
+ * 从一条现有规则生成「反向操作」的规则：删掉它，或者翻成相反权限。
+ *
+ * 这是这一屏最常用的两个动作 —— 把一条允许改成拒绝、把一条规则删掉。
+ * 都由现有规则派生，不需要用户重新填一遍六个字段。
+ */
+export function invertPermission(entry: AclEntry): AclEntry {
+  return { ...entry, permission: entry.permission === "allow" ? "deny" : "allow" };
+}
+
+/** 新建一条规则的默认值：主体为空，其余按最常见的读写来。 */
+export function blankEntry(principal = "User:"): AclEntry {
+  return {
+    resourceType: "topic",
+    resourceName: "",
+    pattern: "literal",
+    principal,
+    host: "*",
+    operation: "read",
+    permission: "allow",
+  };
+}
+
+/**
+ * 一条规则的界面指纹。与后端 `acl_entry_fingerprint` 用处相同：
+ * 表格 key 与勾选状态都靠它，顺序变了会让勾选跳到别的行上。
+ */
+export function entryFingerprint(entry: AclEntry): string {
+  return [
+    entry.principal,
+    entry.host,
+    entry.resourceName,
+    entry.pattern,
+    entry.operation,
+    entry.permission,
+    entry.resourceType,
+  ].join("|");
+}
+
+/** 提交回执的一句话结论。 */
+export function reportVerdict(report: AclWriteReport): string {
+  const failed = report.outcomes.filter((item) => !item.ok).length;
+  if (report.outcomes.length === 0) return "没有任何规则被提交";
+  if (failed === 0) return `${report.outcomes.length} 条规则已全部生效`;
+  return `${report.outcomes.length} 条规则里 ${report.outcomes.length - failed} 条成功、${failed} 条失败`;
+}
+
+/**
+ * 失败的那几条为什么失败。
+ *
+ * 单独列出来是因为「3 条成功 1 条失败」这种结果最容易被一眼扫过去 ——
+ * 而失败的那一条恰好可能就是让人连不上的那一条。
+ */
+export function failedOutcomes(report: AclWriteReport): AclChange[] {
+  return report.outcomes
+    .filter((item) => !item.ok)
+    .map((item) => ({ entry: item.entry, verdict: "conflicts" as AclChangeVerdict, related: [item.message] }));
+}
+
+/** 删除时命中多条的提示：用户以为删了一条，实际可能删掉了一类。 */
+export function wideDeletes(report: AclWriteReport): number {
+  return report.outcomes.filter((item) => item.ok && item.matched > 1).length;
+}

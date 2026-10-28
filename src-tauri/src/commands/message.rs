@@ -7,9 +7,9 @@ use crate::domain::{
     BatchDisposalOutcome, BatchDisposalRequest, BindingKey, BindingSpec, BrokerKind, ConnectionId,
     ConsumerGraph, ConsumerLinks, DeadLetterRequest, DisconnectRequest, DisposalCapabilities,
     DisposalOutcome, ExchangeSpec, MessageDetail, MessageHeader, MessageLocate, MessagePage,
-    MessageQuery, MessageSearch, OrphanScanScope, OrphanTopicPage, QueueDetail, QueueInfo,
-    RabbitMqTopology, RedeliverRequest, ResendOutcome, ResendRequest, SendOutcome, SendRequest,
-    SendRoute, TopicInfo, TopologyGraph, TopologyInsight,
+    MessageQuery, MessageSearch, OrphanScanScope, OrphanTopicPage, OwnershipSnapshot, QueueDetail,
+    QueueInfo, RabbitMqTopology, RedeliverRequest, ResendOutcome, ResendRequest, SendOutcome,
+    SendRequest, SendRoute, TopicInfo, TopologyGraph, TopologyInsight,
 };
 use crate::error::{AppError, AppResult};
 use crate::message;
@@ -137,6 +137,19 @@ pub async fn list_queue_consumers(
 ) -> AppResult<ConsumerLinks> {
     let connection = state.connections.get(&id).await?;
     connection.as_rabbitmq()?.consumer_links().await
+}
+
+/// 队列级消费者归属：谁在消费这个队列、从哪台机器、是不是卡住了。
+///
+/// 与 `list_queue_consumers` 分开：那条给的是「每个队列几个消费者」，
+/// 这条给的是「这条连接到底占了什么」。断开消费者时后者才是要看的。
+#[tauri::command]
+pub async fn list_consumer_ownership(
+    state: State<'_, AppState>,
+    id: ConnectionId,
+) -> AppResult<OwnershipSnapshot> {
+    let connection = state.connections.get(&id).await?;
+    connection.as_rabbitmq()?.consumer_ownership().await
 }
 
 /// 清空 RabbitMQ 队列中的消息，保留队列本身。

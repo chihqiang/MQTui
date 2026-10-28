@@ -45,6 +45,7 @@ impl BrokerKind {
                 BrokerCapability::Parameters,
                 BrokerCapability::Exchanges,
                 BrokerCapability::Consumers,
+                BrokerCapability::ConsumerOwnership,
                 BrokerCapability::Routing,
                 BrokerCapability::TopologyGraph,
                 BrokerCapability::ConsumerGraph,
@@ -98,6 +99,11 @@ pub enum BrokerCapability {
     Exchanges,
     /// RabbitMQ 消费者连线：每个队列被谁消费、预取与未确认情况。
     Consumers,
+    /// RabbitMQ 消费者归属：把消费者挂回「哪条连接、哪个账号、哪个对端地址」。
+    ///
+    /// 与 `Consumers` 是两个问题：那条回答「有几个消费者」，这条回答
+    /// 「这条连接到底占了什么」。断开消费者时后者才是要看的。
+    ConsumerOwnership,
     /// RabbitMQ 路由估算：交换机到队列的可达性与死路排查。
     Routing,
     /// RabbitMQ 拓扑图：交换机与队列的分层布局。
@@ -515,6 +521,7 @@ mod tests {
             BrokerCapability::Parameters => "参数",
             BrokerCapability::Exchanges => "交换机",
             BrokerCapability::Consumers => "消费者",
+            BrokerCapability::ConsumerOwnership => "消费归属",
             BrokerCapability::Routing => "路由估算",
             BrokerCapability::TopologyGraph => "拓扑图",
             BrokerCapability::ConsumerGraph => "消费链路",
@@ -539,6 +546,7 @@ mod tests {
         BrokerCapability::Parameters,
         BrokerCapability::Exchanges,
         BrokerCapability::Consumers,
+        BrokerCapability::ConsumerOwnership,
         BrokerCapability::Routing,
         BrokerCapability::TopologyGraph,
         BrokerCapability::ConsumerGraph,

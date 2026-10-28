@@ -222,6 +222,41 @@ struct ConsumerChannel {
     user: Option<String>,
 }
 
+/// `GET /api/connections` 里归属视图需要的几列。
+///
+/// 与 `runtime.rs` 的 `ConnPayload` 分开：那个服务于运行时页（要速率），
+/// 这里只要「谁、从哪来、是不是阻塞」—— 多拉字段在连接上百时是白花的解析开销。
+#[derive(Debug, Deserialize)]
+struct OwnershipConnectionPayload {
+    name: String,
+    #[serde(default)]
+    client_properties: serde_json::Map<String, serde_json::Value>,
+    #[serde(default)]
+    user: String,
+    #[serde(default)]
+    peer_host: String,
+    #[serde(default)]
+    peer_port: u16,
+    #[serde(default)]
+    state: String,
+}
+
+/// `GET /api/channels` 里归属视图需要的几列。
+#[derive(Debug, Deserialize)]
+struct OwnershipChannelPayload {
+    name: String,
+    #[serde(default)]
+    connection_details: Option<OwnershipConnRef>,
+    #[serde(default)]
+    user: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct OwnershipConnRef {
+    #[serde(default)]
+    name: String,
+}
+
 /// `GET /api/queues` 里消费者连线需要的三列。
 ///
 /// 与 `QueuePayload` 分开：那个服务于队列列表，这里只要「待投递 / 未确认」这两个数，
@@ -597,6 +632,95 @@ impl ManagementClient {
             .collect();
 
         Ok(summarize_consumers(&queue_rows, &consumers))
+    }
+
+    /// 队列级消费者归属：把消费者挂回「哪条连接、哪个账号、哪个对端地址」。
+    ///
+    /// 四次请求各自可能失败，含义完全不同，所以降级策略也不一样：
+    ///
+    /// - 队列拉不到 → 整页没意义，直接 `Err`（连「哪些队列没人消费」都答不了）；
+    /// - 消费者拉不到 → 权限不足时是 403，此时仍然给出「哪些队列没人消费」这个结论；
+    /// - 连接 / channel 拉不到 → 只是少了「哪台机器」这一栏，归属本身仍然成立。
+    ///
+    /// 三次请求串行：管理插件对并发很敏感，交互式面板多花几十毫秒换服务端轻松些。
+    pub async fn consumer_ownership(
+        &self,
+        config: &RabbitMqConfig,
+    ) -> AppResult<crate::domain::OwnershipSnapshot> {
+        use crate::domain::{ChannelFacts, ConnectionFacts, assemble_ownership};
+
+        use super::runtime::client_name;
+
+        let queues: Vec<QueueConsumptionPayload> = self
+            .get_json(
+                &self.vhost_path("/api/queues", &config.auth.vhost),
+                &config.auth.username,
+                &config.auth.password,
+            )
+            .await?;
+
+        let consumers = self.consumers(config).await.unwrap_or_default();
+
+        let connection_payload: Vec<OwnershipConnectionPayload> = self
+            .get_json(
+                &self.vhost_path("/api/connections", &config.auth.vhost),
+                &config.auth.username,
+                &config.auth.password,
+            )
+            .await
+            .unwrap_or_default();
+        let channel_payload: Vec<OwnershipChannelPayload> = self
+            .get_json(
+                &self.vhost_path("/api/channels", &config.auth.vhost),
+                &config.auth.username,
+                &config.auth.password,
+            )
+            .await
+            .unwrap_or_default();
+
+        let queue_rows: Vec<(String, u64, u64)> = queues
+            .into_iter()
+            .map(|queue| {
+                (
+                    queue.name,
+                    queue.messages_ready,
+                    queue.messages_unacknowledged,
+                )
+            })
+            .collect();
+
+        let connections: Vec<ConnectionFacts> = connection_payload
+            .into_iter()
+            .map(|row| {
+                let client_name = client_name(&row.client_properties);
+                ConnectionFacts {
+                    peer: if row.peer_host.is_empty() {
+                        String::new()
+                    } else {
+                        format!("{}:{}", row.peer_host, row.peer_port)
+                    },
+                    blocked: matches!(row.state.as_str(), "blocking" | "blocked"),
+                    name: row.name,
+                    client_name,
+                    user: row.user,
+                }
+            })
+            .collect();
+        let channels: Vec<ChannelFacts> = channel_payload
+            .into_iter()
+            .map(|row| ChannelFacts {
+                name: row.name,
+                connection: row.connection_details.map_or_else(String::new, |d| d.name),
+                user: row.user,
+            })
+            .collect();
+
+        Ok(assemble_ownership(
+            &queue_rows,
+            &consumers,
+            &connections,
+            &channels,
+        ))
     }
 
     /// 拉取全部消费者明细（`GET /api/consumers`）。

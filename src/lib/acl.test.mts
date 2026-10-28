@@ -2,6 +2,16 @@ import { expect, test } from "vitest";
 
 import {
   aclVerdict,
+  canSubmit,
+  changeTone,
+  confirmTarget,
+  entryFingerprint,
+  entryPrincipalCount,
+  failedOutcomes,
+  invertPermission,
+  planVerdict,
+  reportVerdict,
+  wideDeletes,
   blocksIntrospection,
   byPrincipal,
   denyCount,
@@ -14,7 +24,7 @@ import {
   selfLockRisks,
   serverFilter,
 } from "./acl.ts";
-import type { AclEntry, AclSnapshot } from "../types/acl.ts";
+import type { AclChangePlan, AclEntry, AclSnapshot, AclWriteReport } from "../types/acl.ts";
 
 function entry(overrides: Partial<AclEntry> = {}): AclEntry {
   return {
@@ -154,4 +164,108 @@ test("本地「包含」筛选不下发给服务端", () => {
     operation: "read",
     permission: undefined,
   });
+});
+
+// ---- 写入预演：结论必须说得比「新增成功」更细 ----
+
+test("全都已存在时结论不能说「N 条会改变集群」", () => {
+  const plan: AclChangePlan = {
+    changes: [{ entry: entry(), verdict: "exists", related: [] }],
+    effective: 0,
+    blockers: [],
+    notes: [],
+  };
+  // 「已存在」混进「新增」会报出一个虚高的数字，用户按那个数字判断风险。
+  expect(planVerdict(plan)).toContain("不会改变任何东西");
+});
+
+test("有条目冲突时结论里必须出现「冲突」", () => {
+  const plan: AclChangePlan = {
+    changes: [
+      { entry: entry(), verdict: "conflicts", related: ["已有「拒绝」"] },
+      { entry: entry({ principal: "User:bob" }), verdict: "new", related: [] },
+    ],
+    effective: 1,
+    blockers: [],
+    notes: [],
+  };
+  expect(planVerdict(plan)).toContain("1 条与现有规则冲突");
+});
+
+test("空预演不说「0 条规则已生效」", () => {
+  expect(planVerdict({ changes: [], effective: 0, blockers: [], notes: [] })).toBe(
+    "没有要提交的规则",
+  );
+});
+
+test("有拦路风险时提交按钮要求先勾确认，而不是禁用", () => {
+  const plan: AclChangePlan = {
+    changes: [{ entry: entry(), verdict: "new", related: [] }],
+    effective: 1,
+    blockers: ["主体 User:* 是「所有用户」"],
+    notes: [],
+  };
+  // 禁用会让一个合法操作彻底做不了 —— 这类风险（比如删掉一条集群级拒绝）有时正是要做的。
+  expect(canSubmit(plan, false)).toBe(false);
+  expect(canSubmit(plan, true)).toBe(true);
+});
+
+test("effective 为 0 时不给提交", () => {
+  const plan: AclChangePlan = {
+    changes: [{ entry: entry(), verdict: "superseded", related: [] }],
+    effective: 0,
+    blockers: [],
+    notes: [],
+  };
+  expect(canSubmit(plan, true)).toBe(false);
+});
+
+test("没有预演时不能提交", () => {
+  expect(canSubmit(undefined, true)).toBe(false);
+});
+
+test("跨主体提交拿不到确认目标", () => {
+  expect(confirmTarget([entry(), entry({ principal: "User:bob" })])).toBeNull();
+  expect(entryPrincipalCount([entry(), entry({ principal: "User:bob" })])).toBe(2);
+  expect(confirmTarget([entry()])).toBe("alice");
+});
+
+test("翻权限只改权限方向", () => {
+  const flipped = invertPermission(entry());
+  expect(flipped.permission).toBe("deny");
+  expect(flipped.operation).toBe("read");
+  expect(flipped.resourceName).toBe("orders");
+});
+
+test("指纹能区分只差一个字段的两条规则", () => {
+  expect(entryFingerprint(entry())).not.toBe(entryFingerprint(entry({ operation: "write" })));
+  expect(entryFingerprint(entry())).toBe(entryFingerprint(entry()));
+});
+
+test("回执里失败的那几条被单独列出来", () => {
+  const report: AclWriteReport = {
+    outcomes: [
+      { entry: entry(), ok: true, message: "已新建", matched: 1 },
+      { entry: entry({ principal: "User:bob" }), ok: false, message: "权限不足", matched: 0 },
+    ],
+    applied: 1,
+    notes: [],
+  };
+  expect(reportVerdict(report)).toBe("2 条规则里 1 条成功、1 条失败");
+  expect(failedOutcomes(report)).toHaveLength(1);
+});
+
+test("删除命中不止一条要单独提示", () => {
+  const report: AclWriteReport = {
+    outcomes: [{ entry: entry(), ok: true, message: "已删除", matched: 3 }],
+    applied: 3,
+    notes: [],
+  };
+  expect(wideDeletes(report)).toBe(1);
+});
+
+test("结论语气：冲突最重，被覆盖不是「成功」", () => {
+  expect(changeTone("conflicts")).toBe("danger");
+  expect(changeTone("superseded")).toBe("warning");
+  expect(changeTone("new")).toBe("success");
 });

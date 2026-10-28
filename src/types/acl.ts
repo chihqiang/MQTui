@@ -138,3 +138,51 @@ export const ACL_RESOURCE_OPTIONS: { value: AclResourceType; label: string }[] =
   { value: "cluster", label: "集群" },
   { value: "broker", label: "Broker" },
 ];
+
+/**
+ * 一条待提交规则的处境。与 `src-tauri/src/domain/acl.rs` 的 `AclChangeVerdict` 一一对应。
+ *
+ * 只区分这四种：新增、已经在了、与现有规则冲突、被现有规则覆盖。
+ * 「提交成功」不属于这里 —— 那是提交之后的回执。
+ */
+export type AclChangeVerdict = "new" | "exists" | "conflicts" | "superseded";
+
+/** 一条待提交的规则，以及它在现有规则里的处境。 */
+export interface AclChange {
+  entry: AclEntry;
+  verdict: AclChangeVerdict;
+  /** 冲突 / 覆盖时必须指出来是哪几条在相干，否则用户没法判断。 */
+  related: string[];
+}
+
+/** 一次写入的完整预演。 */
+export interface AclChangePlan {
+  changes: AclChange[];
+  /** 会真正改变集群的条数。 */
+  effective: number;
+  /** 提交前必须让人看见的风险（自锁、`User:*`、只有拒绝没有允许）。 */
+  blockers: string[];
+  notes: string[];
+}
+
+/** 写入请求。`confirm` 是用户手打的主体名，预演时留空。 */
+export interface AclWriteRequest {
+  entries: AclEntry[];
+  confirm: string;
+}
+
+/** 单条规则的执行结果。 */
+export interface AclWriteOutcome {
+  entry: AclEntry;
+  ok: boolean;
+  message: string;
+  /** 删除时实际命中的条数：`0` 说明这条本来就不在集群上。 */
+  matched: number;
+}
+
+/** 一次写入的执行回执。 */
+export interface AclWriteReport {
+  outcomes: AclWriteOutcome[];
+  applied: number;
+  notes: string[];
+}

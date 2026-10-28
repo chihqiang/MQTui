@@ -1,10 +1,17 @@
 import { useState } from "react";
 import { useParams } from "react-router";
 
-import { AclPrincipalTable, AclTable, QuotaTable, ScramTable } from "@/components/broker";
+import {
+  AclEntryEditor,
+  AclPrincipalTable,
+  AclTable,
+  QuotaTable,
+  ScramTable,
+} from "@/components/broker";
 import { PageBody, PageHeader } from "@/components/layout/page-header";
 import {
   Badge,
+  Button,
   Callout,
   Card,
   CardBody,
@@ -20,9 +27,11 @@ import { useAcls } from "@/hooks/use-acls";
 import { useQuotas, useScramCredentials } from "@/hooks/use-quota";
 import {
   aclVerdict,
+  blankEntry,
   byPrincipal,
   describeFilter,
   filterEntries,
+  invertPermission,
   selfLockRisks,
   ACL_OPERATION_OPTIONS,
   ACL_PERMISSION_OPTIONS,
@@ -33,7 +42,7 @@ import {
   ACL_PERMISSION_LABEL,
   ACL_RESOURCE_LABEL,
 } from "@/types/acl";
-import type { AclFilter, AclOperation, AclPermission, AclResourceType } from "@/types/acl";
+import type { AclEntry, AclFilter, AclOperation, AclPermission, AclResourceType } from "@/types/acl";
 import { errorMessage } from "@/lib/errors";
 import { failureText } from "@/lib/failure";
 import {
@@ -53,9 +62,13 @@ import {
  * `DescribeClientQuotas`），SCRAM 读不到要么是权限、要么是版本，ACL 读不到
  * 则是「没开授权器」。合成一个查询，一个失败会把其他栏也拖成错误态。
  *
- * 三栏都只读。ACL 的写入（`CreateAcls` / `DeleteAcls`）librdkafka 里是有的，
- * 但写错一条就是授权事故：多一条「谁能进来」，少一条「谁掉线」。
- * 面板要做写入，得先有「与现有规则比对、说清新增/覆盖/冲突」那一步。
+ * 配额与 SCRAM 凭据只读：librdkafka 只导出了查，没导出 `AlterClientQuotas` /
+ * `AlterUserScramCredentials`。
+ *
+ * ACL 可以写（librdkafka 2.12 里 `CreateAcls` / `DeleteAcls` 都在），但走的是
+ * **预演 → 手打主体名 → 提交** 这条路。写错一条 ACL 是授权事故：多一条是
+ * 「谁能进来」，少一条是「谁掉线」，而服务端对这两种错误都不会有任何反馈。
+ * 所以这一屏的重点不在「把请求发出去」，而在发之前把「会发生什么」摆出来。
  */
 export function AccessPage() {
   const { connectionId } = useParams();
@@ -65,6 +78,10 @@ export function AccessPage() {
   // 过滤条件只留在本地：「名字含」「主体含」是包含匹配，服务端只做精确匹配。
   const [filter, setFilter] = useState<AclFilter>({});
   const [aclView, setAclView] = useState<"principal" | "flat">("principal");
+  // 写入口：新建一条空规则，或者从现有规则派生「删掉 / 翻权限」。
+  const [editing, setEditing] = useState<{ entry: AclEntry; mode: "create" | "delete" } | null>(
+    null,
+  );
   const acls = useAcls(connectionId, filter);
 
   const visible = filterEntries(acls.data?.entries ?? [], filter);
@@ -105,7 +122,17 @@ export function AccessPage() {
         <CardHeader
           title="ACL 规则"
           extra={
-            acls.data ? <span className="text-meta">{aclVerdict(acls.data)}</span> : undefined
+            <div className="flex items-center gap-2">
+              {acls.data ? <span className="text-meta">{aclVerdict(acls.data)}</span> : null}
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={Boolean(acls.data?.unsupported)}
+                onClick={() => setEditing({ entry: blankEntry(), mode: "create" })}
+              >
+                新建规则
+              </Button>
+            </div>
           }
         />
         <CardBody className="flex flex-col gap-2">
@@ -223,9 +250,17 @@ export function AccessPage() {
               }
             />
           ) : aclView === "principal" ? (
-            <AclPrincipalTable groups={groups} />
+            <AclPrincipalTable
+              groups={groups}
+              onDelete={(entry) => setEditing({ entry, mode: "delete" })}
+              onInvert={(entry) => setEditing({ entry: invertPermission(entry), mode: "create" })}
+            />
           ) : (
-            <AclTable entries={visible} />
+            <AclTable
+              entries={visible}
+              onDelete={(entry) => setEditing({ entry, mode: "delete" })}
+              onInvert={(entry) => setEditing({ entry: invertPermission(entry), mode: "create" })}
+            />
           )}
 
           {acls.data?.notes.length ? (
@@ -340,8 +375,18 @@ export function AccessPage() {
         </Card>
       )}
 
+      <AclEntryEditor
+        open={Boolean(editing)}
+        draft={editing?.entry ?? null}
+        mode={editing?.mode ?? "create"}
+        onClose={() => {
+          setEditing(null);
+          void acls.refetch();
+        }}
+      />
+
       <Card>
-        <CardHeader title="为什么这里没有「新建 / 修改」" />
+        <CardHeader title="为什么配额与凭据仍然只读" />
         <CardBody className="flex flex-col gap-2">
           <p className="text-(length:--text-app-body) text-slate-700">
             配额和凭据是「根本改不了」：librdkafka 2.12 只导出了查，没有导出
@@ -355,16 +400,21 @@ export function AccessPage() {
             <span className="mx-1 font-mono">CreateAcls</span>
             /
             <span className="mx-1 font-mono">DeleteAcls</span>
-            都在，能调。没做的原因是写错一条 ACL 属于**授权事故**，不是配置调整 ——
-            多一条是「谁能进来」，少一条是「谁掉线」。面板要做写入，得先有
-            「与现有规则比对、说清新增/覆盖/冲突」那一步。
+            都在，所以这一栏可以写。但写入口刻意做成了三步：
+            <span className="mx-1 font-mono">预演</span>说清会新增什么、和谁冲突；
+            有风险时勾一个「我知道」；
+            <span className="mx-1 font-mono">提交</span>要求手打主体名。
+          </p>
+          <p className="text-(length:--text-app-body) text-slate-700">
+            提交不复用预演结果 —— 确认框可能开着几十秒，期间别人可能刚改过 ACL。
+            后端在提交时重新读一遍全部规则再算。
           </p>
           <p className="text-meta">
             半吊子的写入按钮比没有更糟：它会让人以为改成功了，直到下一次认证失败。
           </p>
           <div className="flex flex-wrap gap-2">
-            <Badge tone="neutral">只读</Badge>
-            <Badge tone="neutral">kafka-acls.sh</Badge>
+            <Badge tone="info">ACL 可写（先预演）</Badge>
+            <Badge tone="neutral">配额 / 凭据只读</Badge>
             <Badge tone="neutral">kafka-configs.sh --alter</Badge>
           </div>
         </CardBody>
