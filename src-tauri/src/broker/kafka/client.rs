@@ -77,7 +77,11 @@ impl KafkaClient {
         })
         .await
         .map_err(|error| AppError::Internal(format!("Kafka 元数据任务失败: {error}")))?;
-        result.map_err(|error| AppError::Connect(format!("{bootstrap}: {error}")))?;
+        result.map_err(|error| {
+            log::error!(target: "mqtui::kafka", "Kafka 元数据请求失败（{bootstrap}）：{error}");
+            AppError::Connect(format!("{bootstrap}: {error}"))
+        })?;
+        log::info!(target: "mqtui::kafka", "Kafka 连接 {bootstrap} 成功，元数据可达");
 
         let guarantee = inspect_producer_options(&config.options);
         Ok(Self {
@@ -214,7 +218,7 @@ impl KafkaClient {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         if !*warned && let Some(warning) = self.guarantee.warning() {
-            tracing::warn!(target: "mqtui::kafka", "{warning}");
+            log::warn!(target: "mqtui::kafka", "{warning}");
             *warned = true;
         }
 

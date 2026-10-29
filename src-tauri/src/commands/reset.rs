@@ -14,6 +14,8 @@ use crate::domain::{ConnectionId, ResetPlan, ResetTarget, reset_phases as build_
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 
+use super::trace;
+
 /// 预览重置计划。
 #[tauri::command]
 pub async fn preview_group_reset(
@@ -54,30 +56,38 @@ pub async fn commit_group_reset(
     topic: String,
     plan: ResetPlan,
 ) -> AppResult<CommitOutcome> {
-    let connection = state.connections.get(&id).await?;
-    let client = connection.as_kafka()?;
+    // 摘要先拼好：payload 闭包只借用，命令体要拿走 group / topic / plan 的所有权。
+    let payload = format!(
+        "id={id}, group={group}, topic={topic}, plan={}",
+        trace::brief(&plan)
+    );
+    crate::commands::trace::traced("commit_group_reset", || payload, async {
+        let connection = state.connections.get(&id).await?;
+        let client = connection.as_kafka()?;
 
-    // 提交前再确认一次「计划可执行」。前端也会拦，但命令是公开入口，
-    // 不能假设所有调用方都先跑了预览。
-    if !plan.is_executable() {
-        let reason = plan
-            .blockers
-            .first()
-            .cloned()
-            .unwrap_or_else(|| "计划没有实际改动，无需提交".to_owned());
-        return Err(AppError::Invalid(reason));
-    }
+        // 提交前再确认一次「计划可执行」。前端也会拦，但命令是公开入口，
+        // 不能假设所有调用方都先跑了预览。
+        if !plan.is_executable() {
+            let reason = plan
+                .blockers
+                .first()
+                .cloned()
+                .unwrap_or_else(|| "计划没有实际改动，无需提交".to_owned());
+            return Err(AppError::Invalid(reason));
+        }
 
-    let changed = plan.changes().len();
-    let committed = client.commit_reset(&group, &topic, &plan).await?;
-    Ok(CommitOutcome {
-        group,
-        topic,
-        replay: plan.replay,
-        skip: plan.skip,
-        requested: changed,
-        committed,
+        let changed = plan.changes().len();
+        let committed = client.commit_reset(&group, &topic, &plan).await?;
+        Ok(CommitOutcome {
+            group,
+            topic,
+            replay: plan.replay,
+            skip: plan.skip,
+            requested: changed,
+            committed,
+        })
     })
+    .await
 }
 
 /// 提交结果。

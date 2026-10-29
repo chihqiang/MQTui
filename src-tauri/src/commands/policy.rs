@@ -13,6 +13,8 @@ use crate::domain::{
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 
+use super::trace;
+
 /// 提交前的完整预览：影响面 + 优先级冲突。
 ///
 /// 单独成结构而不是让前端自己估：影响面要拿队列 / 交换机名单，
@@ -141,23 +143,30 @@ pub async fn save_policy(
     spec: PolicySpec,
     original_name: Option<String>,
 ) -> AppResult<PolicySnapshot> {
-    spec.validate().map_err(AppError::Invalid)?;
+    crate::commands::trace::traced(
+        "save_policy",
+        || format!("id={id}, spec={}", trace::brief(&spec)),
+        async {
+            spec.validate().map_err(AppError::Invalid)?;
 
-    let connection = state.connections.get(&id).await?;
-    let client = connection.as_rabbitmq()?;
+            let connection = state.connections.get(&id).await?;
+            let client = connection.as_rabbitmq()?;
 
-    // 重命名不是原子操作：管理 API 没有 rename。顺序必须是「先建新的、再删旧的」，
-    // 反过来会有一段窗口期完全没有策略生效，队列会退回没有 TTL / 长度上限的状态。
-    client.put_policy(&spec, &spec.name).await?;
+            // 重命名不是原子操作：管理 API 没有 rename。顺序必须是「先建新的、再删旧的」，
+            // 反过来会有一段窗口期完全没有策略生效，队列会退回没有 TTL / 长度上限的状态。
+            client.put_policy(&spec, &spec.name).await?;
 
-    if let Some(original) = original_name.as_deref()
-        && !original.trim().is_empty()
-        && original != spec.name
-    {
-        client.delete_policy(original).await?;
-    }
+            if let Some(original) = original_name.as_deref()
+                && !original.trim().is_empty()
+                && original != spec.name
+            {
+                client.delete_policy(original).await?;
+            }
 
-    client.policies().await
+            client.policies().await
+        },
+    )
+    .await
 }
 
 /// 删除策略。策略删除只是停止下发，不动已有消息，因此没有额外守卫参数。
@@ -167,19 +176,22 @@ pub async fn delete_policy(
     id: ConnectionId,
     name: String,
 ) -> AppResult<PolicySnapshot> {
-    if !PolicyRemoval::evaluate(&name).is_allowed() {
-        return Err(AppError::Invalid(
-            PolicyRemoval::evaluate(&name)
-                .reason()
-                .unwrap_or("策略名称为空")
-                .to_owned(),
-        ));
-    }
+    crate::commands::trace::traced("delete_policy", || format!("id={id}, name={name}"), async {
+        if !PolicyRemoval::evaluate(&name).is_allowed() {
+            return Err(AppError::Invalid(
+                PolicyRemoval::evaluate(&name)
+                    .reason()
+                    .unwrap_or("策略名称为空")
+                    .to_owned(),
+            ));
+        }
 
-    let connection = state.connections.get(&id).await?;
-    let client = connection.as_rabbitmq()?;
-    client.delete_policy(&name).await?;
-    client.policies().await
+        let connection = state.connections.get(&id).await?;
+        let client = connection.as_rabbitmq()?;
+        client.delete_policy(&name).await?;
+        client.policies().await
+    })
+    .await
 }
 
 /// 单条策略详情。前端从快照里取即可，这里只给「按名字定位」留一个入口。

@@ -45,10 +45,21 @@ impl RabbitMqClient {
     /// 界面上也该照着实际用的那个地址显示，而不是留一片空白让人以为没配。
     pub async fn connect(config: RabbitMqConfig) -> AppResult<Self> {
         let endpoint = format!("{}:{}", config.host, config.port);
+        log::debug!(target: "mqtui::rabbitmq", "AMQP 连接 {endpoint} 中…");
         let connection = Connection::connect(&amqp_uri(&config), ConnectionProperties::default())
             .await
-            .map_err(|error| AppError::Connect(format!("{endpoint}: {error}")))?;
+            .map_err(|error| {
+                log::error!(target: "mqtui::rabbitmq", "AMQP 连接 {endpoint} 失败：{error}");
+                AppError::Connect(format!("{endpoint}: {error}"))
+            })?;
         let config = config.with_inferred_management_url();
+        // 管理 API 不可用在这里只降级不报错，但日志要留一句：集群页/队列页
+        // 之后取不到数据时，第一个该怀疑的就是它。
+        log::info!(
+            target: "mqtui::rabbitmq",
+            "AMQP 连接 {endpoint} 成功，管理 API：{}",
+            config.management_url.as_deref().unwrap_or("未配置")
+        );
         let management = ManagementClient::from_config(&config)?;
 
         Ok(Self {

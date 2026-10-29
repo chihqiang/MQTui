@@ -14,6 +14,8 @@ use crate::error::AppResult;
 use crate::message::kafka::acl;
 use crate::state::AppState;
 
+use super::trace;
+
 /// 读取 ACL 规则。过滤器为空时返回全部规则。
 #[tauri::command]
 pub async fn describe_acls(
@@ -43,8 +45,16 @@ pub async fn commit_acl_create(
     id: ConnectionId,
     request: AclWriteRequest,
 ) -> AppResult<acl::AclWriteReport> {
-    let connection = state.connections.get(&id).await?;
-    acl::commit_create(connection.as_kafka()?, request).await
+    let desc = trace::brief(&request);
+    crate::commands::trace::traced(
+        "commit_acl_create",
+        || format!("id={id}, request={desc}"),
+        async {
+            let connection = state.connections.get(&id).await?;
+            acl::commit_create(connection.as_kafka()?, request).await
+        },
+    )
+    .await
 }
 
 /// 预演删除：只有和现有规则逐字相等的条目才算数。
@@ -65,6 +75,14 @@ pub async fn commit_acl_delete(
     id: ConnectionId,
     request: AclWriteRequest,
 ) -> AppResult<acl::AclWriteReport> {
-    let connection = state.connections.get(&id).await?;
-    acl::commit_delete(connection.as_kafka()?, request).await
+    let desc = trace::brief(&request);
+    crate::commands::trace::traced(
+        "commit_acl_delete",
+        || format!("id={id}, request={desc}"),
+        async {
+            let connection = state.connections.get(&id).await?;
+            acl::commit_delete(connection.as_kafka()?, request).await
+        },
+    )
+    .await
 }

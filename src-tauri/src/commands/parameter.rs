@@ -12,6 +12,8 @@ use crate::domain::{
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 
+use super::trace;
+
 /// 读出全部参数（按组件分类，某一类失败只影响它自己）。
 #[tauri::command]
 pub async fn list_parameters(
@@ -39,31 +41,38 @@ pub async fn save_parameter(
     spec: ParameterSpec,
     original_name: Option<String>,
 ) -> AppResult<ParameterSnapshot> {
-    let review = review_parameter(&spec);
-    if review.is_blocking() {
-        return Err(AppError::Invalid(review.errors.join("；")));
-    }
-    let value = review
-        .value
-        .ok_or_else(|| AppError::Invalid("参数值无法解析".to_owned()))?;
+    crate::commands::trace::traced(
+        "save_parameter",
+        || format!("id={id}, spec={}", trace::brief(&spec)),
+        async {
+            let review = review_parameter(&spec);
+            if review.is_blocking() {
+                return Err(AppError::Invalid(review.errors.join("；")));
+            }
+            let value = review
+                .value
+                .ok_or_else(|| AppError::Invalid("参数值无法解析".to_owned()))?;
 
-    let connection = state.connections.get(&id).await?;
-    let client = connection.as_rabbitmq()?;
+            let connection = state.connections.get(&id).await?;
+            let client = connection.as_rabbitmq()?;
 
-    client
-        .put_parameter(spec.component, &spec.vhost, &spec.name, &value)
-        .await?;
+            client
+                .put_parameter(spec.component, &spec.vhost, &spec.name, &value)
+                .await?;
 
-    if let Some(original) = original_name.as_deref()
-        && !original.trim().is_empty()
-        && original != spec.name
-    {
-        client
-            .delete_parameter(spec.component, &spec.vhost, original)
-            .await?;
-    }
+            if let Some(original) = original_name.as_deref()
+                && !original.trim().is_empty()
+                && original != spec.name
+            {
+                client
+                    .delete_parameter(spec.component, &spec.vhost, original)
+                    .await?;
+            }
 
-    client.parameters().await
+            client.parameters().await
+        },
+    )
+    .await
 }
 
 /// 删除参数。
@@ -75,13 +84,20 @@ pub async fn delete_parameter(
     vhost: String,
     name: String,
 ) -> AppResult<ParameterSnapshot> {
-    let verdict = ParameterRemoval::evaluate(component, &name);
-    if !verdict.allowed {
-        return Err(AppError::Invalid(verdict.detail));
-    }
+    crate::commands::trace::traced(
+        "delete_parameter",
+        || format!("id={id}, component={component:?}, vhost={vhost}, name={name}"),
+        async {
+            let verdict = ParameterRemoval::evaluate(component, &name);
+            if !verdict.allowed {
+                return Err(AppError::Invalid(verdict.detail));
+            }
 
-    let connection = state.connections.get(&id).await?;
-    let client = connection.as_rabbitmq()?;
-    client.delete_parameter(component, &vhost, &name).await?;
-    client.parameters().await
+            let connection = state.connections.get(&id).await?;
+            let client = connection.as_rabbitmq()?;
+            client.delete_parameter(component, &vhost, &name).await?;
+            client.parameters().await
+        },
+    )
+    .await
 }

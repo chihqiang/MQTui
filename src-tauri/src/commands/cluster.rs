@@ -130,8 +130,15 @@ pub async fn close_amqp_connection(
     id: ConnectionId,
     name: String,
 ) -> AppResult<()> {
-    let connection = state.connections.get(&id).await?;
-    connection.as_rabbitmq()?.close_connection(&name).await
+    crate::commands::trace::traced(
+        "close_amqp_connection",
+        || format!("id={id}, name={name}"),
+        async {
+            let connection = state.connections.get(&id).await?;
+            connection.as_rabbitmq()?.close_connection(&name).await
+        },
+    )
+    .await
 }
 
 /// 关闭一个 AMQP 通道。
@@ -141,6 +148,13 @@ pub async fn close_amqp_channel(
     id: ConnectionId,
     name: String,
 ) -> AppResult<()> {
-    let connection = state.connections.get(&id).await?;
-    connection.as_rabbitmq()?.close_channel(&name).await
+    crate::commands::trace::traced(
+        "close_amqp_channel",
+        || format!("id={id}, name={name}"),
+        async {
+            let connection = state.connections.get(&id).await?;
+            connection.as_rabbitmq()?.close_channel(&name).await
+        },
+    )
+    .await
 }

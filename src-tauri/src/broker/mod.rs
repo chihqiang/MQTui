@@ -70,9 +70,15 @@ impl ConnectionRegistry {
         name: String,
         config: ConnectionConfig,
     ) -> AppResult<ConnectionSummary> {
-        config.validate().map_err(AppError::Invalid)?;
+        config.validate().map_err(|error| {
+            // 参数没填全是最常见的「点了连接没反应」，必须留痕，否则只能靠猜。
+            log::warn!(target: "mqtui::broker", "连接 {name} 参数不合法：{error}");
+            AppError::Invalid(error)
+        })?;
 
         let id = ConnectionId::new();
+        let endpoint = config.endpoint();
+        log::info!(target: "mqtui::broker", "开始建立连接 {name}（{endpoint}），id={id}");
         let connection = match config.clone() {
             ConnectionConfig::Kafka(kafka) => {
                 Connection::Kafka(kafka::KafkaClient::connect(kafka).await?)
@@ -81,6 +87,12 @@ impl ConnectionRegistry {
                 Connection::RabbitMq(rabbitmq::RabbitMqClient::connect(rabbitmq).await?)
             }
         };
+
+        log::info!(
+            target: "mqtui::broker",
+            "连接 {name}（{endpoint}）建立成功，id={id}，类型={}",
+            connection.kind().display_name()
+        );
 
         let summary = ConnectionSummary {
             id: id.clone(),
@@ -115,19 +127,39 @@ impl ConnectionRegistry {
     /// 按 ID 取连接句柄。
     pub async fn get(&self, id: &ConnectionId) -> AppResult<Arc<Connection>> {
         let entries = self.entries.read().await;
-        entries
-            .get(id)
-            .map(|entry| Arc::clone(&entry.connection))
-            .ok_or_else(|| AppError::NotFound(format!("连接 {id}")))
+        match entries.get(id) {
+            Some(entry) => Ok(Arc::clone(&entry.connection)),
+            None => {
+                let known: Vec<String> = entries.keys().map(|key| key.to_string()).collect();
+                log::warn!(
+                    target: "mqtui::broker",
+                    "取连接失败：id={id} 不存在，当前连接池 [{}]",
+                    known.join(", ")
+                );
+                Err(AppError::NotFound(format!("连接 {id}")))
+            }
+        }
     }
 
     /// 关闭并移除连接。
     pub async fn close(&self, id: &ConnectionId) -> AppResult<()> {
         let mut entries = self.entries.write().await;
-        entries
-            .remove(id)
-            .map(|_| ())
-            .ok_or_else(|| AppError::NotFound(format!("连接 {id}")))
+        match entries.remove(id) {
+            Some(entry) => {
+                log::info!(
+                    target: "mqtui::broker",
+                    "连接 {}（{}）已关闭，id={id}",
+                    entry.summary.name,
+                    entry.summary.endpoint
+                );
+                Ok(())
+            }
+            None => {
+                // 「关闭后界面还在，再点一次报错」就是这里：id 早被移走了。
+                log::warn!(target: "mqtui::broker", "关闭连接失败：id={id} 不在连接池中");
+                Err(AppError::NotFound(format!("连接 {id}")))
+            }
+        }
     }
 }
 

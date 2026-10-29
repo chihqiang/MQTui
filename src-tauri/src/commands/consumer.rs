@@ -14,6 +14,8 @@ use crate::message::consumer::{self as groups, ConsumerGroupPage};
 use crate::message::kafka::topics::GroupRemovalOutcome;
 use crate::state::AppState;
 
+use super::trace;
+
 /// 列出消费组，支持关键字过滤与游标翻页。
 #[tauri::command]
 pub async fn list_consumer_groups(
@@ -144,11 +146,22 @@ pub async fn delete_consumer_groups(
     id: ConnectionId,
     groups_to_delete: Vec<String>,
 ) -> AppResult<GroupRemovalOutcome> {
-    let connection = state.connections.get(&id).await?;
-    if connection.kind() != BrokerKind::Kafka {
-        return Err(groups::unsupported());
-    }
+    let groups_desc = trace::brief(&groups_to_delete);
+    crate::commands::trace::traced(
+        "delete_consumer_groups",
+        || format!("id={id}, groups={groups_desc}"),
+        async {
+            let connection = state.connections.get(&id).await?;
+            if connection.kind() != BrokerKind::Kafka {
+                return Err(groups::unsupported());
+            }
 
-    crate::message::kafka::topics::delete_consumer_groups(connection.as_kafka()?, groups_to_delete)
-        .await
+            crate::message::kafka::topics::delete_consumer_groups(
+                connection.as_kafka()?,
+                groups_to_delete,
+            )
+            .await
+        },
+    )
+    .await
 }

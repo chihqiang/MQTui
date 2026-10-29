@@ -14,3 +14,4 @@ pub mod quota;
 pub mod reset;
 pub mod shovel;
 pub mod topic;
+pub mod trace;

@@ -39,7 +39,11 @@ pub async fn open_connection(
     name: String,
     config: ConnectionConfig,
 ) -> AppResult<ConnectionSummary> {
-    state.connections.open(name, config).await
+    let desc = format!("name={name}, endpoint={}", config.endpoint());
+    crate::commands::trace::traced("open_connection", || desc.clone(), async move {
+        state.connections.open(name, config).await
+    })
+    .await
 }
 
 /// 列出已建立的连接。
@@ -51,7 +55,10 @@ pub async fn list_connections(state: State<'_, AppState>) -> AppResult<Vec<Conne
 /// 关闭连接。
 #[tauri::command]
 pub async fn close_connection(state: State<'_, AppState>, id: ConnectionId) -> AppResult<()> {
-    state.connections.close(&id).await
+    crate::commands::trace::traced("close_connection", || format!("id={id}"), async {
+        state.connections.close(&id).await
+    })
+    .await
 }
 
 /// 读取连接概览。

@@ -103,6 +103,26 @@ npm run test:ui   # 前端单测（vitest run）
 npm run test:rust # 后端核心逻辑单测（--no-default-features，不需要图形环境）
 ```
 
+## 日志
+
+前后端共用一套日志：控制台、日志文件、前端 DevTools 三处同时有内容。
+
+- **后端**：`log` crate + `tauri-plugin-log`（`src-tauri/src/logging.rs`）。日志文件落在系统日志
+  目录下的应用目录里（如 macOS `~/Library/Logs/<app>/mqtui.log`），按 5 MB 滚动、保留 5 份。
+- **命令层**：写入类命令统一用 `commands::trace::traced` 包一层，成功记 `debug`（含耗时与参数
+  摘要），失败记 `error`（含耗时、参数摘要与错误种类）。
+- **前端**：`services/ipc.ts` 给每次 `invoke` 记进出与耗时，`lib/log.ts` 在桌面环境把日志转给插件，
+  所以在 DevTools 里看到的顺序就是真实调用顺序。
+
+调级别不用重编，开应用前设环境变量即可（`MQTUI_LOG` 优先，其次 `RUST_LOG`）：
+
+```bash
+MQTUI_LOG="mqtui_lib=debug,rdkafka=info" npm run tauri dev
+```
+
+默认过滤器是 `mqtui_lib=info,tauri=info,warn,rdkafka=warn,lapin=warn,reqwest=warn` ——
+驱动库的 debug 是心跳级别的刷屏，默认不放出来。
+
 ## 提交前自检
 
 跑一遍 CI 会跑的东西，能省掉一轮返工：

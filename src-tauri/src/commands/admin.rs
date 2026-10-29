@@ -17,6 +17,8 @@ use crate::domain::{ConnectionId, PermissionInfo};
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 
+use super::trace;
+
 /// 账户页的一次性快照。
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -79,17 +81,24 @@ pub async fn save_vhost(
     name: String,
     description: String,
 ) -> AppResult<Vec<VhostRow>> {
-    let name = name.trim().to_owned();
-    if name.is_empty() {
-        return Err(AppError::Invalid("vhost 名称不能为空".to_owned()));
-    }
+    crate::commands::trace::traced(
+        "save_vhost",
+        || format!("id={id}, name={name}, description={description}"),
+        async {
+            let name = name.trim().to_owned();
+            if name.is_empty() {
+                return Err(AppError::Invalid("vhost 名称不能为空".to_owned()));
+            }
 
-    let connection = state.connections.get(&id).await?;
-    let client = connection.as_rabbitmq()?;
-    client.put_vhost(&name, description.trim()).await?;
+            let connection = state.connections.get(&id).await?;
+            let client = connection.as_rabbitmq()?;
+            client.put_vhost(&name, description.trim()).await?;
 
-    let (rows, _) = client.vhost_rows().await?;
-    Ok(rows)
+            let (rows, _) = client.vhost_rows().await?;
+            Ok(rows)
+        },
+    )
+    .await
 }
 
 /// 删除 vhost。不可逆：里面的队列、消息、权限、策略一起消失。
@@ -99,14 +108,17 @@ pub async fn delete_vhost(
     id: ConnectionId,
     name: String,
 ) -> AppResult<Vec<VhostRow>> {
-    check_vhost_removal(&name).map_err(|block| AppError::Invalid(block.reason()))?;
+    crate::commands::trace::traced("delete_vhost", || format!("id={id}, name={name}"), async {
+        check_vhost_removal(&name).map_err(|block| AppError::Invalid(block.reason()))?;
 
-    let connection = state.connections.get(&id).await?;
-    let client = connection.as_rabbitmq()?;
-    client.delete_vhost(name.trim()).await?;
+        let connection = state.connections.get(&id).await?;
+        let client = connection.as_rabbitmq()?;
+        client.delete_vhost(name.trim()).await?;
 
-    let (rows, _) = client.vhost_rows().await?;
-    Ok(rows)
+        let (rows, _) = client.vhost_rows().await?;
+        Ok(rows)
+    })
+    .await
 }
 
 /// 用户的保存结果，带上口令强度提示。
@@ -126,34 +138,41 @@ pub async fn save_user(
     spec: UserSpec,
     original_name: Option<String>,
 ) -> AppResult<UserSaveOutcome> {
-    let editing = original_name
-        .as_deref()
-        .is_some_and(|name| !name.trim().is_empty());
-    spec.validate(editing)
-        .map_err(|block| AppError::Invalid(block.reason()))?;
+    crate::commands::trace::traced(
+        "save_user",
+        || format!("id={id}, spec={}", trace::brief(&spec)),
+        async {
+            let editing = original_name
+                .as_deref()
+                .is_some_and(|name| !name.trim().is_empty());
+            spec.validate(editing)
+                .map_err(|block| AppError::Invalid(block.reason()))?;
 
-    let password_warning = match check_password(&spec.name, &spec.password) {
-        PasswordVerdict::Ok => None,
-        verdict => verdict.reason().map(str::to_owned),
-    };
+            let password_warning = match check_password(&spec.name, &spec.password) {
+                PasswordVerdict::Ok => None,
+                verdict => verdict.reason().map(str::to_owned),
+            };
 
-    let connection = state.connections.get(&id).await?;
-    let client = connection.as_rabbitmq()?;
-    client.save_user(&spec).await?;
+            let connection = state.connections.get(&id).await?;
+            let client = connection.as_rabbitmq()?;
+            client.save_user(&spec).await?;
 
-    // 改名不是原子操作：管理 API 没有 rename。顺序必须是「先建新的、再删旧的」，
-    // 反过来会有一段时间这个账号完全不存在，正在跑的消费者会集体掉线。
-    if let Some(original) = original_name.as_deref()
-        && !original.trim().is_empty()
-        && original.trim() != spec.name.trim()
-    {
-        client.delete_user(original.trim()).await?;
-    }
+            // 改名不是原子操作：管理 API 没有 rename。顺序必须是「先建新的、再删旧的」，
+            // 反过来会有一段时间这个账号完全不存在，正在跑的消费者会集体掉线。
+            if let Some(original) = original_name.as_deref()
+                && !original.trim().is_empty()
+                && original.trim() != spec.name.trim()
+            {
+                client.delete_user(original.trim()).await?;
+            }
 
-    Ok(UserSaveOutcome {
-        users: client.users().await?,
-        password_warning,
-    })
+            Ok(UserSaveOutcome {
+                users: client.users().await?,
+                password_warning,
+            })
+        },
+    )
+    .await
 }
 
 /// 删除用户。连带删除它在所有 vhost 上的权限。
@@ -163,13 +182,16 @@ pub async fn delete_user(
     id: ConnectionId,
     name: String,
 ) -> AppResult<Vec<UserInfo>> {
-    let connection = state.connections.get(&id).await?;
-    let current = connection.as_rabbitmq()?.config().auth.username.clone();
-    check_user_removal(&name, &current).map_err(|block| AppError::Invalid(block.reason()))?;
+    crate::commands::trace::traced("delete_user", || format!("id={id}, name={name}"), async {
+        let connection = state.connections.get(&id).await?;
+        let current = connection.as_rabbitmq()?.config().auth.username.clone();
+        check_user_removal(&name, &current).map_err(|block| AppError::Invalid(block.reason()))?;
 
-    let client = connection.as_rabbitmq()?;
-    client.delete_user(name.trim()).await?;
-    client.users().await
+        let client = connection.as_rabbitmq()?;
+        client.delete_user(name.trim()).await?;
+        client.users().await
+    })
+    .await
 }
 
 /// 授权 / 改权限。三段正则覆盖写入，没写的那段会被置空。
@@ -179,25 +201,32 @@ pub async fn save_permission(
     id: ConnectionId,
     permission: PermissionInfo,
 ) -> AppResult<Vec<PermissionInfo>> {
-    if permission.user.trim().is_empty() {
-        return Err(AppError::Invalid("请选择要授权的用户".to_owned()));
-    }
-    if permission.vhost.trim().is_empty() {
-        return Err(AppError::Invalid("请选择 vhost".to_owned()));
-    }
+    crate::commands::trace::traced(
+        "save_permission",
+        || format!("id={id}, spec={}", trace::brief(&permission)),
+        async {
+            if permission.user.trim().is_empty() {
+                return Err(AppError::Invalid("请选择要授权的用户".to_owned()));
+            }
+            if permission.vhost.trim().is_empty() {
+                return Err(AppError::Invalid("请选择 vhost".to_owned()));
+            }
 
-    let connection = state.connections.get(&id).await?;
-    let client = connection.as_rabbitmq()?;
-    client
-        .save_permission(
-            permission.user.trim(),
-            permission.vhost.trim(),
-            permission.configure.trim(),
-            permission.write.trim(),
-            permission.read.trim(),
-        )
-        .await?;
-    client.permissions().await
+            let connection = state.connections.get(&id).await?;
+            let client = connection.as_rabbitmq()?;
+            client
+                .save_permission(
+                    permission.user.trim(),
+                    permission.vhost.trim(),
+                    permission.configure.trim(),
+                    permission.write.trim(),
+                    permission.read.trim(),
+                )
+                .await?;
+            client.permissions().await
+        },
+    )
+    .await
 }
 
 /// 撤销某个用户在一个 vhost 上的全部权限。
@@ -208,8 +237,15 @@ pub async fn delete_permission(
     user: String,
     vhost: String,
 ) -> AppResult<Vec<PermissionInfo>> {
-    let connection = state.connections.get(&id).await?;
-    let client = connection.as_rabbitmq()?;
-    client.delete_permission(user.trim(), vhost.trim()).await?;
-    client.permissions().await
+    crate::commands::trace::traced(
+        "delete_permission",
+        || format!("id={id}, user={user}, vhost={vhost}"),
+        async {
+            let connection = state.connections.get(&id).await?;
+            let client = connection.as_rabbitmq()?;
+            client.delete_permission(user.trim(), vhost.trim()).await?;
+            client.permissions().await
+        },
+    )
+    .await
 }

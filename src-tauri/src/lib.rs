@@ -12,6 +12,7 @@ pub mod broker;
 pub mod commands;
 pub mod domain;
 pub mod error;
+pub mod logging;
 pub mod message;
 #[cfg(feature = "desktop")]
 pub mod state;
@@ -19,10 +20,18 @@ pub mod state;
 /// 启动 Tauri 应用。
 #[cfg(feature = "desktop")]
 pub fn run() {
-    init_tracing();
-
     tauri::Builder::default()
+        .plugin(logging::plugin())
         .plugin(tauri_plugin_opener::init())
+        .setup(|_app| {
+            log::info!(
+                "MQTui {} 启动（{} 平台），日志级别过滤器：{}",
+                env!("CARGO_PKG_VERSION"),
+                std::env::consts::OS,
+                logging::default_filter()
+            );
+            Ok(())
+        })
         .manage(state::AppState::new())
         .invoke_handler(tauri::generate_handler![
             commands::broker::list_plugin_kinds,
@@ -121,18 +130,4 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("启动 Tauri 应用失败");
-}
-
-/// 初始化日志。默认只输出 warn 及以上，可用 `RUST_LOG` 覆盖。
-#[cfg(feature = "desktop")]
-fn init_tracing() {
-    use tracing_subscriber::EnvFilter;
-
-    let filter =
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("mqtui_lib=info,warn"));
-
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(filter)
-        .with_target(false)
-        .try_init();
 }

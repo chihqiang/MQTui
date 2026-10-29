@@ -20,7 +20,12 @@ tauri-build = { version = "2", features = [], optional = true }
 [features]
 # 桌面壳（Tauri）。关闭后只剩可独立测试的核心逻辑，便于在无图形环境下跑单测。
 default = ["desktop"]
-desktop = ["dep:tauri", "dep:tauri-build", "dep:tauri-plugin-opener"]
+desktop = [
+    "dep:tauri",
+    "dep:tauri-build",
+    "dep:tauri-plugin-opener",
+    "dep:tauri-plugin-log",
+]
 
 [dependencies]
 tauri = { version = "2", features = [], optional = true }
@@ -30,8 +35,6 @@ serde_json = "1"
 thiserror = "2"
 uuid = { version = "1", features = ["v4"] }
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"] }
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rdkafka = { version = "0.39", features = ["cmake-build", "ssl", "zstd"] }
 lapin = "4"
 base64 = "0.22"
@@ -44,6 +47,8 @@ reqwest = { version = "0.13", default-features = false, features = [
     "rustls",
     "charset",
 ] }
+tauri-plugin-log = { version = "2", optional = true }
+log = "0.4"
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]

@@ -19,6 +19,8 @@ use crate::message::kafka::throughput;
 use crate::message::kafka::topics::{self, ConfigPreview};
 use crate::state::AppState;
 
+use super::trace;
+
 /// 读取主题详情：分区布局、副本同步情况、非默认配置项。
 #[tauri::command]
 pub async fn get_topic(
@@ -39,8 +41,15 @@ pub async fn export_reassignment_plan(
     id: ConnectionId,
     topic: String,
 ) -> AppResult<String> {
-    let connection = state.connections.get(&id).await?;
-    migrations::export_plan(connection.as_kafka()?, &topic).await
+    crate::commands::trace::traced(
+        "export_reassignment_plan",
+        || format!("id={id}, topic={topic}"),
+        async {
+            let connection = state.connections.get(&id).await?;
+            migrations::export_plan(connection.as_kafka()?, &topic).await
+        },
+    )
+    .await
 }
 
 /// 校验一份重分配计划：结构、broker 是否存在、主题是否存在。
@@ -51,8 +60,15 @@ pub async fn check_reassignment_plan(
     topic: String,
     plan: String,
 ) -> AppResult<PlanCheck> {
-    let connection = state.connections.get(&id).await?;
-    migrations::check_plan(connection.as_kafka()?, &topic, &plan).await
+    crate::commands::trace::traced(
+        "check_reassignment_plan",
+        || format!("id={id}, topic={topic}, plan={} 字节", plan.len()),
+        async {
+            let connection = state.connections.get(&id).await?;
+            migrations::check_plan(connection.as_kafka()?, &topic, &plan).await
+        },
+    )
+    .await
 }
 
 /// 按计划报告分区迁移进度。
@@ -78,14 +94,27 @@ pub async fn build_migration_runbook(
     plan_file: Option<String>,
     min_insync: Option<u32>,
 ) -> AppResult<MigrationRunbook> {
-    let connection = state.connections.get(&id).await?;
-    migrations::runbook(
-        connection.as_kafka()?,
-        &topic,
-        &plan,
-        throttle,
-        plan_file,
-        min_insync,
+    let plan_file_desc = format!("{plan_file:?}");
+    crate::commands::trace::traced(
+        "build_migration_runbook",
+        || {
+            format!(
+                "id={id}, topic={topic}, throttle={throttle:?}, minInsync={min_insync:?}, plan={} 字节, planFile={plan_file_desc}",
+                plan.len()
+            )
+        },
+        async {
+            let connection = state.connections.get(&id).await?;
+            migrations::runbook(
+                connection.as_kafka()?,
+                &topic,
+                &plan,
+                throttle,
+                plan_file,
+                min_insync,
+            )
+            .await
+        },
     )
     .await
 }
@@ -131,8 +160,16 @@ pub async fn create_topic(
     id: ConnectionId,
     spec: TopicSpec,
 ) -> AppResult<TopicOutcome> {
-    let connection = state.connections.get(&id).await?;
-    topics::create(connection.as_kafka()?, spec).await
+    let spec_desc = trace::brief(&spec);
+    crate::commands::trace::traced(
+        "create_topic",
+        || format!("id={id}, spec={spec_desc}"),
+        async {
+            let connection = state.connections.get(&id).await?;
+            topics::create(connection.as_kafka()?, spec).await
+        },
+    )
+    .await
 }
 
 /// 扩容分区。Kafka 只支持增加，目标小于当前分区数会在本地被拒。
@@ -142,8 +179,17 @@ pub async fn expand_topic(
     id: ConnectionId,
     expansion: PartitionExpansion,
 ) -> AppResult<TopicOutcome> {
-    let connection = state.connections.get(&id).await?;
-    topics::expand(connection.as_kafka()?, expansion).await
+    // 摘要先拼好：payload 闭包只借用，命令体要拿走所有权。
+    let expansion_desc = trace::brief(&expansion);
+    crate::commands::trace::traced(
+        "expand_topic",
+        || format!("id={id}, expansion={expansion_desc}"),
+        async {
+            let connection = state.connections.get(&id).await?;
+            topics::expand(connection.as_kafka()?, expansion).await
+        },
+    )
+    .await
 }
 
 /// 删除主题。
@@ -157,11 +203,18 @@ pub async fn delete_topic(
     topic: String,
     internal: Option<bool>,
 ) -> AppResult<TopicOutcome> {
-    if topic.trim().is_empty() {
-        return Err(AppError::Invalid("主题名称不能为空".to_owned()));
-    }
-    let connection = state.connections.get(&id).await?;
-    topics::delete(connection.as_kafka()?, &topic, internal).await
+    crate::commands::trace::traced(
+        "delete_topic",
+        || format!("id={id}, topic={topic}, internal={internal:?}"),
+        async {
+            if topic.trim().is_empty() {
+                return Err(AppError::Invalid("主题名称不能为空".to_owned()));
+            }
+            let connection = state.connections.get(&id).await?;
+            topics::delete(connection.as_kafka()?, &topic, internal).await
+        },
+    )
+    .await
 }
 
 /// 预览配置项修改：会改成什么、有什么后果。
@@ -230,8 +283,16 @@ pub async fn purge_topic(
     id: ConnectionId,
     request: PurgeRequest,
 ) -> AppResult<PurgeOutcome> {
-    let connection = state.connections.get(&id).await?;
-    topics::commit_purge(connection.as_kafka()?, request).await
+    let purge_desc = trace::brief(&request);
+    crate::commands::trace::traced(
+        "purge_topic",
+        || format!("id={id}, request={purge_desc}"),
+        async {
+            let connection = state.connections.get(&id).await?;
+            topics::commit_purge(connection.as_kafka()?, request).await
+        },
+    )
+    .await
 }
 
 /// 提交配置项修改。走增量接口，未列出的配置项保持原样。
@@ -242,6 +303,14 @@ pub async fn update_topic_configs(
     topic: String,
     changes: Vec<ConfigChange>,
 ) -> AppResult<ConfigOutcome> {
-    let connection = state.connections.get(&id).await?;
-    topics::update_configs(connection.as_kafka()?, &topic, changes).await
+    let changes_desc = trace::brief(&changes);
+    crate::commands::trace::traced(
+        "update_topic_configs",
+        || format!("id={id}, topic={topic}, changes={changes_desc}"),
+        async {
+            let connection = state.connections.get(&id).await?;
+            topics::update_configs(connection.as_kafka()?, &topic, changes).await
+        },
+    )
+    .await
 }

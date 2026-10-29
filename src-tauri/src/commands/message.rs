@@ -17,6 +17,8 @@ use crate::message;
 use crate::message::orphans;
 use crate::state::AppState;
 
+use super::trace;
+
 /// 列出 Kafka 主题。
 #[tauri::command]
 pub async fn list_topics(
@@ -160,8 +162,11 @@ pub async fn purge_queue(
     id: ConnectionId,
     queue: String,
 ) -> AppResult<()> {
-    let connection = state.connections.get(&id).await?;
-    connection.as_rabbitmq()?.purge_queue(&queue).await
+    crate::commands::trace::traced("purge_queue", || format!("id={id}, queue={queue}"), async {
+        let connection = state.connections.get(&id).await?;
+        connection.as_rabbitmq()?.purge_queue(&queue).await
+    })
+    .await
 }
 
 /// 断开一个 RabbitMQ 消费者。
@@ -179,33 +184,41 @@ pub async fn disconnect_consumer(
     state: State<'_, AppState>,
     request: DisconnectRequest,
 ) -> AppResult<()> {
-    request.validate().map_err(AppError::Invalid)?;
+    crate::commands::trace::traced(
+        "disconnect_consumer",
+        || format!("request={}", trace::brief(&request)),
+        async {
+            request.validate().map_err(AppError::Invalid)?;
 
-    let id = ConnectionId(request.connection_id.clone());
-    let connection = state.connections.get(&id).await?;
-    let client = connection.as_rabbitmq()?;
+            let id = ConnectionId(request.connection_id.clone());
+            let connection = state.connections.get(&id).await?;
+            let client = connection.as_rabbitmq()?;
 
-    let consumers = client.consumer_links().await?.queues;
-    let founded = consumers
-        .iter()
-        .flat_map(|item| item.consumers.iter())
-        .find(|consumer| {
-            consumer.consumer_tag == request.consumer_tag.trim() && consumer.queue == request.queue
-        });
+            let consumers = client.consumer_links().await?.queues;
+            let founded = consumers
+                .iter()
+                .flat_map(|item| item.consumers.iter())
+                .find(|consumer| {
+                    consumer.consumer_tag == request.consumer_tag.trim()
+                        && consumer.queue == request.queue
+                });
 
-    let Some(consumer) = founded else {
-        return Err(AppError::NotFound(format!(
-            "消费者 {}（队列 {}）",
-            request.consumer_tag, request.queue
-        )));
-    };
+            let Some(consumer) = founded else {
+                return Err(AppError::NotFound(format!(
+                    "消费者 {}（队列 {}）",
+                    request.consumer_tag, request.queue
+                )));
+            };
 
-    let verdict = disconnect::evaluate(consumer);
-    if !verdict.is_allowed() {
-        return Err(AppError::Invalid(verdict.note().to_owned()));
-    }
+            let verdict = disconnect::evaluate(consumer);
+            if !verdict.is_allowed() {
+                return Err(AppError::Invalid(verdict.note().to_owned()));
+            }
 
-    client.disconnect_consumer(&request.consumer_tag).await
+            client.disconnect_consumer(&request.consumer_tag).await
+        },
+    )
+    .await
 }
 
 /// 删除 RabbitMQ 队列。非空队列会被服务端拒绝，错误信息原样返回。
@@ -215,8 +228,15 @@ pub async fn delete_queue(
     id: ConnectionId,
     queue: String,
 ) -> AppResult<()> {
-    let connection = state.connections.get(&id).await?;
-    connection.as_rabbitmq()?.delete_queue(&queue).await
+    crate::commands::trace::traced(
+        "delete_queue",
+        || format!("id={id}, queue={queue}"),
+        async {
+            let connection = state.connections.get(&id).await?;
+            connection.as_rabbitmq()?.delete_queue(&queue).await
+        },
+    )
+    .await
 }
 
 /// 新建 RabbitMQ 交换机。
@@ -226,8 +246,15 @@ pub async fn create_exchange(
     id: ConnectionId,
     spec: ExchangeSpec,
 ) -> AppResult<()> {
-    let connection = state.connections.get(&id).await?;
-    connection.as_rabbitmq()?.create_exchange(&spec).await
+    crate::commands::trace::traced(
+        "create_exchange",
+        || format!("id={id}, spec={}", trace::brief(&spec)),
+        async {
+            let connection = state.connections.get(&id).await?;
+            connection.as_rabbitmq()?.create_exchange(&spec).await
+        },
+    )
+    .await
 }
 
 /// 删除 RabbitMQ 交换机。
@@ -241,11 +268,18 @@ pub async fn delete_exchange(
     name: String,
     internal: Option<bool>,
 ) -> AppResult<()> {
-    let connection = state.connections.get(&id).await?;
-    connection
-        .as_rabbitmq()?
-        .delete_exchange(&name, internal.unwrap_or(false))
-        .await
+    crate::commands::trace::traced(
+        "delete_exchange",
+        || format!("id={id}, name={name}"),
+        async {
+            let connection = state.connections.get(&id).await?;
+            connection
+                .as_rabbitmq()?
+                .delete_exchange(&name, internal.unwrap_or(false))
+                .await
+        },
+    )
+    .await
 }
 
 /// 新建 RabbitMQ 绑定。
@@ -255,8 +289,15 @@ pub async fn create_binding(
     id: ConnectionId,
     spec: BindingSpec,
 ) -> AppResult<()> {
-    let connection = state.connections.get(&id).await?;
-    connection.as_rabbitmq()?.create_binding(&spec).await
+    crate::commands::trace::traced(
+        "create_binding",
+        || format!("id={id}, spec={}", trace::brief(&spec)),
+        async {
+            let connection = state.connections.get(&id).await?;
+            connection.as_rabbitmq()?.create_binding(&spec).await
+        },
+    )
+    .await
 }
 
 /// 删除 RabbitMQ 绑定。
@@ -266,8 +307,15 @@ pub async fn delete_binding(
     id: ConnectionId,
     key: BindingKey,
 ) -> AppResult<()> {
-    let connection = state.connections.get(&id).await?;
-    connection.as_rabbitmq()?.delete_binding(&key).await
+    crate::commands::trace::traced(
+        "delete_binding",
+        || format!("id={id}, key={}", trace::brief(&key)),
+        async {
+            let connection = state.connections.get(&id).await?;
+            connection.as_rabbitmq()?.delete_binding(&key).await
+        },
+    )
+    .await
 }
 
 /// 拉取消息列表。
@@ -326,73 +374,80 @@ pub async fn send_message(
     state: State<'_, AppState>,
     request: SendRequest,
 ) -> AppResult<SendOutcome> {
-    match &request {
-        SendRequest::Kafka {
-            connection_id,
-            topic,
-            key,
-            headers,
-            payload,
-        } => {
-            ensure_payload(payload)?;
-            let connection = state
-                .connections
-                .get(&ConnectionId(connection_id.clone()))
-                .await?;
-            let client = connection.as_kafka()?;
-            let receipt =
-                message::kafka::send(client, topic, key.as_deref(), payload.as_bytes(), headers)
+    crate::commands::trace::traced(
+        "send_message",
+        || match &request { SendRequest::Kafka { connection_id, topic, key, payload, .. } => format!("id={connection_id}, topic={topic}, key={}, payload={} 字节", if key.is_some() { "有" } else { "无" }, payload.len()), SendRequest::RabbitMq { connection_id, exchange, routing_key, payload, .. } => format!("id={connection_id}, exchange={exchange}, routingKey={routing_key}, payload={} 字节", payload.len()) },
+        async {
+        match &request {
+            SendRequest::Kafka {
+                connection_id,
+                topic,
+                key,
+                headers,
+                payload,
+            } => {
+                ensure_payload(payload)?;
+                let connection = state
+                    .connections
+                    .get(&ConnectionId(connection_id.clone()))
                     .await?;
-            // 投递结果三态原样带上：`unsure` 必须让界面说「可能已写入」，
-            // 折成一句「失败」会把人推去再点一次，那才是重复消息。
-            Ok(SendOutcome {
-                kind: BrokerKind::Kafka,
-                detail: receipt.message(topic),
-                unsure: matches!(receipt, DeliveryReceipt::Unsure(_)),
-                // 幂等被高级选项关掉时说清代价：那句「已写入」不再是
-                // 「再点一次也没关系」的凭证。
-                producer_warning: client.guarantee().warning(),
-            })
-        }
-        SendRequest::RabbitMq {
-            connection_id,
-            exchange,
-            routing_key,
-            payload,
-            delivery_mode,
-            content_type,
-            content_encoding,
-            headers,
-        } => {
-            ensure_payload(payload)?;
-            ensure_delivery_mode(*delivery_mode)?;
-            let content_type = normalize_content_type(content_type.as_deref())?;
-            let content_encoding = normalize_content_encoding(content_encoding.as_deref())?;
-            let connection = state
-                .connections
-                .get(&ConnectionId(connection_id.clone()))
-                .await?;
-            let detail = message::rabbitmq::send(
-                connection.as_rabbitmq()?,
+                let client = connection.as_kafka()?;
+                let receipt =
+                    message::kafka::send(client, topic, key.as_deref(), payload.as_bytes(), headers)
+                        .await?;
+                // 投递结果三态原样带上：`unsure` 必须让界面说「可能已写入」，
+                // 折成一句「失败」会把人推去再点一次，那才是重复消息。
+                Ok(SendOutcome {
+                    kind: BrokerKind::Kafka,
+                    detail: receipt.message(topic),
+                    unsure: matches!(receipt, DeliveryReceipt::Unsure(_)),
+                    // 幂等被高级选项关掉时说清代价：那句「已写入」不再是
+                    // 「再点一次也没关系」的凭证。
+                    producer_warning: client.guarantee().warning(),
+                })
+            }
+            SendRequest::RabbitMq {
+                connection_id,
                 exchange,
                 routing_key,
-                payload.as_bytes(),
-                message::rabbitmq::MessageProperties {
-                    delivery_mode: *delivery_mode,
-                    content_type: content_type.as_deref(),
-                    content_encoding: content_encoding.as_deref(),
-                    headers,
-                },
-            )
-            .await?;
-            Ok(SendOutcome {
-                kind: BrokerKind::RabbitMq,
-                detail,
-                unsure: false,
-                producer_warning: None,
-            })
+                payload,
+                delivery_mode,
+                content_type,
+                content_encoding,
+                headers,
+            } => {
+                ensure_payload(payload)?;
+                ensure_delivery_mode(*delivery_mode)?;
+                let content_type = normalize_content_type(content_type.as_deref())?;
+                let content_encoding = normalize_content_encoding(content_encoding.as_deref())?;
+                let connection = state
+                    .connections
+                    .get(&ConnectionId(connection_id.clone()))
+                    .await?;
+                let detail = message::rabbitmq::send(
+                    connection.as_rabbitmq()?,
+                    exchange,
+                    routing_key,
+                    payload.as_bytes(),
+                    message::rabbitmq::MessageProperties {
+                        delivery_mode: *delivery_mode,
+                        content_type: content_type.as_deref(),
+                        content_encoding: content_encoding.as_deref(),
+                        headers,
+                    },
+                )
+                .await?;
+                Ok(SendOutcome {
+                    kind: BrokerKind::RabbitMq,
+                    detail,
+                    unsure: false,
+                    producer_warning: None,
+                })
+            }
         }
-    }
+        },
+    )
+    .await
 }
 
 /// 发送预览：这条消息会投到哪些队列（仅 RabbitMQ）。
@@ -440,9 +495,16 @@ pub async fn redeliver_message(
     state: State<'_, AppState>,
     request: RedeliverRequest,
 ) -> AppResult<DisposalOutcome> {
-    let id = ConnectionId(request.connection_id.clone());
-    let connection = state.connections.get(&id).await?;
-    message::rabbitmq::redeliver::redeliver(connection.as_rabbitmq()?, &request).await
+    crate::commands::trace::traced(
+        "redeliver_message",
+        || format!("request={}", trace::brief(&request)),
+        async {
+            let id = ConnectionId(request.connection_id.clone());
+            let connection = state.connections.get(&id).await?;
+            message::rabbitmq::redeliver::redeliver(connection.as_rabbitmq()?, &request).await
+        },
+    )
+    .await
 }
 
 /// 把一条 RabbitMQ 消息移入队列声明的死信交换机。
@@ -451,9 +513,16 @@ pub async fn dead_letter_message(
     state: State<'_, AppState>,
     request: DeadLetterRequest,
 ) -> AppResult<DisposalOutcome> {
-    let id = ConnectionId(request.connection_id.clone());
-    let connection = state.connections.get(&id).await?;
-    message::rabbitmq::redeliver::dead_letter(connection.as_rabbitmq()?, &request).await
+    crate::commands::trace::traced(
+        "dead_letter_message",
+        || format!("request={}", trace::brief(&request)),
+        async {
+            let id = ConnectionId(request.connection_id.clone());
+            let connection = state.connections.get(&id).await?;
+            message::rabbitmq::redeliver::dead_letter(connection.as_rabbitmq()?, &request).await
+        },
+    )
+    .await
 }
 
 /// 批量处置：对同一个队列里的多条消息执行同一个动作。
@@ -465,11 +534,18 @@ pub async fn batch_dispose_messages(
     state: State<'_, AppState>,
     request: BatchDisposalRequest,
 ) -> AppResult<BatchDisposalOutcome> {
-    let id = ConnectionId(request.connection_id.clone());
-    let connection = state.connections.get(&id).await?;
-    message::rabbitmq::redeliver::batch(connection.as_rabbitmq()?, &request)
-        .await
-        .map_err(AppError::Invalid)
+    crate::commands::trace::traced(
+        "batch_dispose_messages",
+        || format!("request={}", trace::brief(&request)),
+        async {
+            let id = ConnectionId(request.connection_id.clone());
+            let connection = state.connections.get(&id).await?;
+            message::rabbitmq::redeliver::batch(connection.as_rabbitmq()?, &request)
+                .await
+                .map_err(AppError::Invalid)
+        },
+    )
+    .await
 }
 
 /// 重试「没放回队列」的那批消息。
@@ -485,11 +561,18 @@ pub async fn retry_stranded_messages(
     state: State<'_, AppState>,
     request: BatchDisposalRequest,
 ) -> AppResult<BatchDisposalOutcome> {
-    let id = ConnectionId(request.connection_id.clone());
-    let connection = state.connections.get(&id).await?;
-    message::rabbitmq::redeliver::retry_stranded(connection.as_rabbitmq()?, &request)
-        .await
-        .map_err(AppError::Invalid)
+    crate::commands::trace::traced(
+        "retry_stranded_messages",
+        || format!("request={}", trace::brief(&request)),
+        async {
+            let id = ConnectionId(request.connection_id.clone());
+            let connection = state.connections.get(&id).await?;
+            message::rabbitmq::redeliver::retry_stranded(connection.as_rabbitmq()?, &request)
+                .await
+                .map_err(AppError::Invalid)
+        },
+    )
+    .await
 }
 
 /// 重发一条 Kafka 消息：用同样的 key / 内容再写一条新消息。
@@ -501,9 +584,16 @@ pub async fn resend_message(
     state: State<'_, AppState>,
     request: ResendRequest,
 ) -> AppResult<ResendOutcome> {
-    let id = ConnectionId(request.connection_id.clone());
-    let connection = state.connections.get(&id).await?;
-    message::kafka::resend::resend(connection.as_kafka()?, &request).await
+    crate::commands::trace::traced(
+        "resend_message",
+        || format!("request={}", trace::brief(&request)),
+        async {
+            let id = ConnectionId(request.connection_id.clone());
+            let connection = state.connections.get(&id).await?;
+            message::kafka::resend::resend(connection.as_kafka()?, &request).await
+        },
+    )
+    .await
 }
 
 /// 当请求体为空时统一给出可读错误，避免向下层传空 payload。

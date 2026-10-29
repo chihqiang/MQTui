@@ -11,6 +11,8 @@
  */
 import { Component, type ErrorInfo, type ReactNode } from "react";
 
+import { log } from "./log";
+
 export interface ErrorBoundaryState {
   /** 捕获到的错误；`null` 表示正常渲染。 */
   error: Error | null;
@@ -48,8 +50,8 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    // 开发期把组件栈打到控制台：这里不打，问题就只剩一句 message。
-    console.error("渲染失败", error, info.componentStack);
+    // 组件栈同时进控制台和日志文件：白屏时能拿走的只有这段。
+    log.error(`渲染失败：${errorText(error)}\n组件栈：${info.componentStack ?? "无"}`);
   }
 
   /** 换页面就自动恢复：让用户不必为了「回上一页」再去点重试。 */
