@@ -203,8 +203,8 @@ pub struct AclSnapshot {
     /// 而真实情况可能只是「这台 broker 压根没开 ACL」。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unsupported: Option<String>,
-    /// 需要用户知道的事实。
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    /// 需要用户知道的事实。空也要序列化成 `[]`：前端类型里它是必填字段。
+    #[serde(default)]
     pub notes: Vec<String>,
 }
 
@@ -485,10 +485,11 @@ pub struct AclChangePlan {
     pub changes: Vec<AclChange>,
     /// 会真正改变集群的条数。
     pub effective: usize,
-    /// 提交前必须让人看见的事实（自锁风险等）。
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    /// 提交前必须让人看见的事实（自锁风险等）。空也要序列化成 `[]`：前端类型里它是必填字段。
+    #[serde(default)]
     pub blockers: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    /// 空也要序列化成 `[]`：前端类型里它是必填字段。
+    #[serde(default)]
     pub notes: Vec<String>,
 }
 
@@ -1601,5 +1602,15 @@ mod tests {
         let other = allow("User:alice", "orders", AclOperation::Write);
         assert_ne!(entry_fingerprint(&base), entry_fingerprint(&other));
         assert_eq!(entry_fingerprint(&base), entry_fingerprint(&base.clone()));
+    }
+
+    #[test]
+    fn empty_notes_are_serialized_as_an_array() {
+        // 前端的 `notes` 是必填字段：省掉空数组会让准入页在 `notes.length` 上抛错。
+        let snapshot = serde_json::to_value(AclSnapshot::default()).expect("序列化 ACL 快照");
+        assert_eq!(snapshot["notes"], serde_json::json!([]));
+        let plan = serde_json::to_value(AclChangePlan::default()).expect("序列化 ACL 预演");
+        assert_eq!(plan["notes"], serde_json::json!([]));
+        assert_eq!(plan["blockers"], serde_json::json!([]));
     }
 }

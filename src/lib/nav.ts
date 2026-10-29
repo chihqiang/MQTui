@@ -174,7 +174,12 @@ const NAV_LABELS: Record<
 /** 默认落点：取能力列表中的第一项。 */
 export const DEFAULT_CAPABILITY: BrokerCapability = "overview";
 
-/** 由后端返回的能力清单生成菜单。 */
+/**
+ * 由后端返回的能力清单生成菜单。
+ *
+ * 这里**不排序**：顺序就是 `BrokerKind::capabilities()` 里按使用频率排好的那一份，
+ * 改菜单顺序要动 Rust 侧，动 `NAV_LABELS` 的书写顺序不会有任何效果。
+ */
 export function buildNavItems(capabilities: BrokerCapability[]): NavItem[] {
   return capabilities.map((capability) => ({
     capability,

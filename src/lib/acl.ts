@@ -295,12 +295,12 @@ export function planVerdict(plan: AclChangePlan): string {
 export function canSubmit(plan: AclChangePlan | undefined, acknowledged: boolean): boolean {
   if (!plan || plan.changes.length === 0) return false;
   if (plan.effective === 0) return false;
-  return plan.blockers.length === 0 || acknowledged;
+  return (plan.blockers ?? []).length === 0 || acknowledged;
 }
 
 /** 预演里有没有拦路风险。 */
 export function hasBlockers(plan: AclChangePlan | undefined): boolean {
-  return Boolean(plan?.blockers.length);
+  return Boolean(plan?.blockers?.length);
 }
 
 /**

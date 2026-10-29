@@ -163,7 +163,7 @@ export function AclEntryEditor({
               <p className="text-meta">正在预演这次提交…</p>
             ) : null}
 
-            {plan && plan.blockers.length ? (
+            {plan?.blockers?.length ? (
               <label className="flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2 text-(length:--text-app-body) text-amber-800">
                 <input
                   type="checkbox"
@@ -304,7 +304,7 @@ function PlanView({ plan }: { plan: AclChangePlan }) {
   return (
     <div className="flex flex-col gap-2">
       <p className="text-(length:--text-app-body) text-slate-700">{planVerdict(plan)}</p>
-      {plan.blockers.map((blocker) => (
+      {(plan.blockers ?? []).map((blocker) => (
         <Callout key={blocker} tone="danger">
           {blocker}
         </Callout>
@@ -324,7 +324,7 @@ function PlanView({ plan }: { plan: AclChangePlan }) {
           </div>
         ))}
       </div>
-      {plan.notes.map((note) => (
+      {(plan.notes ?? []).map((note) => (
         <p key={note} className="text-meta">
           {note}
         </p>
@@ -345,7 +345,7 @@ function ReportView({ report }: { report: AclWriteReport }) {
           {failed.map((item) => ` ${item.entry.principal}（${item.message}）`).join("；")}
         </Callout>
       ) : null}
-      {report.notes.map((note) => (
+      {(report.notes ?? []).map((note) => (
         <p key={note} className="text-meta">
           {note}
         </p>

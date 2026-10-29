@@ -22,35 +22,40 @@ impl BrokerKind {
     }
 
     /// 该中间件支持的面板能力，前端据此决定菜单结构。
+    ///
+    /// **顺序就是侧栏顺序**，按日常使用频率从高到低排：先放每天都要看的
+    /// （概览、主题/队列、消费组/消费者、消息），再放排查时才打开的
+    /// （集群、无消费组、位点重置、消费归属），最后是偶尔改一次的
+    /// （准入、策略、参数、账户）。打开侧栏第一屏就够用，不用滚动。
     pub const fn capabilities(self) -> &'static [BrokerCapability] {
         match self {
             Self::Kafka => &[
                 BrokerCapability::Overview,
-                BrokerCapability::Cluster,
                 BrokerCapability::Topics,
                 BrokerCapability::ConsumerGroups,
-                BrokerCapability::OffsetReset,
-                BrokerCapability::OrphanTopics,
-                BrokerCapability::Access,
                 BrokerCapability::Messages,
                 BrokerCapability::Produce,
+                BrokerCapability::Cluster,
+                BrokerCapability::OrphanTopics,
+                BrokerCapability::OffsetReset,
+                BrokerCapability::Access,
             ],
             Self::RabbitMq => &[
                 BrokerCapability::Overview,
-                BrokerCapability::Cluster,
-                BrokerCapability::Runtime,
                 BrokerCapability::Queues,
-                BrokerCapability::Admin,
-                BrokerCapability::Policies,
-                BrokerCapability::Parameters,
                 BrokerCapability::Exchanges,
                 BrokerCapability::Consumers,
                 BrokerCapability::ConsumerOwnership,
-                BrokerCapability::Routing,
-                BrokerCapability::TopologyGraph,
-                BrokerCapability::ConsumerGraph,
                 BrokerCapability::Messages,
                 BrokerCapability::Produce,
+                BrokerCapability::Policies,
+                BrokerCapability::Runtime,
+                BrokerCapability::TopologyGraph,
+                BrokerCapability::ConsumerGraph,
+                BrokerCapability::Routing,
+                BrokerCapability::Parameters,
+                BrokerCapability::Cluster,
+                BrokerCapability::Admin,
             ],
         }
     }
@@ -658,6 +663,19 @@ mod tests {
     fn every_kind_has_capabilities() {
         for kind in [BrokerKind::Kafka, BrokerKind::RabbitMq] {
             assert!(!kind.capabilities().is_empty(), "{kind:?} 缺少能力声明");
+        }
+    }
+
+    #[test]
+    fn menu_opens_with_the_landing_page() {
+        // 前端默认落点（`DEFAULT_CAPABILITY`）和工作区入口渲染的都是概览。
+        // 菜单第一项必须是它，否则「点连接名」和「点第一项菜单」会去两个地方。
+        for kind in [BrokerKind::Kafka, BrokerKind::RabbitMq] {
+            assert_eq!(
+                kind.capabilities().first(),
+                Some(&BrokerCapability::Overview),
+                "{kind:?} 的菜单第一项不是概览"
+            );
         }
     }
 

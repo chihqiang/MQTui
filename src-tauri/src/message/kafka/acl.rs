@@ -33,8 +33,8 @@ pub struct AclWriteReport {
     pub outcomes: Vec<crate::broker::kafka::acl::AclWriteOutcome>,
     /// 成功的条数（删除时按真正删掉的条数算）。
     pub applied: usize,
-    /// 需要用户知道的事实。
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    /// 需要用户知道的事实。空也要序列化成 `[]`：前端类型里它是必填字段。
+    #[serde(default)]
     pub notes: Vec<String>,
 }
 
@@ -214,5 +214,12 @@ mod tests {
                 .iter()
                 .any(|note| note.contains("kafka-acls"))
         );
+    }
+
+    #[test]
+    fn empty_notes_are_serialized_as_an_array() {
+        // 前端的 `AclWriteReport.notes` 是必填字段：省掉空数组会让回执渲染抛错。
+        let report = serde_json::to_value(AclWriteReport::default()).expect("序列化写入回执");
+        assert_eq!(report["notes"], serde_json::json!([]));
     }
 }

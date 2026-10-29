@@ -165,7 +165,7 @@ export function OwnershipPage() {
         </p>
       ) : null}
 
-      {data?.notes.length ? (
+      {data?.notes?.length ? (
         <div className="flex flex-col gap-1">
           {data.notes.map((note) => (
             <p key={note} className="text-meta">

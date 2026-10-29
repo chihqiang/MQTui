@@ -154,7 +154,10 @@ pub struct OwnershipSnapshot {
     /// 有消费者、但连接已经不在运行的条数。
     pub blocked_consumers: usize,
     /// 需要用户知道的事实。
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    ///
+    /// 空也要序列化成 `[]`：前端的 `OwnershipSnapshot.notes` 是必填字段，
+    /// 省掉它会让页面在 `data?.notes.length` 上抛错、整页渲染失败。
+    #[serde(default)]
     pub notes: Vec<String>,
 }
 
@@ -638,5 +641,13 @@ mod tests {
         let snapshot = assemble(&[("orders".to_owned(), 9, 5)], &[item], &[], &[]);
         assert_eq!(snapshot.queues[0].troubled, 1);
         assert!(snapshot.queues[0].verdict().contains("有异常"));
+    }
+
+    #[test]
+    fn empty_notes_are_serialized_as_an_array() {
+        let snapshot = assemble(&[], &[], &[], &[]);
+        let json = serde_json::to_value(&snapshot).expect("序列化归属快照");
+        // 前端的 `OwnershipSnapshot.notes` 是必填字段：省掉它会让整页渲染直接抛错。
+        assert_eq!(json["notes"], serde_json::json!([]));
     }
 }

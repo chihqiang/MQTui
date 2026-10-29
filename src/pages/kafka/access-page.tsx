@@ -296,7 +296,7 @@ export function AccessPage() {
             />
           )}
 
-          {acls.data?.notes.length ? (
+          {acls.data?.notes?.length ? (
             <div className="flex flex-col gap-1">
               {acls.data.notes.map((note) => (
                 <p key={note} className="text-meta">
@@ -343,7 +343,7 @@ export function AccessPage() {
             />
           )}
         </CardBody>
-        {quotas.data?.notes.length ? (
+        {quotas.data?.notes?.length ? (
           <CardBody className="flex flex-col gap-1 border-t border-slate-200">
             {quotas.data.notes.map((note) => (
               <p key={note} className="text-meta">
@@ -395,7 +395,7 @@ export function AccessPage() {
               />
             )}
 
-            {scram.data?.notes.length ? (
+            {scram.data?.notes?.length ? (
               <div className="flex flex-col gap-1">
                 {scram.data.notes.map((note) => (
                   <p key={note} className="text-meta">

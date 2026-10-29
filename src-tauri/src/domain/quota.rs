@@ -147,7 +147,8 @@ pub struct QuotaSnapshot {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
     /// 需要用户知道的事实（例如「这里是只读的，改要去 kafka-configs.sh」）。
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    /// 空也要序列化成 `[]`：前端类型里它是必填字段。
+    #[serde(default)]
     pub notes: Vec<String>,
 }
 
@@ -291,7 +292,8 @@ pub struct ScramSnapshot {
     /// 「这台 broker 根本不会回答这个问题」。两者要分开说。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unsupported: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    /// 空也要序列化成 `[]`：前端类型里它是必填字段。
+    #[serde(default)]
     pub notes: Vec<String>,
 }
 
@@ -574,5 +576,14 @@ mod tests {
                 .iter()
                 .any(|note| note.contains("AlterUserScramCredentials"))
         );
+    }
+
+    #[test]
+    fn empty_notes_are_serialized_as_an_array() {
+        // 前端的 `notes` 是必填字段：省掉空数组会让配额与 SCRAM 两块渲染失败。
+        let quotas = serde_json::to_value(QuotaSnapshot::default()).expect("序列化配额快照");
+        assert_eq!(quotas["notes"], serde_json::json!([]));
+        let scram = serde_json::to_value(ScramSnapshot::default()).expect("序列化 SCRAM 快照");
+        assert_eq!(scram["notes"], serde_json::json!([]));
     }
 }
