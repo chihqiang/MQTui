@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 
 import {
   CONTENT_ENCODINGS,
+  changedOptionCount,
   CONTENT_TYPES,
   DEFAULT_CONTENT_TYPE,
   DEFAULT_DELIVERY_MODE,
@@ -12,6 +13,7 @@ import {
   exchangeName,
   kafkaKey,
   emptyRouteHint,
+  payloadBytes,
   headerFingerprint,
   sendBlockers,
   sendOutcomeMessage,
@@ -179,4 +181,33 @@ test("重发结果把落点和连接属性分开说", () => {
   expect(resendOutcomeMessage({ topic: "orders", partition: 2, offset: 7 })).toBe(
     "已写入 orders 分区 2 offset 7",
   );
+});
+
+test("字节数按 UTF-8 算，不是按字符数", () => {
+  // 用字符数会低估三倍：中文正文撞上 message.max.bytes 时看起来还「很小」。
+  expect(payloadBytes("abc")).toBe(3);
+  expect(payloadBytes("中文")).toBe(6);
+  expect(payloadBytes("")).toBe(0);
+});
+
+test("折叠区只数真正改动的项", () => {
+  const headers = [{ key: "trace-id", value: "abc" }];
+  // 空 key 的行发不出去，标成「改过」是假警报。
+  const blankHeader = [{ key: "  ", value: "x" }];
+
+  expect(changedOptionCount({ kind: "kafka", headers })).toBe(1);
+  expect(changedOptionCount({ kind: "kafka", headers: blankHeader })).toBe(0);
+
+  const defaults = {
+    kind: "rabbitMq" as const,
+    deliveryMode: DEFAULT_DELIVERY_MODE,
+    contentType: DEFAULT_CONTENT_TYPE,
+    contentEncoding: "",
+    headers: [],
+  };
+  expect(changedOptionCount(defaults)).toBe(0);
+  expect(changedOptionCount({ ...defaults, deliveryMode: 2 })).toBe(1);
+  expect(changedOptionCount({ ...defaults, contentType: "application/json" })).toBe(1);
+  expect(changedOptionCount({ ...defaults, contentEncoding: "gzip" })).toBe(1);
+  expect(changedOptionCount({ ...defaults, headers })).toBe(1);
 });

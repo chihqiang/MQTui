@@ -109,12 +109,12 @@ export function contentField(value: string): string | undefined {
  * 所以给候选，同时允许自己写 —— 自定义 header 本来就是常态。
  */
 export const HEADER_NAMES = [
-  { value: "trace-id", hint: "链路追踪，跨服务串一条调用" },
-  { value: "x-request-id", hint: "单次请求标识，网关常写" },
-  { value: "content-type", hint: "有些框架在 header 里再带一份" },
-  { value: "message-type", hint: "业务侧用来分派 handler" },
-  { value: "x-retry-count", hint: "重试次数，消费端据此决定要不要继续" },
-  { value: "x-delay", hint: "延迟插件的延时时长（毫秒）" },
+  { value: "trace-id", hint: "链路追踪" },
+  { value: "x-request-id", hint: "网关常用" },
+  { value: "content-type", hint: "再带一份类型" },
+  { value: "message-type", hint: "业务分派" },
+  { value: "x-retry-count", hint: "重试次数" },
+  { value: "x-delay", hint: "延迟毫秒" },
 ] as const;
 
 /**
@@ -230,4 +230,41 @@ export function resendOutcomeMessage(outcome: {
 }): string {
   const base = `已写入 ${outcome.topic} 分区 ${outcome.partition} offset ${outcome.offset}`;
   return outcome.warning ? `${base}。${outcome.warning}` : base;
+}
+
+/**
+ * payload 的 UTF-8 字节数。
+ *
+ * 面板发出去的是字节，不是字符：一个汉字在 `length` 里算 1，实际占 3 字节。
+ * 「是不是撞上了 broker 的 message.max.bytes」要看这个数，
+ * 按字符数估会低到离谱（中文正文差三倍），撞了限制还以为是服务端抽风。
+ */
+export function payloadBytes(text: string): number {
+  return new TextEncoder().encode(text).length;
+}
+
+/**
+ * 折叠区标题上的「已改 N 项」。
+ *
+ * 高级选项收起来之后，如果里面悄悄不是默认值，用户要等到下一次发送
+ * （投递模式变了、内容类型变了）才发现。数一下改动项，收起来也交代得清。
+ *
+ * headers 按「填了 key 的行」算：点了「加一行」又没填的行不算改动，
+ * 那些行发不出去，标上它反而是假警报。
+ */
+export function changedOptionCount(input: {
+  kind: "kafka" | "rabbitMq";
+  deliveryMode?: DeliveryMode;
+  contentType?: string;
+  contentEncoding?: string;
+  headers: readonly HeaderRow[];
+}): number {
+  const headers = input.headers.filter((row) => row.key.trim() !== "").length;
+  if (input.kind === "kafka") return headers;
+  return (
+    headers +
+    (input.deliveryMode !== undefined && input.deliveryMode !== DEFAULT_DELIVERY_MODE ? 1 : 0) +
+    (input.contentType !== undefined && input.contentType.trim() !== DEFAULT_CONTENT_TYPE ? 1 : 0) +
+    ((input.contentEncoding ?? "").trim() !== "" ? 1 : 0)
+  );
 }

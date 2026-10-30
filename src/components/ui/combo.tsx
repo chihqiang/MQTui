@@ -1,4 +1,12 @@
-import { useEffect, useId, useMemo, useRef, useState, type InputHTMLAttributes } from "react";
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type InputHTMLAttributes,
+} from "react";
 
 import { cn } from "@/lib/cn";
 import { dedupeChoices, filterChoices, stepChoice, type ChoiceList } from "@/lib/choice";
@@ -15,6 +23,48 @@ import { FIELD_CLASS, NO_TEXT_ASSIST } from "@/components/ui/input";
 function omitOnKeyDown<T extends { onKeyDown?: unknown }>(props: T): Omit<T, "onKeyDown"> {
   const { onKeyDown: _ignored, ...rest } = props;
   return rest;
+}
+
+/** 候选面板的最大高度，与 `max-h-64` 对齐。 */
+const PANEL_MAX_HEIGHT = 256;
+/** 面板至少要有这么宽：窄栏里（发送页右栏）候选名 + 说明挤在 100px 内谁都读不出来。 */
+const PANEL_MIN_WIDTH = 256;
+/** 面板与输入框之间的缝。 */
+const PANEL_GAP = 8;
+
+/**
+ * 这个元素实际能被看到的四周边界。
+ *
+ * 不能只看 `window.innerHeight`：工作区的外壳（`PageBody`）自己就是一个
+ * `overflow-auto` 的滚动盒，候选面板超出它的部分会被裁掉 —— 看上去还在，
+ * 点下去却什么都没发生。所以沿祖先链把所有「会裁剪的盒子」都收进来。
+ */
+function visibleBounds(element: HTMLElement): {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+} {
+  let top = 0;
+  let left = 0;
+  let right = window.innerWidth;
+  let bottom = window.innerHeight;
+  for (let node = element.parentElement; node; node = node.parentElement) {
+    const style = getComputedStyle(node);
+    const clipsY = style.overflowY === "auto" || style.overflowY === "scroll" || style.overflowY === "hidden";
+    const clipsX = style.overflowX === "auto" || style.overflowX === "scroll" || style.overflowX === "hidden";
+    if (!clipsY && !clipsX) continue;
+    const rect = node.getBoundingClientRect();
+    if (clipsY) {
+      top = Math.max(top, rect.top);
+      bottom = Math.min(bottom, rect.bottom);
+    }
+    if (clipsX) {
+      left = Math.max(left, rect.left);
+      right = Math.min(right, rect.right);
+    }
+  }
+  return { top, right, bottom, left };
 }
 
 /**
@@ -36,6 +86,7 @@ function omitOnKeyDown<T extends { onKeyDown?: unknown }>(props: T): Omit<T, "on
  * 3. **回车只在下拉里选中的时候接管**，否则表单该提交就提交 —— 手输一个不在列表里的名字
  *    之后按回车，用户期待的是「发出去」，不是「把高亮那条覆盖上来」。
  */
+
 export function ComboInput({
   value,
   onValueChange,
@@ -59,8 +110,23 @@ export function ComboInput({
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  /** 失焦收口的延时器，见 `onBlur` 上的注释。 */
+  const settleTimer = useRef<number | null>(null);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
+  /**
+   * 面板往哪边弹、最高多少。
+   *
+   * 一直往下弹在页面底部（发送页右栏、表格最后一行）会把一半候选送到可视区外：
+   * 被滚动盒裁掉的那几条既看不见，也点不到 —— 看起来就是「推荐项点不动」。
+   * 所以每次打开先量一次上下余量，下面不够就翻到输入框上方。
+   */
+  const [panel, setPanel] = useState({
+    up: false,
+    alignRight: false,
+    maxHeight: PANEL_MAX_HEIGHT,
+    width: PANEL_MIN_WIDTH,
+  });
 
   const options = useMemo(() => dedupeChoices(choices), [choices]);
   const visible = useMemo(() => filterChoices(options, value), [options, value]);
@@ -79,6 +145,39 @@ export function ComboInput({
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [open]);
 
+  // 打开之后再量：面板没渲染时量不到真实高度（候选行数随过滤结果变）。
+  useLayoutEffect(() => {
+    if (!open || !enabled) return;
+    const root = rootRef.current;
+    const list = listRef.current;
+    if (!root || !list) return;
+    const rect = root.getBoundingClientRect();
+    const bounds = visibleBounds(root);
+
+    const spaceBelow = bounds.bottom - rect.bottom - PANEL_GAP;
+    const spaceAbove = rect.top - bounds.top - PANEL_GAP;
+    const wanted = Math.min(list.scrollHeight, PANEL_MAX_HEIGHT);
+    const up = spaceBelow < wanted && spaceAbove > spaceBelow;
+    // 翻上去只是换个方向，高度还得压进那一边的余量里 —— 否则照样被裁掉。
+    const maxHeight = Math.max(96, Math.min(PANEL_MAX_HEIGHT, up ? spaceAbove : spaceBelow));
+
+    // 宽度：窄输入框（发送页右栏的 header 名）撑不到能读，给一个下限；
+    // 往右张开会撞到裁剪盒右边缘时改成贴右边、向左展开。
+    const width = Math.max(rect.width, PANEL_MIN_WIDTH);
+    const widthLimit = Math.max(160, bounds.right - bounds.left - PANEL_GAP * 2);
+    const finalWidth = Math.min(width, widthLimit);
+    const alignRight = rect.left + finalWidth > bounds.right;
+
+    setPanel((previous) =>
+      previous.up === up &&
+      previous.alignRight === alignRight &&
+      previous.maxHeight === maxHeight &&
+      previous.width === finalWidth
+        ? previous
+        : { up, alignRight, maxHeight, width: finalWidth },
+    );
+  }, [open, enabled, visible.length]);
+
   // 高亮的候选要跟着滚动：候选区是定高滚动的，键盘往下按到第 20 条时，
   // 高亮跑到可视区外就等于「按了没反应」。
   useEffect(() => {
@@ -89,6 +188,10 @@ export function ComboInput({
   }, [active, open]);
 
   const commit = (next: string) => {
+    if (settleTimer.current !== null) {
+      window.clearTimeout(settleTimer.current);
+      settleTimer.current = null;
+    }
     onValueChange(next);
     setOpen(false);
     setActive(-1);
@@ -115,9 +218,23 @@ export function ComboInput({
     <div
       ref={rootRef}
       className="relative"
+      onFocus={() => {
+        // 焦点又回来了（点了候选之后 `commit` 会把焦点还给输入框）：取消待收口。
+        if (settleTimer.current !== null) {
+          window.clearTimeout(settleTimer.current);
+          settleTimer.current = null;
+        }
+      }}
       onBlur={(event) => {
         if (rootRef.current?.contains(event.relatedTarget as Node | null)) return;
-        settle();
+        // 不能立刻收口：WebKit（macOS 的 WKWebView，也就是这个应用）点按钮
+        // **不会**把焦点移过去，`relatedTarget` 是 null，于是失焦先发生、
+        // 面板先被拆掉，紧接着的 click 落在一个已经不存在的节点上 ——
+        // 表现就是「候选看得见、点不动」。推迟一帧，让 click 先跑完。
+        settleTimer.current = window.setTimeout(() => {
+          settleTimer.current = null;
+          settle();
+        }, 0);
       }}
     >
       <input
@@ -178,6 +295,7 @@ export function ComboInput({
         tabIndex={-1}
         aria-hidden="true"
         disabled={props.disabled || !enabled}
+        onMouseDown={(event) => event.preventDefault()}
         onClick={() => {
           if (open) {
             setOpen(false);
@@ -201,9 +319,12 @@ export function ComboInput({
           ref={listRef}
           id={listId}
           role="listbox"
+          style={{ maxHeight: panel.maxHeight, width: panel.width }}
           className={cn(
-            "absolute inset-x-0 top-full z-30 mt-1 max-h-64 overflow-auto rounded-lg border border-slate-200 bg-white py-1",
+            "absolute z-30 overflow-auto rounded-lg border border-slate-200 bg-white py-1",
             "shadow-lg shadow-slate-900/10",
+            panel.up ? "bottom-full mb-1" : "top-full mt-1",
+            panel.alignRight ? "right-0" : "left-0",
           )}
         >
           {visible.length === 0 ? (
@@ -220,6 +341,10 @@ export function ComboInput({
                 role="option"
                 aria-selected={item.value === value}
                 onMouseEnter={() => setActive(index)}
+                // WebKit 里按钮默认不在 mousedown 时获得焦点，`preventDefault()`
+                // 让浏览器连「失焦」这一步都别做 —— 输入框一直是焦点，
+                // 面板就不会在 click 之前被收掉。
+                onMouseDown={(event) => event.preventDefault()}
                 onClick={() => commit(item.value)}
                 className={cn(
                   "flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-(length:--text-app-body) transition-colors",
@@ -228,7 +353,7 @@ export function ComboInput({
               >
                 <span className="min-w-0 flex-1 truncate font-mono">{item.value}</span>
                 {item.hint ? (
-                  <span className="shrink-0 text-(length:--text-app-meta) text-slate-500">
+                  <span className="max-w-[55%] shrink-0 truncate text-(length:--text-app-meta) text-slate-500">
                     {item.hint}
                   </span>
                 ) : null}

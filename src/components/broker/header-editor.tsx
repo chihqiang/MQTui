@@ -25,17 +25,22 @@ export function HeaderEditor({
       <div className="flex flex-col gap-2">
         {rows.map((row, index) => (
           <div key={index} className="flex items-center gap-2">
-            <ComboInput
-              value={row.key}
-              choices={HEADER_NAMES.map((item) => ({ value: item.value, hint: item.hint }))}
-              onValueChange={(next) => {
-                const updated = [...rows];
-                updated[index] = { ...row, key: next };
-                onChange(updated);
-              }}
-              placeholder="header 名"
-              className="min-w-0 flex-1 font-mono"
-            />
+            {/* 宽度必须给外层：`ComboInput` 的 `className` 落在里面的 `<input>` 上，
+                而它自己的定位外壳是 `relative` —— 把 `flex-1` 传进去，外壳仍按
+                输入框的固有宽度（约 20 字）占位，右边那个「值」会被挤到只剩几十像素。 */}
+            <div className="min-w-0 flex-1">
+              <ComboInput
+                value={row.key}
+                choices={HEADER_NAMES.map((item) => ({ value: item.value, hint: item.hint }))}
+                onValueChange={(next) => {
+                  const updated = [...rows];
+                  updated[index] = { ...row, key: next };
+                  onChange(updated);
+                }}
+                placeholder="header 名"
+                className="font-mono"
+              />
+            </div>
             <Input
               value={row.value}
               onChange={(event) => {

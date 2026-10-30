@@ -45,5 +45,7 @@ export { TopicRetentionBatchModal } from "./topic-retention-batch";
 export { TopicPurgePanel } from "./topic-purge-panel";
 export { HeaderEditor } from "./header-editor";
 export { SendRoutePreview } from "./send-route-preview";
+export { ProduceResultRow, type ProduceResult, type ProduceResultTone } from "./produce-result";
+export { ProduceSendBar, submitShortcutLabel } from "./produce-send-bar";
 export { KafkaProduceForm } from "./kafka-produce-form";
 export { RabbitProduceForm } from "./rabbit-produce-form";
