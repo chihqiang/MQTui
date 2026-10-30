@@ -14,7 +14,7 @@ use crate::domain::{ChannelRow, ClusterNode, ConnectionRow, NodeRole, NodeStat, 
 use crate::error::AppResult;
 
 use super::client::RabbitMqClient;
-use super::management::{ManagementClient, percent_encode};
+use super::management::{ManagementClient, in_vhost, percent_encode};
 
 /// `GET /api/nodes` 的一行，只取面板要用的字段。
 #[derive(Debug, Deserialize)]
@@ -75,6 +75,10 @@ struct PlacementPayload {
 #[derive(Debug, Deserialize)]
 struct ConnPayload {
     name: String,
+    /// 连接所属 vhost。`/api/connections` 没有按 vhost 取子集的接口，
+    /// 拿全量之后要靠这个字段筛出「当前连接这一侧」的连接。
+    #[serde(default)]
+    vhost: String,
     #[serde(default)]
     client_properties: serde_json::Map<String, serde_json::Value>,
     #[serde(default)]
@@ -103,6 +107,9 @@ struct RateDetail {
 #[derive(Debug, Deserialize)]
 struct ChanPayload {
     name: String,
+    /// 通道所属 vhost，用途同 `ConnPayload::vhost`。
+    #[serde(default)]
+    vhost: String,
     #[serde(default)]
     connection_details: Option<ConnRef>,
     #[serde(default)]
@@ -233,10 +240,13 @@ impl RabbitMqClient {
     /// 套接字连接列表。
     pub async fn connection_rows(&self) -> AppResult<Vec<ConnectionRow>> {
         let management = self.management()?;
+        let vhost = self.config().auth.vhost.clone();
         let payload: Vec<ConnPayload> = management.connections_payload(self).await?;
 
         Ok(payload
             .into_iter()
+            // 管理 API 只给全量连接，别的 vhost 的连接不该出现在这一页。
+            .filter(|row| in_vhost(&row.vhost, &vhost))
             .map(|row| ConnectionRow {
                 client_name: client_name(&row.client_properties),
                 name: row.name,
@@ -254,10 +264,12 @@ impl RabbitMqClient {
     /// 通道列表。
     pub async fn channel_rows(&self) -> AppResult<Vec<ChannelRow>> {
         let management = self.management()?;
+        let vhost = self.config().auth.vhost.clone();
         let payload: Vec<ChanPayload> = management.channels_payload(self).await?;
 
         Ok(payload
             .into_iter()
+            .filter(|row| in_vhost(&row.vhost, &vhost))
             .map(|row| ChannelRow {
                 name: row.name,
                 connection: row
@@ -331,8 +343,10 @@ impl ManagementClient {
         T: for<'de> Deserialize<'de>,
     {
         let config = client.config();
+        // 这里刻意不带 vhost：`/api/connections/{x}` 的 `{x}` 是连接名，
+        // 传 vhost 进去等于按「名字叫这个 vhost 的连接」去查，必然 404。
         self.get_json(
-            &self.vhost_path("/api/connections", &config.auth.vhost),
+            "/api/connections",
             &config.auth.username,
             &config.auth.password,
         )
@@ -344,8 +358,9 @@ impl ManagementClient {
         T: for<'de> Deserialize<'de>,
     {
         let config = client.config();
+        // 同 `connections_payload`：通道接口也没有 vhost 形式。
         self.get_json(
-            &self.vhost_path("/api/channels", &config.auth.vhost),
+            "/api/channels",
             &config.auth.username,
             &config.auth.password,
         )
@@ -359,11 +374,7 @@ impl ManagementClient {
         name: &str,
     ) -> AppResult<()> {
         let config = client.config();
-        let path = format!(
-            "{}/{}",
-            self.vhost_path("/api/connections", &config.auth.vhost),
-            percent_encode(name)
-        );
+        let path = format!("/api/connections/{}", percent_encode(name));
         self.delete(&path, &config.auth.username, &config.auth.password)
             .await
     }
@@ -371,12 +382,45 @@ impl ManagementClient {
     /// 关闭通道。
     pub(super) async fn close_channel(&self, client: &RabbitMqClient, name: &str) -> AppResult<()> {
         let config = client.config();
-        let path = format!(
-            "{}/{}",
-            self.vhost_path("/api/channels", &config.auth.vhost),
-            percent_encode(name)
-        );
+        let path = format!("/api/channels/{}", percent_encode(name));
         self.delete(&path, &config.auth.username, &config.auth.password)
             .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn connection_rows_can_be_scoped_by_vhost() {
+        // 管理 API 只给全量连接，`vhost` 字段是唯一能把别的 vhost 挡在外面的依据。
+        // 字段名拼错时这里会解析成空串，过滤完一条不剩 —— 页面看起来「没有连接」。
+        let rows: Vec<ConnPayload> = serde_json::from_value(serde_json::json!([
+            { "name": "amq.gen-1", "vhost": "/" },
+            { "name": "amq.gen-2", "vhost": "/other" }
+        ]))
+        .expect("解析连接");
+        let kept: Vec<&str> = rows
+            .iter()
+            .filter(|row| in_vhost(&row.vhost, "/"))
+            .map(|row| row.name.as_str())
+            .collect();
+        assert_eq!(kept, ["amq.gen-1"]);
+    }
+
+    #[test]
+    fn channel_rows_can_be_scoped_by_vhost() {
+        let rows: Vec<ChanPayload> = serde_json::from_value(serde_json::json!([
+            { "name": "10.0.0.1:1 -> 10.0.0.2:5672 (1)", "vhost": "/" },
+            { "name": "10.0.0.1:1 -> 10.0.0.2:5672 (2)", "vhost": "/other" }
+        ]))
+        .expect("解析通道");
+        let kept: Vec<&str> = rows
+            .iter()
+            .filter(|row| in_vhost(&row.vhost, "/"))
+            .map(|row| row.name.as_str())
+            .collect();
+        assert_eq!(kept, ["10.0.0.1:1 -> 10.0.0.2:5672 (1)"]);
     }
 }

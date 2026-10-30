@@ -3,8 +3,9 @@
 use std::sync::Arc;
 
 use lapin::options::{BasicGetOptions, BasicPublishOptions, BasicRejectOptions};
+use lapin::protocol::{AMQPErrorKind, AMQPSoftError};
 use lapin::types::ShortString;
-use lapin::{BasicProperties, Connection, ConnectionProperties};
+use lapin::{BasicProperties, Connection, ConnectionProperties, ErrorKind};
 
 use crate::domain::{
     BindingKey, BindingSpec, CheckStatus, ConsumerGraph, ConsumerLinks, ExchangeRemoval,
@@ -290,6 +291,7 @@ impl RabbitMqClient {
         Ok(TakeConsumer {
             channel: self.channel().await?,
             queue: queue.to_owned(),
+            vhost: self.config.auth.vhost.clone(),
         })
     }
 
@@ -312,6 +314,7 @@ impl RabbitMqClient {
     ) -> AppResult<(lapin::Channel, Vec<RawDelivery>)> {
         let channel = self.channel().await?;
         let mut deliveries = Vec::with_capacity(limit);
+        let vhost = self.config.auth.vhost.clone();
 
         for _ in 0..limit {
             let Some(delivery) = channel
@@ -320,7 +323,7 @@ impl RabbitMqClient {
                     BasicGetOptions { no_ack: false },
                 )
                 .await
-                .map_err(AppError::from)?
+                .map_err(|error| queue_error(queue, &vhost, error))?
             else {
                 break;
             };
@@ -647,6 +650,8 @@ impl RabbitMqClient {
 pub struct TakeConsumer {
     channel: lapin::Channel,
     queue: String,
+    /// 队列所在的 vhost，只用于把 `NOT_FOUND` 翻译成人话。
+    vhost: String,
 }
 
 impl TakeConsumer {
@@ -665,7 +670,7 @@ impl TakeConsumer {
                 BasicGetOptions { no_ack: false },
             )
             .await
-            .map_err(AppError::from)?;
+            .map_err(|error| queue_error(&self.queue, &self.vhost, error))?;
 
         Ok(delivery.map(|delivery| RawDelivery {
             queue: self.queue.clone(),
@@ -718,4 +723,69 @@ fn now_millis() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |duration| duration.as_millis() as i64)
+}
+
+/// 把「队列不存在」翻成人话，其余错误原样保留。
+///
+/// 服务端只回一句 `NOT_FOUND - no queue 'x' in vhost '/'`，界面照抄之后
+/// 读起来像「协议出错」，而真正要判断的是三件事：名字拼错了、队列已经被删了、
+/// 它建在另一个 vhost 里。后两件事在只显示原句时完全看不出来 —— 尤其当队列
+/// 列表把别的 vhost 的队列一起列出来时，用户会坚信「它明明就在那儿」。
+fn queue_error(queue: &str, vhost: &str, error: lapin::Error) -> AppError {
+    if matches!(
+        error.kind(),
+        ErrorKind::ProtocolError(amqp)
+            if matches!(amqp.kind(), AMQPErrorKind::Soft(AMQPSoftError::NOTFOUND))
+    ) {
+        return AppError::NotFound(format!(
+            "队列 {queue} 在 vhost {} 下读不到：可能已被删除或改名；若它建在别的 vhost，请换用那个 vhost 的连接",
+            super::management::vhost_key(vhost)
+        ));
+    }
+    AppError::from(error)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lapin::protocol::AMQPError;
+
+    /// 拼一条与服务端回包同形的协议错误（`NOT_FOUND - no queue ...`）。
+    fn protocol_error(kind: AMQPErrorKind) -> lapin::Error {
+        lapin::Error::from(ErrorKind::ProtocolError(AMQPError::new(
+            kind,
+            ShortString::from("NOT_FOUND - no queue 'ceshi' in vhost '/'".to_owned()),
+        )))
+    }
+
+    #[test]
+    fn not_found_is_explained_instead_of_echoed() {
+        let mapped = queue_error(
+            "ceshi",
+            "/",
+            protocol_error(AMQPErrorKind::Soft(AMQPSoftError::NOTFOUND)),
+        );
+        match mapped {
+            AppError::NotFound(message) => {
+                assert!(message.contains("ceshi"), "{message}");
+                assert!(message.contains("vhost /"), "{message}");
+            }
+            other => panic!("应归为「资源不存在」，实际是 {other:?}"),
+        }
+    }
+
+    #[test]
+    fn other_protocol_errors_keep_the_original_wording() {
+        let mapped = queue_error(
+            "ceshi",
+            "/",
+            protocol_error(AMQPErrorKind::Soft(AMQPSoftError::ACCESSREFUSED)),
+        );
+        match mapped {
+            // 权限不足不能报成「队列不存在」—— 那会让人去建一个本来就有的队列。
+            AppError::NotFound(message) => panic!("不该归为资源不存在：{message}"),
+            AppError::Broker(message) => assert!(message.contains("RabbitMQ"), "{message}"),
+            other => panic!("意外的错误种类：{other:?}"),
+        }
+    }
 }

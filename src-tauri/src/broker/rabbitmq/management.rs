@@ -229,6 +229,9 @@ struct ConsumerChannel {
 #[derive(Debug, Deserialize)]
 struct OwnershipConnectionPayload {
     name: String,
+    /// 连接所属 vhost。`/api/connections` 没有按 vhost 取子集的接口，只能拉全量再筛。
+    #[serde(default)]
+    vhost: String,
     #[serde(default)]
     client_properties: serde_json::Map<String, serde_json::Value>,
     #[serde(default)]
@@ -245,6 +248,9 @@ struct OwnershipConnectionPayload {
 #[derive(Debug, Deserialize)]
 struct OwnershipChannelPayload {
     name: String,
+    /// 通道所属 vhost。`/api/channels` 同样只有全量接口。
+    #[serde(default)]
+    vhost: String,
     #[serde(default)]
     connection_details: Option<OwnershipConnRef>,
     #[serde(default)]
@@ -669,22 +675,33 @@ impl ManagementClient {
 
         let consumers = self.consumers(config).await.unwrap_or_default();
 
-        let connection_payload: Vec<OwnershipConnectionPayload> = self
+        // 连接与通道没有「按 vhost 取」的接口（`/api/connections/{x}` 里的 `{x}`
+        // 是连接名，不是 vhost），只能拉全量再按 vhost 过滤。
+        let vhost = &config.auth.vhost;
+        let all_connections: Vec<OwnershipConnectionPayload> = self
             .get_json(
-                &self.vhost_path("/api/connections", &config.auth.vhost),
+                "/api/connections",
                 &config.auth.username,
                 &config.auth.password,
             )
             .await
             .unwrap_or_default();
-        let channel_payload: Vec<OwnershipChannelPayload> = self
+        let connection_payload: Vec<OwnershipConnectionPayload> = all_connections
+            .into_iter()
+            .filter(|row| in_vhost(&row.vhost, vhost))
+            .collect();
+        let all_channels: Vec<OwnershipChannelPayload> = self
             .get_json(
-                &self.vhost_path("/api/channels", &config.auth.vhost),
+                "/api/channels",
                 &config.auth.username,
                 &config.auth.password,
             )
             .await
             .unwrap_or_default();
+        let channel_payload: Vec<OwnershipChannelPayload> = all_channels
+            .into_iter()
+            .filter(|row| in_vhost(&row.vhost, vhost))
+            .collect();
 
         let queue_rows: Vec<(String, u64, u64)> = queues
             .into_iter()
@@ -1050,11 +1067,14 @@ impl ManagementClient {
         })
     }
 
-    /// 读取铲子的运行态（`GET /api/shovels`，不带 vhost 段即全部 vhost）。
+    /// 读取铲子的运行态（`GET /api/shovels`）。
     ///
     /// 这个接口属于 shovel 插件：插件没启用时是 404，权限不足是 401/403。
     /// 两种情况都不是「一条铲子都没有」，所以返回 `Err` 让上层去说清原因；
     /// 返回空数组才表示「确实没有」。
+    ///
+    /// 接口没有 vhost 段（只给全量），所以要自己按当前 vhost 过滤：
+    /// 配置那一侧是按 vhost 取的，不筛的话别的 vhost 的同名铲子会顶替运行态。
     pub async fn shovels(
         &self,
         config: &RabbitMqConfig,
@@ -1064,6 +1084,7 @@ impl ManagementClient {
             .await?;
         Ok(payload
             .into_iter()
+            .filter(|row| in_vhost(&row.vhost, &config.auth.vhost))
             .map(ShovelPayload::into_runtime)
             .collect())
     }
@@ -1394,15 +1415,15 @@ impl ManagementClient {
         )
     }
 
-    /// 按连接配置里的 vhost 拼路径，`/`（默认 vhost）走不带 vhost 的裸接口。
+    /// 按连接配置里的 vhost 拼路径。
     ///
-    /// 管理 API 对默认 vhost 同时接受 `/api/queues` 与 `/api/queues/%2F`，
-    /// 统一走裸接口可以少一次转义。
+    /// **始终**带 vhost 段，默认 vhost 写成 `%2F`：`/api/queues` 与
+    /// `/api/queues/%2F` 不是一回事 —— 前者是「所有 vhost 的队列」，后者才是
+    /// 「`/` 里的队列」。早先为省一次转义让 `/` 走裸接口，结果队列、交换机、
+    /// 消费者这些列表把别的 vhost 的内容也列了出来；照着列表去读消息时，
+    /// AMQP 在 `/` 里根本找不到那个队列，只回一句 `NOT_FOUND`。
     pub(super) fn vhost_path(&self, base: &str, vhost: &str) -> String {
-        match vhost {
-            "/" | "" => base.to_owned(),
-            vhost => format!("{base}/{}", percent_encode(vhost)),
-        }
+        format!("{base}/{}", percent_encode(vhost_key(vhost)))
     }
 
     pub(super) async fn get_json<T: for<'de> Deserialize<'de>>(
@@ -1692,6 +1713,23 @@ pub(super) fn percent_encode(raw: &str) -> String {
     out
 }
 
+/// 连接配置里的 vhost 归一：空串与 `/` 指的是同一个默认 vhost。
+///
+/// 归一后再比较才靠谱：管理 API 返回的 `vhost` 一直是 `/`，
+/// 而连接表单没填时是空串 —— 直接把两者当不同，筛完就一条不剩。
+pub(super) fn vhost_key(vhost: &str) -> &str {
+    if vhost.is_empty() { "/" } else { vhost }
+}
+
+/// 这一行属于当前 vhost 吗（用于只有全量接口的资源：连接、通道、铲子）。
+///
+/// 行上的 `vhost` 读不到时算「属于」：宁可多显示一行，也不要在字段缺失
+/// 的旧版本上把整张表清空 —— 那会变成「这台 broker 没有连接 / 没有铲子」
+/// 这种没人能证伪的错误结论。
+pub(super) fn in_vhost(row_vhost: &str, vhost: &str) -> bool {
+    row_vhost.is_empty() || row_vhost == vhost_key(vhost)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1757,19 +1795,32 @@ mod tests {
     }
 
     #[test]
-    fn default_vhost_uses_bare_path() {
+    fn default_vhost_is_scoped_not_dropped() {
         let client = ManagementClient::from_config(&config(
             TlsMode::Disabled,
             Some("http://localhost:15672"),
         ))
         .expect("构造失败")
         .expect("客户端缺失");
-        assert_eq!(client.vhost_path("/api/queues", "/"), "/api/queues");
-        assert_eq!(client.vhost_path("/api/queues", ""), "/api/queues");
+        // 默认 vhost 必须写成 %2F：裸 `/api/queues` 表示「所有 vhost」，
+        // 少了这一段就会把别的 vhost 的队列、交换机一起列出来。
+        assert_eq!(client.vhost_path("/api/queues", "/"), "/api/queues/%2F");
+        assert_eq!(client.vhost_path("/api/queues", ""), "/api/queues/%2F");
         assert_eq!(
             client.vhost_path("/api/queues", "my vhost"),
             "/api/queues/my%20vhost"
         );
+    }
+
+    #[test]
+    fn rows_without_a_vhost_field_stay_visible() {
+        // 连接、通道、铲子只有全量接口，靠行上的 `vhost` 筛。字段读不到时算「属于」：
+        // 宁可多显示一行，也不要把整张表清空成「这台 broker 什么都没有」。
+        assert!(in_vhost("/", "/"));
+        assert!(in_vhost("", "/"));
+        assert!(in_vhost("/", ""));
+        assert!(!in_vhost("/other", "/"));
+        assert!(in_vhost("team a", "team a"));
     }
 
     #[test]
@@ -1795,14 +1846,14 @@ mod tests {
         .expect("构造失败")
         .expect("客户端缺失");
 
-        // 队列名可能带 `/`，必须转义后再拼进路径。
+        // 队列名可能带 `/`，必须转义后再拼进路径；vhost 段同样不能省。
         assert_eq!(
             client.queue_path(&config(TlsMode::Disabled, None), "a/b"),
-            "/api/queues/a%2Fb"
+            "/api/queues/%2F/a%2Fb"
         );
         assert_eq!(
             client.queue_path(&config(TlsMode::Disabled, None), "orders"),
-            "/api/queues/orders"
+            "/api/queues/%2F/orders"
         );
     }
 
@@ -1825,7 +1876,7 @@ mod tests {
                 "order.*",
                 &[]
             ),
-            "/api/bindings/e/orders/q/orders.queue/order.%2A"
+            "/api/bindings/%2F/e/orders/q/orders.queue/order.%2A"
         );
 
         // 默认交换机的源交换机段为空串，路径里必须保留那个斜杠。
@@ -1838,7 +1889,7 @@ mod tests {
                 "orders",
                 &[]
             ),
-            "/api/bindings/e//q/orders/orders"
+            "/api/bindings/%2F/e//q/orders/orders"
         );
 
         // routing key 里的 `/` 必须转义，否则会被当成路径分隔符。
@@ -1851,7 +1902,7 @@ mod tests {
                 "a/b",
                 &[]
             ),
-            "/api/bindings/e/orders/e/audit/a%2Fb"
+            "/api/bindings/%2F/e/orders/e/audit/a%2Fb"
         );
     }
 
@@ -1874,7 +1925,7 @@ mod tests {
             "",
             &arguments,
         );
-        assert!(path.starts_with("/api/bindings/e/events/q/audit/?props="));
+        assert!(path.starts_with("/api/bindings/%2F/e/events/q/audit/?props="));
         // props 是 JSON，必须整体编码，否则 `{` `"` 会破坏 URL。
         assert!(!path.contains('{'));
     }
@@ -1889,7 +1940,7 @@ mod tests {
         .expect("客户端缺失");
         assert_eq!(
             client.exchange_path(&config(TlsMode::Disabled, None), "orders.out"),
-            "/api/exchanges/orders.out"
+            "/api/exchanges/%2F/orders.out"
         );
     }
 
@@ -1981,7 +2032,7 @@ mod tests {
     #[test]
     fn policy_paths_are_encoded() {
         let client = client();
-        assert_eq!(client.vhost_path("/api/policies", "/"), "/api/policies");
+        assert_eq!(client.vhost_path("/api/policies", "/"), "/api/policies/%2F");
         assert_eq!(
             client.vhost_path("/api/policies", "team a"),
             "/api/policies/team%20a"
