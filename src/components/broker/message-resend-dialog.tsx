@@ -137,6 +137,10 @@ export function MessageResendDialog({ connectionId, message, onClose, topicNames
             onChange={(event) => setPayload(event.currentTarget.value)}
             rows={5}
             placeholder={message.preview || "(原消息内容为空)"}
+            // 这是要原样发出去的消息正文：首字母大写、拼写纠正都会改掉内容。
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
             className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 font-mono text-(length:--text-app-body) text-slate-800 shadow-xs outline-none placeholder:text-meta focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/15"
           />
         </Field>

@@ -16,12 +16,31 @@ export const FIELD_CLASS =
   "focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/15 focus:outline-none " +
   "disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500";
 
+/**
+ * 关闭「首字母大写 / 自动纠正 / 拼写检查」。
+ *
+ * macOS 的 WebView 默认按「句子」给输入框首字母自动大写，并在候选栏里推荐
+ * 拼写修法。在别处那是贴心，在这里是**改值**：这一套界面填的都是主机名、
+ * routing key、队列名、vhost、消息正文，`ceshi` 被悄悄换成 `Ceshi` 就查不到队列，
+ * 正文被改写等于发出一条错消息 —— 而且用户不会怀疑是输入法干的。
+ *
+ * 写在这三个基础控件里而不是逐页加：漏掉一格就等于留一个会改值的地方。
+ * 调用方仍可在 `props` 里显式覆盖（确实需要自由散文的输入框）。
+ */
+export const NO_TEXT_ASSIST = {
+  autoCapitalize: "off",
+  autoCorrect: "off",
+  spellCheck: false,
+} as const;
+
 export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElement>) {
-  return <input className={cn(FIELD_CLASS, className)} {...props} />;
+  return <input className={cn(FIELD_CLASS, className)} {...NO_TEXT_ASSIST} {...props} />;
 }
 
 export function Textarea({ className, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return <textarea className={cn(FIELD_CLASS, "font-mono", className)} {...props} />;
+  return (
+    <textarea className={cn(FIELD_CLASS, "font-mono", className)} {...NO_TEXT_ASSIST} {...props} />
+  );
 }
 
 /**
@@ -143,6 +162,7 @@ export function SearchInput({
           // 清空键的位置一直占着，打字时文字不会横向跳。
           "pr-8",
         )}
+        {...NO_TEXT_ASSIST}
         {...props}
       />
       {value ? (

@@ -3,7 +3,7 @@ import { useEffect, useId, useMemo, useRef, useState, type InputHTMLAttributes }
 import { cn } from "@/lib/cn";
 import { dedupeChoices, filterChoices, stepChoice, type ChoiceList } from "@/lib/choice";
 import { IconChevronDown } from "@/lib/icons";
-import { FIELD_CLASS } from "@/components/ui/input";
+import { FIELD_CLASS, NO_TEXT_ASSIST } from "@/components/ui/input";
 
 /**
  * 把 `onKeyDown` 摘出去。
@@ -122,6 +122,8 @@ export function ComboInput({
     >
       <input
         ref={inputRef}
+        // 候选名是服务端起的（主题、队列、routing key）：首字母被自动大写就不是同一个名字了。
+        {...NO_TEXT_ASSIST}
         // 调用方的 `onKeyDown` 在下面手写调用：必须先给 ↑↓ / Enter / Esc 让路，
         // 再交回去，否则输入框一响应方向键，高亮就跳回第一条。
         {...omitOnKeyDown(props)}
