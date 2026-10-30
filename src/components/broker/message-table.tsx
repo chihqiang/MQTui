@@ -244,6 +244,13 @@ export function MessageTable({
     ],
   );
 
+  // 新鲜度需要「过一会儿就变」，靠一个 5 秒的节拍重渲染。比给每一行挂定时器便宜得多。
+  //
+  // 它必须留在下面那几个 early return **之前**：骨架 / 错误 / 空列表三条分支
+  // 都是提前 `return`，把这个 hook 放在它们后面，首屏会少调一个 hook，
+  // 数据到位那一帧再多调一个 —— React 直接抛
+  // 「Rendered fewer hooks than expected」，整页被错误边界接住。
+  const freshness = useFreshness(dataUpdatedAt, isFetching);
 
   // 首屏没有数据才铺骨架；之后任何一次重新读取都不该把列表换成灰条 ——
   // 「加载最新」时整块闪一下，位置和当前读到的内容全丢了。
@@ -279,9 +286,6 @@ export function MessageTable({
       </div>
     );
   }
-
-  // 新鲜度需要「过一会儿就变」，靠一个 5 秒的节拍重渲染。比给每一行挂定时器便宜得多。
-  const freshness = useFreshness(dataUpdatedAt, isFetching);
 
   return (
     <div className="flex h-full flex-col rounded-lg border border-slate-200">
